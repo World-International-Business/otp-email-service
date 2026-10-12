@@ -84,6 +84,10 @@ curl -X POST {base}/v1/otp/verify \\
   -H "X-HMAC-Signature: $SIG" \\
   -d "$BODY\""""
 
+    otp_body = '{\n  "user_id": "550e8400-e29b-41d4-a716-446655440000",\n  "email": "client@exemple.com",\n  "country_code": "FR",\n  "purpose": "login_2fa",\n  "language": "fr"\n}'
+    verify_body = '{\n  "request_id": "req_xxxxxxxx",\n  "code": "123456"\n}\n\n# Réponse\n{ "verified": true, "attempts_remaining": 0 }'
+    email_body = '{\n  "to_email": "client@exemple.com",\n  "type": "notification",\n  "language": "fr",\n  "data": { "title": "Commande expédiée", "message": "Arrivée prévue sous 48h." }\n}'
+
     php_code = f"""<?php
 $BASE = "{base}";
 $KEY  = "VOTRE_CLE_API";
@@ -157,20 +161,20 @@ curl_close($ch);""".replace("<", "&lt;").replace(">", "&gt;")
         <h2 class="font-bold text-xl mb-2">2. Envoyer un OTP</h2>
         <p class="text-sm text-slate-500 mb-4"><code>POST /v1/otp/send</code> — envoie un code à 6 chiffres par email.
         Pays à risque → <code>channel: "sms_fallback"</code>.</p>
-        {_code_block('{\\n  "user_id": "550e8400-e29b-41d4-a716-446655440000",\\n  "email": "client@exemple.com",\\n  "country_code": "FR",\\n  "purpose": "login_2fa",\\n  "language": "fr"\\n}'.replace('\\n', chr(10)))}
+        {_code_block(otp_body)}
       </div>
 
       <div id="doc-verify" class="card p-7">
         <h2 class="font-bold text-xl mb-2">3. Vérifier un code</h2>
         <p class="text-sm text-slate-500 mb-4"><code>POST /v1/otp/verify</code> — usage unique, 5 tentatives max, TTL 5 min.</p>
-        {_code_block('{\\n  "request_id": "req_xxxxxxxx",\\n  "code": "123456"\\n}\\n\\n# Réponse\\n{ "verified": true, "attempts_remaining": 0 }'.replace('\\n', chr(10)))}
+        {_code_block(verify_body)}
       </div>
 
       <div id="doc-email" class="card p-7">
         <h2 class="font-bold text-xl mb-2">4. Emails transactionnels</h2>
         <p class="text-sm text-slate-500 mb-4"><code>POST /v1/email/send</code> — types :
         <code>welcome</code>, <code>notification</code>, <code>transaction</code>, <code>custom</code>.</p>
-        {_code_block('{\\n  "to_email": "client@exemple.com",\\n  "type": "notification",\\n  "language": "fr",\\n  "data": { "title": "Commande expédiée", "message": "Arrivée prévue sous 48h." }\\n}'.replace('\\n', chr(10)))}
+        {_code_block(email_body)}
       </div>
 
       <div id="doc-sdks" class="card p-7">
