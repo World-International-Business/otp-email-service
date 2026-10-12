@@ -122,7 +122,7 @@ def _footer() -> str:
     <div>
       <p class="text-white font-semibold text-sm mb-3">Produit</p>
       <div class="flex flex-col gap-2 text-sm">
-        <a href="/docs" class="hover:text-white transition">Documentation API</a>
+        <a href="/documentation" class="hover:text-white transition">Documentation</a>
         <a href="/register" class="hover:text-white transition">Créer un compte</a>
         <a href="/login" class="hover:text-white transition">Connexion</a>
       </div>
@@ -157,7 +157,7 @@ def _landing_page(content: str, debug: bool = True) -> HTMLResponse:
       <a href="/#services" class="navlink hidden md:inline">Services</a>
       <a href="/#pricing" class="navlink hidden md:inline">Tarifs</a>
       {demo_link}
-      <a href="/docs" class="navlink">API Docs</a>
+      <a href="/documentation" class="navlink">Documentation</a>
       <a href="/login" class="navlink">Connexion</a>
       <a href="/register" class="btn-primary text-sm px-4 py-2.5">Commencer</a>
     </div>
@@ -168,13 +168,15 @@ def _landing_page(content: str, debug: bool = True) -> HTMLResponse:
 </body></html>""")
 
 
-def _dashboard_page(user, tenant, content: str, active: str = "dashboard") -> HTMLResponse:
+def _dashboard_page(user, tenant, content: str, active: str = "dashboard", debug: bool = True) -> HTMLResponse:
     icons = {
         "dashboard": '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>',
         "demo": '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg>',
         "docs": '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4h13l3 3v13a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z"/></svg>',
     }
-    items = [("dashboard", "Dashboard", "/dashboard"), ("demo", "Tester l'API", "/demo")]
+    items = [("dashboard", "Dashboard", "/dashboard")]
+    if debug:
+        items.append(("demo", "Tester l'API", "/demo"))
     nav = "".join(
         f'<a href="{url}" class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium '
         f'{"bg-brand-600 text-white shadow-lg shadow-brand-600/30" if key == active else "text-slate-400 hover:bg-white/5 hover:text-white"} transition">'
@@ -190,7 +192,8 @@ def _dashboard_page(user, tenant, content: str, active: str = "dashboard") -> HT
       <span class="font-extrabold">MailHub</span>
     </div>
     <nav class="flex-1 px-3 py-5 space-y-1">{nav}
-      <a href="/docs" class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-white/5 hover:text-white transition">{icons['docs']}API Docs</a>
+      <a href="/documentation" class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-white/5 hover:text-white transition">{icons['docs']}Documentation</a>
+      <a href="/docs" class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-white/5 hover:text-white transition">{icons['docs']}Swagger</a>
     </nav>
     <div class="px-5 py-5 border-t border-white/10">
       <div class="flex items-center gap-3">
@@ -591,7 +594,7 @@ async def logout(request: Request):
 # =====================================================================
 
 @router.get("/dashboard", response_class=HTMLResponse)
-async def dashboard(request: Request) -> HTMLResponse:
+async def dashboard(request: Request, settings: Settings = Depends(get_settings)) -> HTMLResponse:
     user = await _require_user(request)
     redis = request.app.state.redis
     tenant = await TenantStore(redis).get(user.tenant_id)
@@ -725,7 +728,7 @@ print(r.json())   # {{"verified":true,"attempts_remaining":0}}</pre>
   </div>
 </div>
 """
-    return _dashboard_page(user, tenant, content)
+    return _dashboard_page(user, tenant, content, debug=settings.debug)
 
 
 def _cfg(tenant: Tenant, key: str):

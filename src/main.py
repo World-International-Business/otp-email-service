@@ -15,6 +15,7 @@ from src.api.routes import email_router, router
 from src.core.tenants import seed_default_tenant
 from src.services.email_service import EmailService
 from src.services.otp_service import OTPService
+from src.web.docs_page import router as docs_router
 from src.web.routes import router as web_router
 
 
@@ -83,6 +84,7 @@ async def health():
 
 app.add_middleware(JSONLogMiddleware)
 app.include_router(web_router)
+app.include_router(docs_router)
 app.include_router(router)
 app.include_router(email_router)
 app.include_router(admin_router)
