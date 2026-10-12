@@ -291,7 +291,7 @@ async def home(settings: Settings = Depends(get_settings)) -> HTMLResponse:
     </p>
     <div class="mt-11 flex flex-col sm:flex-row items-center justify-center gap-4 fade-up fade-up-3">
       <a href="/register" class="btn-primary text-base px-8 py-3.5">Créer un compte gratuit</a>
-      <a href="/demo" class="btn-ghost text-base">Essayer la console de test</a>
+      {'<a href="/demo" class="btn-ghost text-base">Essayer la console de test</a>' if settings.debug else '<a href="/docs" class="btn-ghost text-base">Voir la documentation API</a>'}
     </div>
     <div class="mt-16 flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-xs text-slate-400 fade-up fade-up-3">
       <span class="inline-flex items-center gap-1.5"><span class="text-emerald-400">✓</span> Sans carte bancaire</span>
