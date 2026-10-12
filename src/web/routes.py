@@ -39,7 +39,7 @@ LOGO_SVG = """<svg class="w-9 h-9" viewBox="0 0 40 40" fill="none">
 
 def _head(title: str) -> str:
     return f"""<!DOCTYPE html>
-<html lang="fr">
+<html lang="fr" class="scroll-smooth">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -52,50 +52,83 @@ tailwind.config = {{ theme: {{ extend: {{ fontFamily: {{ sans: ['Inter','sans-se
   colors: {{ brand: {{50:'#eef4ff',100:'#dce8ff',500:'#3b6ef6',600:'#2d5ad9',700:'#2447b8'}} }} }} }} }};
 </script>
 <style>
+  :root {{ --brand: #3b6ef6; }}
   body {{ font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; }}
-  .hero-bg {{ background: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(59,110,246,.35), transparent),
-              linear-gradient(180deg, #0b1226 0%, #111a3a 100%); }}
+  ::selection {{ background: rgba(59,110,246,.25); }}
+  .hero-bg {{ background: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(59,110,246,.4), transparent),
+              radial-gradient(ellipse 40% 40% at 85% 20%, rgba(16,185,129,.18), transparent),
+              linear-gradient(180deg, #0b1226 0%, #101a3d 60%, #0e1a40 100%); }}
   .grid-pattern {{ background-image: linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px),
               linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px);
-              background-size: 44px 44px; }}
-  .card {{ background:#fff; border:1px solid #e7ecf4; border-radius:1rem;
-         box-shadow:0 1px 2px rgba(16,24,40,.05); }}
-  .btn-primary {{ background:#3b6ef6; color:#fff; padding:.7rem 1.4rem; border-radius:.6rem;
-         font-weight:600; transition:.15s; display:inline-block; }}
-  .btn-primary:hover {{ background:#2d5ad9; transform:translateY(-1px);
-         box-shadow:0 6px 16px rgba(59,110,246,.35); }}
-  .input {{ width:100%; border:1px solid #d5dce8; border-radius:.6rem; padding:.65rem .9rem;
-         font-size:.9rem; transition:.15s; background:#fff; }}
-  .input:focus {{ outline:none; border-color:#3b6ef6; box-shadow:0 0 0 3px rgba(59,110,246,.15); }}
+              background-size: 44px 44px;
+              mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, black 40%, transparent 100%); }}
+  .card {{ background:#fff; border:1px solid #e7ecf4; border-radius:1.1rem;
+         box-shadow:0 1px 3px rgba(16,24,40,.06), 0 1px 2px rgba(16,24,40,.04); }}
+  .card-lift:hover {{ transform:translateY(-3px); box-shadow:0 12px 28px rgba(16,24,40,.09);
+         border-color:#d5e0f5; transition:all .2s ease; }}
+  .btn-primary {{ background:linear-gradient(135deg,#4f7cff 0%,#2d5ad9 100%); color:#fff;
+         padding:.7rem 1.5rem; border-radius:.65rem; font-weight:600; transition:all .18s ease;
+         display:inline-block; box-shadow:0 2px 8px rgba(59,110,246,.3); }}
+  .btn-primary:hover {{ transform:translateY(-1px);
+         box-shadow:0 8px 20px rgba(59,110,246,.4); filter:brightness(1.08); }}
+  .btn-primary:active {{ transform:translateY(0); }}
+  .btn-ghost {{ padding:.7rem 1.5rem; font-weight:600; color:rgba(255,255,255,.92);
+         border:1px solid rgba(255,255,255,.22); border-radius:.65rem; transition:all .18s ease; }}
+  .btn-ghost:hover {{ background:rgba(255,255,255,.1); border-color:rgba(255,255,255,.35); }}
+  .input {{ width:100%; border:1px solid #d5dce8; border-radius:.65rem; padding:.65rem .95rem;
+         font-size:.9rem; transition:all .15s; background:#fff; }}
+  .input:focus {{ outline:none; border-color:var(--brand); box-shadow:0 0 0 3px rgba(59,110,246,.15); }}
+  .input::placeholder {{ color:#94a3b8; }}
   code {{ background:#eef2f9; color:#2447b8; padding:.15rem .45rem; border-radius:.35rem; font-size:.82rem; }}
-  .badge {{ font-size:.7rem; font-weight:700; letter-spacing:.05em; padding:.25rem .65rem; border-radius:999px; }}
+  .badge {{ font-size:.68rem; font-weight:700; letter-spacing:.06em; padding:.28rem .7rem; border-radius:999px; }}
   .m-post {{ background:#dbeafe; color:#1d4ed8; }}
   .m-get  {{ background:#dcfce7; color:#15803d; }}
   .m-patch {{ background:#ffedd5; color:#c2410c; }}
   .m-del  {{ background:#fee2e2; color:#b91c1c; }}
   .navlink {{ color:#64748b; font-weight:500; transition:.15s; }}
   .navlink:hover {{ color:#0f172a; }}
+  @keyframes fadeUp {{ from {{ opacity:0; transform:translateY(18px); }} to {{ opacity:1; transform:none; }} }}
+  .fade-up {{ animation:fadeUp .6s ease both; }}
+  .fade-up-1 {{ animation-delay:.08s }} .fade-up-2 {{ animation-delay:.16s }} .fade-up-3 {{ animation-delay:.24s }}
 </style>
 </head>"""
 
 
 def _footer() -> str:
-    return """
-<footer class="border-t border-slate-200 bg-white">
-  <div class="max-w-6xl mx-auto px-6 py-10 flex flex-col md:flex-row items-center justify-between gap-4">
-    <div class="flex items-center gap-2 text-slate-500 text-sm">
-      MailHub — API d'emails transactionnels &amp; OTP
+    return f"""
+<footer class="bg-slate-950 text-slate-400">
+  <div class="max-w-6xl mx-auto px-6 py-14 grid md:grid-cols-3 gap-10">
+    <div>
+      <div class="flex items-center gap-2.5 text-white font-extrabold mb-3">{LOGO_SVG} MailHub</div>
+      <p class="text-sm leading-relaxed">API d'emails transactionnels et de codes OTP.
+      Sécurisée, multi-tenant, self-hostable.</p>
     </div>
-    <div class="flex items-center gap-6 text-sm text-slate-500">
-      <a href="/docs" class="hover:text-slate-900">Documentation</a>
-      <a href="/health" class="hover:text-slate-900">Statut</a>
-      <a href="/demo" class="hover:text-slate-900">Démo</a>
+    <div>
+      <p class="text-white font-semibold text-sm mb-3">Produit</p>
+      <div class="flex flex-col gap-2 text-sm">
+        <a href="/docs" class="hover:text-white transition">Documentation API</a>
+        <a href="/register" class="hover:text-white transition">Créer un compte</a>
+        <a href="/login" class="hover:text-white transition">Connexion</a>
+      </div>
+    </div>
+    <div>
+      <p class="text-white font-semibold text-sm mb-3">Statut</p>
+      <a href="/health" class="inline-flex items-center gap-2 text-sm hover:text-white transition">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Système opérationnel
+      </a>
+    </div>
+  </div>
+  <div class="border-t border-white/10">
+    <div class="max-w-6xl mx-auto px-6 py-5 text-xs text-slate-500 flex items-center justify-between">
+      <span>© MailHub — World International Business</span>
+      <span>FastAPI · Redis · HMAC-SHA256</span>
     </div>
   </div>
 </footer>"""
 
 
-def _landing_page(content: str) -> HTMLResponse:
+def _landing_page(content: str, debug: bool = True) -> HTMLResponse:
+    demo_link = '<a href="/demo" class="navlink">Démo</a>' if debug else ""
     return HTMLResponse(f"""{_head("Accueil")}
 <body class="bg-slate-50 text-slate-800">
 <nav class="bg-white/90 backdrop-blur border-b border-slate-200 sticky top-0 z-20">
@@ -105,7 +138,7 @@ def _landing_page(content: str) -> HTMLResponse:
       MailHub
     </a>
     <div class="flex items-center gap-7 text-sm">
-      <a href="/demo" class="navlink">Démo</a>
+      {demo_link}
       <a href="/docs" class="navlink">API Docs</a>
       <a href="/login" class="navlink">Connexion</a>
       <a href="/register" class="btn-primary">Commencer gratuitement</a>
@@ -199,7 +232,7 @@ ICON = {
 
 
 @router.get("/", response_class=HTMLResponse)
-async def home() -> HTMLResponse:
+async def home(settings: Settings = Depends(get_settings)) -> HTMLResponse:
     features = [
         (ICON["lock"], "OTP sécurisé",
          "Codes 6 chiffres cryptographiques, hashés en Redis, usage unique, TTL 5 min, anti-rejeu HMAC."),
@@ -215,8 +248,8 @@ async def home() -> HTMLResponse:
          "Une requête POST signée et c'est parti. SDK d'exemple dans votre dashboard."),
     ]
     features_html = "".join(
-        f"""<div class="card p-6 hover:shadow-lg transition">
-          <div class="w-11 h-11 rounded-xl bg-brand-50 flex items-center justify-center mb-4">{icon}</div>
+        f"""<div class="card card-lift p-6 transition-all">
+          <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-50 to-blue-100 border border-brand-100 flex items-center justify-center mb-4">{icon}</div>
           <h3 class="font-bold mb-1.5">{t}</h3>
           <p class="text-sm text-slate-500 leading-relaxed">{d}</p>
         </div>"""
@@ -241,28 +274,32 @@ async def home() -> HTMLResponse:
     )
 
     content = f"""
-<section class="hero-bg grid-pattern text-white relative overflow-hidden">
-  <div class="max-w-6xl mx-auto px-6 py-28 text-center relative">
-    <span class="badge bg-white/10 text-blue-200 border border-white/20 backdrop-blur">
-      FastAPI · Redis · Multi-tenant · HMAC
+<section class="hero-bg text-white relative overflow-hidden">
+  <div class="absolute inset-0 grid-pattern"></div>
+  <div class="max-w-6xl mx-auto px-6 py-28 md:py-32 text-center relative">
+    <span class="badge bg-white/10 text-blue-200 border border-white/20 backdrop-blur fade-up">
+      FastAPI · Redis · Multi-tenant · HMAC-SHA256
     </span>
-    <h1 class="mt-8 text-5xl md:text-6xl font-black tracking-tight leading-[1.05]">
+    <h1 class="mt-8 text-5xl md:text-6xl font-black tracking-tight leading-[1.05] fade-up fade-up-1">
       Envoyez vos OTP<br>et emails transactionnels<br>
-      <span class="bg-gradient-to-r from-blue-400 to-emerald-400 bg-clip-text text-transparent">en 5 minutes.</span>
+      <span class="bg-gradient-to-r from-blue-400 via-indigo-300 to-emerald-400 bg-clip-text text-transparent">en 5 minutes.</span>
     </h1>
-    <p class="mt-7 text-lg text-slate-300 max-w-2xl mx-auto leading-relaxed">
+    <p class="mt-7 text-lg text-slate-300 max-w-2xl mx-auto leading-relaxed fade-up fade-up-2">
       Une seule API pour vos codes de vérification, emails de bienvenue,
       notifications et confirmations de transactions. Créez un compte,
       récupérez vos clés, intégrez — c'est parti.
     </p>
-    <div class="mt-11 flex items-center justify-center gap-4">
+    <div class="mt-11 flex flex-col sm:flex-row items-center justify-center gap-4 fade-up fade-up-3">
       <a href="/register" class="btn-primary text-base px-8 py-3.5">Créer un compte gratuit</a>
-      <a href="/demo" class="px-8 py-3.5 font-semibold text-white/90 border border-white/20 rounded-xl hover:bg-white/10 transition">Essayer la console de test</a>
+      <a href="/demo" class="btn-ghost text-base">Essayer la console de test</a>
     </div>
-    <div class="mt-16 flex items-center justify-center gap-8 text-xs text-slate-400">
-      <span>✓ Sans carte bancaire</span><span>✓ Self-hostable</span><span>✓ Open Source prêt</span>
+    <div class="mt-16 flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-xs text-slate-400 fade-up fade-up-3">
+      <span class="inline-flex items-center gap-1.5"><span class="text-emerald-400">✓</span> Sans carte bancaire</span>
+      <span class="inline-flex items-center gap-1.5"><span class="text-emerald-400">✓</span> Self-hostable</span>
+      <span class="inline-flex items-center gap-1.5"><span class="text-emerald-400">✓</span> Open Source</span>
     </div>
   </div>
+  <div class="absolute -bottom-px left-0 right-0 h-24 bg-gradient-to-t from-slate-50 to-transparent"></div>
 </section>
 
 <section class="max-w-6xl mx-auto px-6 -mt-12 relative z-10">
@@ -275,18 +312,18 @@ async def home() -> HTMLResponse:
     <p class="text-slate-500 mt-2">Trois étapes et votre application envoie des emails.</p>
   </div>
   <div class="grid md:grid-cols-3 gap-6">
-    <div class="card p-6 text-center">
-      <div class="w-10 h-10 mx-auto rounded-full bg-brand-600 text-white font-bold flex items-center justify-center mb-4">1</div>
+    <div class="card card-lift p-7 text-center transition-all">
+      <div class="w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">1</div>
       <h3 class="font-bold mb-2">Créez votre compte</h3>
       <p class="text-sm text-slate-500">Un tenant + une clé API + un secret HMAC sont générés instantanément.</p>
     </div>
-    <div class="card p-6 text-center">
-      <div class="w-10 h-10 mx-auto rounded-full bg-brand-600 text-white font-bold flex items-center justify-center mb-4">2</div>
+    <div class="card card-lift p-7 text-center transition-all">
+      <div class="w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">2</div>
       <h3 class="font-bold mb-2">Configurez votre expéditeur</h3>
       <p class="text-sm text-slate-500">Votre adresse email et votre SMTP dans le dashboard — test intégré.</p>
     </div>
-    <div class="card p-6 text-center">
-      <div class="w-10 h-10 mx-auto rounded-full bg-brand-600 text-white font-bold flex items-center justify-center mb-4">3</div>
+    <div class="card card-lift p-7 text-center transition-all">
+      <div class="w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">3</div>
       <h3 class="font-bold mb-2">Intégrez en un appel</h3>
       <p class="text-sm text-slate-500">POST signé HMAC vers <code>/v1/otp/send</code> ou <code>/v1/email/send</code>.</p>
     </div>
@@ -318,27 +355,35 @@ async def home() -> HTMLResponse:
   </div>
 </section>
 """
-    return _landing_page(content)
+    return _landing_page(content, debug=settings.debug)
 
 
-def _auth_form(title: str, action: str, fields: str, link: str) -> HTMLResponse:
+def _auth_form(title: str, action: str, fields: str, link: str, debug: bool = True) -> HTMLResponse:
     return _landing_page(f"""
 <div class="min-h-[80vh] flex items-center justify-center px-6 py-16">
-  <div class="card p-8 w-full max-w-md">
-    <h1 class="text-2xl font-extrabold mb-1">{title}</h1>
-    <p class="text-sm text-slate-500 mb-6">Accédez à votre espace MailHub</p>
-    <form method="post" action="{action}" class="space-y-4">
-      {fields}
-      <button type="submit" class="btn-primary w-full">{title}</button>
-    </form>
-    <p class="text-xs text-slate-400 mt-6 text-center">{link}</p>
+  <div class="w-full max-w-md fade-up">
+    <div class="text-center mb-6">
+      <a href="/" class="inline-flex items-center gap-2 font-extrabold text-lg">{LOGO_SVG} MailHub</a>
+    </div>
+    <div class="card p-8 shadow-lg">
+      <h1 class="text-2xl font-extrabold mb-1">{title}</h1>
+      <p class="text-sm text-slate-500 mb-6">Accédez à votre espace MailHub</p>
+      <form method="post" action="{action}" class="space-y-4">
+        {fields}
+        <button type="submit" class="btn-primary w-full">{title}</button>
+      </form>
+      <p class="text-xs text-slate-400 mt-6 text-center">{link}</p>
+    </div>
+    <p class="text-center text-xs text-slate-400 mt-5">
+      Sécurisé par clé API + signature HMAC-SHA256
+    </p>
   </div>
 </div>
-""")
+""", debug=debug)
 
 
 @router.get("/register", response_class=HTMLResponse)
-async def register_page() -> HTMLResponse:
+async def register_page(settings: Settings = Depends(get_settings)) -> HTMLResponse:
     fields = """
       <div><label class="text-xs font-semibold text-slate-600">Nom de votre application</label>
       <input name="app_name" class="input mt-1" placeholder="Ma Boutique" required></div>
@@ -350,7 +395,9 @@ async def register_page() -> HTMLResponse:
       <input name="password" type="password" class="input mt-1" minlength="8" required></div>
     """
     link = 'Déjà un compte ? <a href="/login" class="text-blue-600 font-semibold">Se connecter</a>'
-    return _auth_form("Créer un compte", "/register", fields, link)
+    return _auth_form("Créer un compte", "/register", fields, link, debug=settings.debug)
+
+
 
 
 @router.post("/register")
@@ -398,7 +445,7 @@ async def register(
 
 
 @router.get("/login", response_class=HTMLResponse)
-async def login_page() -> HTMLResponse:
+async def login_page(settings: Settings = Depends(get_settings)) -> HTMLResponse:
     fields = """
       <div><label class="text-xs font-semibold text-slate-600">Email</label>
       <input name="email" type="email" class="input mt-1" required></div>
@@ -406,7 +453,7 @@ async def login_page() -> HTMLResponse:
       <input name="password" type="password" class="input mt-1" required></div>
     """
     link = 'Pas de compte ? <a href="/register" class="text-blue-600 font-semibold">Créer un compte</a>'
-    return _auth_form("Connexion", "/login", fields, link)
+    return _auth_form("Connexion", "/login", fields, link, debug=settings.debug)
 
 
 @router.post("/login")
@@ -740,7 +787,8 @@ async function verifyOtp() {
   const res = await fetch("/demo/verify", {method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({request_id: requestId.value, code: code.value,
       tenant_id: otpTenant.value || "default"})});
-  show("verifyResult", await res.json(), (await res.json()).verified);
+  const data = await res.json();
+  show("verifyResult", data, res.ok && data.verified);
 }
 async function sendEmail() {
   const t = emailType.value;
