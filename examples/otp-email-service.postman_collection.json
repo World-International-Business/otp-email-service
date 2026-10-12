@@ -1,0 +1,84 @@
+{
+  "info": {
+    "name": "OTP Email Service",
+    "description": "Microservice OTP par email — SendBID / PayBID. Les headers X-API-Key, X-Timestamp et X-HMAC-Signature sont calculés automatiquement par le pre-request script.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8001"
+    },
+    {
+      "key": "api_key",
+      "value": "test_api_key_64_chars_long_change_in_production_test_api_key_change"
+    },
+    {
+      "key": "hmac_secret",
+      "value": "test_hmac_secret_change_in_production"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Signature HMAC-SHA256(body + timestamp, secret) — automatique",
+          "const timestamp = Math.floor(Date.now() / 1000).toString();",
+          "const body = pm.request.body ? (pm.request.body.raw || '') : '';",
+          "const secret = pm.collectionVariables.get('hmac_secret');",
+          "const signature = CryptoJS.HmacSHA256(body + timestamp, secret).toString(CryptoJS.enc.Hex);",
+          "pm.request.headers.upsert({key: 'X-API-Key', value: pm.collectionVariables.get('api_key')});",
+          "pm.request.headers.upsert({key: 'X-Timestamp', value: timestamp});",
+          "pm.request.headers.upsert({key: 'X-HMAC-Signature', value: signature});"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/health"
+      }
+    },
+    {
+      "name": "Send OTP (email)",
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"user_id\": \"550e8400-e29b-41d4-a716-446655440000\",\n  \"email\": \"test@example.com\",\n  \"country_code\": \"FR\",\n  \"purpose\": \"login_2fa\",\n  \"language\": \"fr\"\n}"
+        },
+        "url": "{{base_url}}/v1/otp/send"
+      }
+    },
+    {
+      "name": "Send OTP (pays à risque → sms_fallback)",
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"user_id\": \"550e8400-e29b-41d4-a716-446655440000\",\n  \"email\": \"test@example.com\",\n  \"country_code\": \"CN\",\n  \"purpose\": \"login_2fa\",\n  \"language\": \"fr\"\n}"
+        },
+        "url": "{{base_url}}/v1/otp/send"
+      }
+    },
+    {
+      "name": "Verify OTP",
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"request_id\": \"req_xxxx\",\n  \"code\": \"123456\"\n}"
+        },
+        "url": "{{base_url}}/v1/otp/verify"
+      }
+    }
+  ]
+}

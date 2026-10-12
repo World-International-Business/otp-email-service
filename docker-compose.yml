@@ -1,0 +1,55 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: otp-redis
+    restart: unless-stopped
+    # Redis n'est PAS exposé sur l'hôte — accessible uniquement depuis le réseau interne
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - otp-network
+
+  app:
+    build: .
+    container_name: otp-app
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      HOST: 0.0.0.0
+      PORT: 8000
+      USE_FAKEREDIS: "false"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - otp-network
+      # Réseau partagé avec le reverse proxy Dokploy/Traefik (créé automatiquement
+      # si absent ; sinon Dokploy expose le service via son propre domaine)
+      - dokploy-network
+
+volumes:
+  redis_data:
+
+networks:
+  otp-network:
+    driver: bridge
+  dokploy-network:
+    external: true
