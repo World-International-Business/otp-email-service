@@ -144,7 +144,6 @@ def _footer() -> str:
 
 
 def _landing_page(content: str, debug: bool = True) -> HTMLResponse:
-    demo_link = '<a href="/demo" class="navlink">Démo</a>' if debug else ""
     return HTMLResponse(f"""{_head("Accueil")}
 <body class="bg-slate-50 text-slate-800">
 <nav class="bg-white/90 backdrop-blur border-b border-slate-200 sticky top-0 z-20">
@@ -156,7 +155,6 @@ def _landing_page(content: str, debug: bool = True) -> HTMLResponse:
     <div class="flex items-center gap-6 text-sm">
       <a href="/#services" class="navlink hidden md:inline">Services</a>
       <a href="/#pricing" class="navlink hidden md:inline">Tarifs</a>
-      {demo_link}
       <a href="/documentation" class="navlink">Documentation</a>
       <a href="/login" class="navlink">Connexion</a>
       <a href="/register" class="btn-primary text-sm px-4 py-2.5">Commencer</a>

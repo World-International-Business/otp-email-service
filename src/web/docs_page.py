@@ -134,8 +134,7 @@ curl_close($ch);""".replace("<", "&lt;").replace(">", "&gt;")
         <span class="badge bg-brand-50 text-brand-700 border border-brand-100">DOCUMENTATION</span>
         <h1 class="text-3xl md:text-4xl font-extrabold mt-4">Intégrer MailHub</h1>
         <p class="text-slate-500 mt-3 leading-relaxed">Une API REST unique pour vos codes OTP et emails
-        transactionnels. Toutes les requêtes sont signées <strong>HMAC-SHA256</strong>.
-        Référence interactive complète : <a href="/docs" class="text-indigo-600 font-semibold">Swagger UI</a>.</p>
+        transactionnels. Toutes les requêtes sont signées <strong>HMAC-SHA256</strong>.</p>
         <div class="mt-5 card p-4 flex flex-wrap items-center gap-3 text-sm">
           <span class="text-slate-500 font-medium">URL de base :</span>
           <code class="!text-sm">{base}</code>
