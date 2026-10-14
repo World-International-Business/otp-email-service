@@ -457,7 +457,6 @@ async def home(settings: Settings = Depends(get_settings)) -> HTMLResponse:
         <h2 class="font-bold text-xl">Endpoints API</h2>
         <p class="text-sm text-slate-500 mt-1">Toutes les routes sous <code>/v1/*</code> requièrent une signature HMAC.</p>
       </div>
-      <a href="/docs" class="btn-outline text-sm self-start">Swagger →</a>
     </div>
     <div class="overflow-x-auto">
     <table class="w-full text-sm min-w-[620px]">
