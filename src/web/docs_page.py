@@ -113,7 +113,7 @@ curl_close($ch);""".replace("<", "&lt;").replace(">", "&gt;")
 
     content = f"""
 <div class="bg-gradient-to-b from-slate-50 to-white">
-<div class="max-w-6xl mx-auto px-6 py-14">
+<div class="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-14">
   <div class="grid lg:grid-cols-[220px_1fr] gap-10">
 
     <aside class="hidden lg:block">
@@ -141,11 +141,11 @@ curl_close($ch);""".replace("<", "&lt;").replace(">", "&gt;")
         </div>
       </div>
 
-      <div id="doc-auth" class="card p-7">
+      <div id="doc-auth" class="card p-5 sm:p-7">
         <h2 class="font-bold text-xl mb-2">1. Authentification</h2>
         <p class="text-sm text-slate-500 mb-4">Chaque requête <code>/v1/*</code> exige 3 headers.
         La signature couvre <code>body + timestamp</code> — rejetée au-delà de 5 minutes.</p>
-        <table class="w-full text-sm">
+        <div class="overflow-x-auto"><table class="w-full text-sm min-w-[440px]">
           <thead><tr class="text-left text-xs uppercase tracking-wider text-slate-400 border-b">
             <th class="py-2.5 pr-4">Header</th><th class="py-2.5">Description</th></tr></thead>
           <tbody class="divide-y divide-slate-100">
@@ -153,30 +153,30 @@ curl_close($ch);""".replace("<", "&lt;").replace(">", "&gt;")
             <tr><td class="py-3 pr-4"><code>X-Timestamp</code></td><td class="py-3 text-slate-600">Timestamp Unix (secondes)</td></tr>
             <tr><td class="py-3 pr-4"><code>X-HMAC-Signature</code></td><td class="py-3 text-slate-600"><code>hex(HMAC_SHA256(secret, body + timestamp))</code></td></tr>
           </tbody>
-        </table>
+        </table></div>
       </div>
 
-      <div id="doc-otp" class="card p-7">
+      <div id="doc-otp" class="card p-5 sm:p-7">
         <h2 class="font-bold text-xl mb-2">2. Envoyer un OTP</h2>
         <p class="text-sm text-slate-500 mb-4"><code>POST /v1/otp/send</code> — envoie un code à 6 chiffres par email.
         Pays à risque → <code>channel: "sms_fallback"</code>.</p>
         {_code_block(otp_body)}
       </div>
 
-      <div id="doc-verify" class="card p-7">
+      <div id="doc-verify" class="card p-5 sm:p-7">
         <h2 class="font-bold text-xl mb-2">3. Vérifier un code</h2>
         <p class="text-sm text-slate-500 mb-4"><code>POST /v1/otp/verify</code> — usage unique, 5 tentatives max, TTL 5 min.</p>
         {_code_block(verify_body)}
       </div>
 
-      <div id="doc-email" class="card p-7">
+      <div id="doc-email" class="card p-5 sm:p-7">
         <h2 class="font-bold text-xl mb-2">4. Emails transactionnels</h2>
         <p class="text-sm text-slate-500 mb-4"><code>POST /v1/email/send</code> — types :
         <code>welcome</code>, <code>notification</code>, <code>transaction</code>, <code>custom</code>.</p>
         {_code_block(email_body)}
       </div>
 
-      <div id="doc-sdks" class="card p-7">
+      <div id="doc-sdks" class="card p-5 sm:p-7">
         <h2 class="font-bold text-xl mb-5">5. Exemples par langage</h2>
         <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Python</p>
         {_code_block(python_code)}
@@ -188,9 +188,9 @@ curl_close($ch);""".replace("<", "&lt;").replace(">", "&gt;")
         {_code_block(php_code)}
       </div>
 
-      <div id="doc-errors" class="card p-7">
+      <div id="doc-errors" class="card p-5 sm:p-7">
         <h2 class="font-bold text-xl mb-4">6. Erreurs &amp; limites</h2>
-        <table class="w-full text-sm">
+        <div class="overflow-x-auto"><table class="w-full text-sm min-w-[440px]">
           <thead><tr class="text-left text-xs uppercase tracking-wider text-slate-400 border-b">
             <th class="py-2.5 pr-4">Code</th><th class="py-2.5">Signification</th></tr></thead>
           <tbody class="divide-y divide-slate-100 text-slate-600">
@@ -199,7 +199,7 @@ curl_close($ch);""".replace("<", "&lt;").replace(">", "&gt;")
             <tr><td class="py-3 pr-4"><code>429</code></td><td class="py-3">Rate limit : 3 envois / 10 min par utilisateur et par IP</td></tr>
             <tr><td class="py-3 pr-4"><code>422</code></td><td class="py-3">Payload invalide (user_id doit être un UUID)</td></tr>
           </tbody>
-        </table>
+        </table></div>
       </div>
     </div>
   </div>

@@ -95,7 +95,7 @@ tailwind.config = {{ theme: {{ extend: {{ fontFamily: {{ sans: ['Inter','sans-se
          font-size:.9rem; transition:all .15s; background:#fff; }}
   .input:focus {{ outline:none; border-color:var(--brand); box-shadow:0 0 0 3px rgba(59,110,246,.15); }}
   .input::placeholder {{ color:#94a3b8; }}
-  code {{ background:#eef2f9; color:#2447b8; padding:.15rem .45rem; border-radius:.35rem; font-size:.82rem; }}
+  code {{ background:#eef2f9; color:#2447b8; padding:.15rem .45rem; border-radius:.35rem; font-size:.82rem; overflow-wrap:anywhere; }}
   .badge {{ font-size:.68rem; font-weight:700; letter-spacing:.06em; padding:.28rem .7rem; border-radius:999px; }}
   .m-post {{ background:#dbeafe; color:#1d4ed8; }}
   .m-get  {{ background:#dcfce7; color:#15803d; }}
@@ -106,6 +106,7 @@ tailwind.config = {{ theme: {{ extend: {{ fontFamily: {{ sans: ['Inter','sans-se
   @keyframes fadeUp {{ from {{ opacity:0; transform:translateY(18px); }} to {{ opacity:1; transform:none; }} }}
   .fade-up {{ animation:fadeUp .6s ease both; }}
   .fade-up-1 {{ animation-delay:.08s }} .fade-up-2 {{ animation-delay:.16s }} .fade-up-3 {{ animation-delay:.24s }}
+  @media (max-width:640px) {{ .input {{ font-size:16px; }} }}
 </style>
 </head>"""
 
@@ -113,7 +114,7 @@ tailwind.config = {{ theme: {{ extend: {{ fontFamily: {{ sans: ['Inter','sans-se
 def _footer() -> str:
     return f"""
 <footer class="bg-slate-950 text-slate-400">
-  <div class="max-w-6xl mx-auto px-6 py-14 grid md:grid-cols-3 gap-10">
+  <div class="max-w-6xl mx-auto px-6 py-10 md:py-14 grid md:grid-cols-3 gap-8 md:gap-10">
     <div>
       <div class="flex items-center gap-2.5 text-white font-extrabold mb-3">{LOGO_SVG} MailHub</div>
       <p class="text-sm leading-relaxed">API d'emails transactionnels et de codes OTP.
@@ -135,7 +136,7 @@ def _footer() -> str:
     </div>
   </div>
   <div class="border-t border-white/10">
-    <div class="max-w-6xl mx-auto px-6 py-5 text-xs text-slate-500 flex items-center justify-between">
+    <div class="max-w-6xl mx-auto px-6 py-5 text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2 text-center">
       <span>© MailHub — World International Business</span>
       <span>FastAPI · Redis · HMAC-SHA256</span>
     </div>
@@ -147,17 +148,33 @@ def _landing_page(content: str, debug: bool = True) -> HTMLResponse:
     return HTMLResponse(f"""{_head("Accueil")}
 <body class="bg-slate-50 text-slate-800">
 <nav class="bg-white/90 backdrop-blur border-b border-slate-200 sticky top-0 z-20">
-  <div class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
     <a href="/" class="flex items-center gap-2.5 font-extrabold text-lg text-slate-900">
       {LOGO_SVG}
       MailHub
     </a>
-    <div class="flex items-center gap-6 text-sm">
-      <a href="/#services" class="navlink hidden md:inline">Services</a>
-      <a href="/#pricing" class="navlink hidden md:inline">Tarifs</a>
+    <div class="hidden md:flex items-center gap-6 text-sm">
+      <a href="/#services" class="navlink">Services</a>
+      <a href="/#pricing" class="navlink">Tarifs</a>
       <a href="/documentation" class="navlink">Documentation</a>
       <a href="/login" class="navlink">Connexion</a>
       <a href="/register" class="btn-primary text-sm px-4 py-2.5">Commencer</a>
+    </div>
+    <div class="flex md:hidden items-center gap-2">
+      <a href="/register" class="btn-primary text-sm px-3.5 py-2">Commencer</a>
+      <button type="button" aria-label="Menu"
+              onclick="document.getElementById('mobileMenu').classList.toggle('hidden')"
+              class="p-2 rounded-lg text-slate-600 hover:bg-slate-100">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+    </div>
+  </div>
+  <div id="mobileMenu" class="hidden md:hidden border-t border-slate-200 bg-white">
+    <div class="px-4 py-2 flex flex-col text-sm divide-y divide-slate-100">
+      <a href="/#services" onclick="document.getElementById('mobileMenu').classList.add('hidden')" class="navlink py-3">Services</a>
+      <a href="/#pricing" onclick="document.getElementById('mobileMenu').classList.add('hidden')" class="navlink py-3">Tarifs</a>
+      <a href="/documentation" class="navlink py-3">Documentation</a>
+      <a href="/login" class="navlink py-3">Connexion</a>
     </div>
   </div>
 </nav>
@@ -183,11 +200,25 @@ def _dashboard_page(user, tenant, content: str, active: str = "dashboard", debug
     )
     return HTMLResponse(f"""{_head("Dashboard")}
 <body class="bg-slate-100 text-slate-800">
+<header class="md:hidden fixed top-0 inset-x-0 h-14 bg-slate-900 text-white flex items-center justify-between px-4 z-20">
+  <a href="/dashboard" class="flex items-center gap-2 font-extrabold">{LOGO_SVG} MailHub</a>
+  <button type="button" aria-label="Menu"
+          onclick="document.getElementById('sidebar').classList.toggle('-translate-x-full');document.getElementById('sbOverlay').classList.toggle('hidden')"
+          class="p-2 rounded-lg hover:bg-white/10">
+    <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M4 7h16M4 12h16M4 17h16"/></svg>
+  </button>
+</header>
+<div id="sbOverlay" class="hidden fixed inset-0 bg-black/50 z-20 md:hidden"
+     onclick="document.getElementById('sidebar').classList.add('-translate-x-full');this.classList.add('hidden')"></div>
 <div class="flex min-h-screen">
-  <aside class="w-64 bg-slate-900 text-white flex flex-col fixed inset-y-0 z-10">
-    <div class="h-16 flex items-center gap-2.5 px-6 border-b border-white/10">
+  <aside id="sidebar" class="w-64 bg-slate-900 text-white flex flex-col fixed inset-y-0 z-30 overflow-y-auto transform -translate-x-full md:translate-x-0 transition-transform duration-200">
+    <div class="h-16 flex items-center gap-2.5 px-6 border-b border-white/10 shrink-0">
       {LOGO_SVG}
       <span class="font-extrabold">MailHub</span>
+      <button type="button" aria-label="Fermer" class="ml-auto md:hidden p-1.5 rounded-lg hover:bg-white/10"
+              onclick="document.getElementById('sidebar').classList.add('-translate-x-full');document.getElementById('sbOverlay').classList.add('hidden')">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
     </div>
     <nav class="flex-1 px-3 py-5 space-y-1">{nav}
       <a href="/documentation" class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-white/5 hover:text-white transition">{icons['docs']}Documentation</a>
@@ -209,7 +240,7 @@ def _dashboard_page(user, tenant, content: str, active: str = "dashboard", debug
       </a>
     </div>
   </aside>
-  <main class="ml-64 flex-1 p-8 lg:p-10">{content}</main>
+  <main class="md:ml-64 flex-1 min-w-0 pt-20 px-4 pb-8 sm:px-6 md:pt-8 md:px-8 lg:p-10">{content}</main>
 </div>
 </body></html>""")
 
@@ -264,9 +295,9 @@ async def home(settings: Settings = Depends(get_settings)) -> HTMLResponse:
     ]
     rows = "".join(
         f"""<tr class="hover:bg-slate-50 transition">
-          <td class="py-3.5"><span class="badge {cls}">{m}</span></td>
-          <td class="py-3.5"><code>{ep}</code></td>
-          <td class="py-3.5 text-slate-600">{d}</td>
+          <td class="py-3.5 pl-5 sm:pl-8 pr-4"><span class="badge {cls}">{m}</span></td>
+          <td class="py-3.5 pr-4 whitespace-nowrap"><code>{ep}</code></td>
+          <td class="py-3.5 pr-5 sm:pr-8 text-slate-600">{d}</td>
         </tr>"""
         for m, ep, d, cls in endpoints
     )
@@ -330,17 +361,17 @@ async def home(settings: Settings = Depends(get_settings)) -> HTMLResponse:
   <div class="absolute inset-0 grid-pattern"></div>
   <div class="orb w-96 h-96 bg-brand-500 -top-20 -left-20"></div>
   <div class="orb w-80 h-80 bg-violet-500 top-40 -right-16"></div>
-  <div class="max-w-6xl mx-auto px-6 py-24 md:py-28 relative">
+  <div class="max-w-6xl mx-auto px-6 py-16 md:py-28 relative">
     <div class="grid lg:grid-cols-2 gap-14 items-center">
       <div class="text-left">
         <span class="badge bg-white/10 text-indigo-200 border border-white/20 backdrop-blur fade-up">
           API OTP & Emails transactionnels
         </span>
-        <h1 class="mt-7 text-5xl md:text-[3.6rem] font-black tracking-tight leading-[1.06] fade-up fade-up-1">
+        <h1 class="mt-7 text-4xl sm:text-5xl md:text-[3.6rem] font-black tracking-tight leading-[1.06] fade-up fade-up-1">
           Vos codes de vérification et emails,
           <span class="gradient-text">en un appel API.</span>
         </h1>
-        <p class="mt-6 text-lg text-slate-300 leading-relaxed fade-up fade-up-2">
+        <p class="mt-6 text-base sm:text-lg text-slate-300 leading-relaxed fade-up fade-up-2">
           Une seule API multi-tenant pour vos OTP, emails de bienvenue,
           notifications et confirmations. Créez un compte, récupérez vos clés,
           intégrez — c'est parti.
@@ -386,7 +417,7 @@ async def home(settings: Settings = Depends(get_settings)) -> HTMLResponse:
   </div>
 </section>
 
-<section id="services" class="max-w-6xl mx-auto px-6 py-20">
+<section id="services" class="max-w-6xl mx-auto px-6 py-14 md:py-20">
   <div class="text-center mb-12">
     <span class="badge bg-brand-50 text-brand-700 border border-brand-100">NOS SERVICES</span>
     <h2 class="text-3xl md:text-4xl font-extrabold mt-4">Tout pour vos emails & OTP</h2>
@@ -421,25 +452,27 @@ async def home(settings: Settings = Depends(get_settings)) -> HTMLResponse:
 
 <section class="max-w-6xl mx-auto px-6 py-14">
   <div class="card overflow-hidden">
-    <div class="px-8 pt-7 pb-5 border-b border-slate-100 flex items-center justify-between">
+    <div class="px-5 sm:px-8 pt-7 pb-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
       <div>
         <h2 class="font-bold text-xl">Endpoints API</h2>
         <p class="text-sm text-slate-500 mt-1">Toutes les routes sous <code>/v1/*</code> requièrent une signature HMAC.</p>
       </div>
-      <a href="/docs" class="btn-outline text-sm">Swagger →</a>
+      <a href="/docs" class="btn-outline text-sm self-start">Swagger →</a>
     </div>
-    <table class="w-full text-sm">
+    <div class="overflow-x-auto">
+    <table class="w-full text-sm min-w-[620px]">
       <thead><tr class="text-left text-slate-400 text-xs uppercase tracking-wider border-b bg-slate-50">
-        <th class="py-3 px-8 font-semibold">Méthode</th>
-        <th class="py-3 font-semibold">Endpoint</th>
-        <th class="py-3 pr-8 font-semibold">Description</th>
+        <th class="py-3 pl-5 sm:pl-8 pr-4 font-semibold">Méthode</th>
+        <th class="py-3 pr-4 font-semibold">Endpoint</th>
+        <th class="py-3 pr-5 sm:pr-8 font-semibold">Description</th>
       </tr></thead>
-      <tbody class="divide-y divide-slate-100 px-8">{rows}</tbody>
+      <tbody class="divide-y divide-slate-100">{rows}</tbody>
     </table>
+    </div>
   </div>
 </section>
 
-<section id="pricing" class="max-w-6xl mx-auto px-6 py-20">
+<section id="pricing" class="max-w-6xl mx-auto px-6 py-14 md:py-20">
   <div class="text-center mb-12">
     <span class="badge bg-brand-50 text-brand-700 border border-brand-100">TARIFS</span>
     <h2 class="text-3xl md:text-4xl font-extrabold mt-4">Simple et transparent</h2>
@@ -449,7 +482,7 @@ async def home(settings: Settings = Depends(get_settings)) -> HTMLResponse:
 </section>
 
 <section class="max-w-6xl mx-auto px-6 pb-24">
-  <div class="hero-bg rounded-3xl p-12 md:p-16 text-center text-white relative overflow-hidden">
+  <div class="hero-bg rounded-3xl p-8 sm:p-12 md:p-16 text-center text-white relative overflow-hidden">
     <div class="orb w-72 h-72 bg-violet-500 -top-10 -right-10"></div>
     <h2 class="text-3xl md:text-4xl font-extrabold relative">Prêt à envoyer votre premier email ?</h2>
     <p class="text-slate-300 mt-4 relative">Compte gratuit, clés instantanées, aucune carte requise.</p>
@@ -462,12 +495,12 @@ async def home(settings: Settings = Depends(get_settings)) -> HTMLResponse:
 
 def _auth_form(title: str, action: str, fields: str, link: str, debug: bool = True) -> HTMLResponse:
     return _landing_page(f"""
-<div class="min-h-[80vh] flex items-center justify-center px-6 py-16">
+<div class="min-h-[80vh] flex items-center justify-center px-4 sm:px-6 py-10 sm:py-16">
   <div class="w-full max-w-md fade-up">
     <div class="text-center mb-6">
       <a href="/" class="inline-flex items-center gap-2 font-extrabold text-lg">{LOGO_SVG} MailHub</a>
     </div>
-    <div class="card p-8 shadow-lg">
+    <div class="card p-6 sm:p-8 shadow-lg">
       <h1 class="text-2xl font-extrabold mb-1">{title}</h1>
       <p class="text-sm text-slate-500 mb-6">Accédez à votre espace MailHub</p>
       <form method="post" action="{action}" class="space-y-4">
@@ -607,12 +640,12 @@ async def dashboard(request: Request, settings: Settings = Depends(get_settings)
         <div class="mt-4 space-y-3">
           <div>
             <p class="text-xs font-semibold text-slate-500 mb-1">Clé API (header <code>X-API-Key</code>)</p>
-            <div class="flex gap-2"><code class="flex-1 text-xs break-all bg-slate-50 p-2 rounded">{api_key}</code>
+            <div class="flex flex-col sm:flex-row gap-2"><code class="flex-1 min-w-0 text-xs break-all bg-slate-50 p-2 rounded">{api_key}</code>
             <button onclick="navigator.clipboard.writeText('{api_key}')" class="text-xs btn-primary">Copier</button></div>
           </div>
           <div>
             <p class="text-xs font-semibold text-slate-500 mb-1">Secret HMAC (signature des requêtes)</p>
-            <div class="flex gap-2"><code class="flex-1 text-xs break-all bg-slate-50 p-2 rounded">{hmac_secret}</code>
+            <div class="flex flex-col sm:flex-row gap-2"><code class="flex-1 min-w-0 text-xs break-all bg-slate-50 p-2 rounded">{hmac_secret}</code>
             <button onclick="navigator.clipboard.writeText('{hmac_secret}')" class="text-xs btn-primary">Copier</button></div>
           </div>
         </div>"""
@@ -644,7 +677,7 @@ async def dashboard(request: Request, settings: Settings = Depends(get_settings)
 
 <div class="grid md:grid-cols-3 gap-5 mb-8">{stats_cards}</div>
 
-<div class="card p-6 mb-6">
+<div class="card p-4 sm:p-6 mb-6">
   <div class="flex items-center justify-between mb-2">
     <h2 class="font-bold">Vos credentials API</h2>
     <span class="badge bg-emerald-100 text-emerald-700">ACTIF</span>
@@ -658,7 +691,7 @@ async def dashboard(request: Request, settings: Settings = Depends(get_settings)
   </form>
 </div>
 
-<div class="card p-6 mb-6">
+<div class="card p-4 sm:p-6 mb-6">
   <h2 class="font-bold mb-1">Configuration de votre expéditeur email</h2>
   <p class="text-sm text-slate-500 mb-4">Configurez l'adresse email utilisée pour envoyer VOS emails
   (Gmail : utilisez un <a class="text-indigo-600 underline" href="https://myaccount.google.com/apppasswords" target="_blank">mot de passe d'application</a>).</p>
@@ -679,13 +712,13 @@ async def dashboard(request: Request, settings: Settings = Depends(get_settings)
       <button class="btn-primary">Sauvegarder</button>
     </div>
   </form>
-  <form method="post" action="/dashboard/test-email" class="mt-3 flex gap-2 items-center">
-    <input name="test_to" type="email" class="input max-w-xs" placeholder="envoyer un email de test à..." required>
-    <button class="text-xs font-semibold text-indigo-600 border border-blue-200 rounded-lg px-4 py-2.5 hover:bg-blue-50">Tester l'envoi</button>
+  <form method="post" action="/dashboard/test-email" class="mt-3 flex flex-col sm:flex-row gap-2 sm:items-center">
+    <input name="test_to" type="email" class="input sm:max-w-xs" placeholder="envoyer un email de test à..." required>
+    <button class="text-xs font-semibold text-indigo-600 border border-blue-200 rounded-lg px-4 py-2.5 hover:bg-blue-50 whitespace-nowrap">Tester l'envoi</button>
   </form>
 </div>
 
-<div class="card p-6 mb-6">
+<div class="card p-4 sm:p-6 mb-6">
   <h2 class="font-bold mb-1">Intégrer l'API dans votre projet</h2>
   <p class="text-sm text-slate-500 mb-4">Chaque requête doit être signée : <code>HMAC-SHA256(body + timestamp, votre secret)</code>.</p>
   <div class="bg-slate-900 text-slate-100 rounded-lg p-5 text-xs overflow-auto font-mono">
@@ -716,7 +749,7 @@ print(r.json())   # {{"verified":true,"attempts_remaining":0}}</pre>
   <p class="text-xs text-slate-500 mt-3">Node.js / PHP / cURL : voir <a href="/docs" class="text-indigo-600 underline">la documentation Swagger</a>.</p>
 </div>
 
-<div class="card p-6">
+<div class="card p-4 sm:p-6">
   <h2 class="font-bold mb-4">Votre configuration</h2>
   <div class="grid md:grid-cols-2 gap-4 text-sm">
     <div><p class="text-xs font-semibold text-slate-500">Purposes autorisés</p><p class="mt-1">{', '.join(f'<code>{p}</code>' for p in tenant.allowed_purposes)}</p></div>
@@ -816,7 +849,7 @@ def _demo_page() -> str:
   <h1 class="text-2xl font-extrabold mb-1">Console de test</h1>
   <p class="text-sm text-slate-500 mb-8">Testez les endpoints en direct. Les emails sont loggés côté serveur (provider console).</p>
 
-  <div class="card p-6 mb-6">
+  <div class="card p-4 sm:p-6 mb-6">
     <h2 class="font-bold mb-4">1. Envoyer un OTP</h2>
     <div class="grid md:grid-cols-2 gap-4">
       <div><label class="text-xs font-semibold text-slate-600">Tenant</label>
@@ -833,7 +866,7 @@ def _demo_page() -> str:
     <div id="otpCode" class="mt-3 text-center text-3xl font-extrabold tracking-[.4em] text-indigo-600 hidden"></div>
   </div>
 
-  <div class="card p-6 mb-6">
+  <div class="card p-4 sm:p-6 mb-6">
     <h2 class="font-bold mb-4">2. Vérifier le code</h2>
     <div class="grid md:grid-cols-2 gap-4">
       <div><label class="text-xs font-semibold text-slate-600">Request ID</label>
