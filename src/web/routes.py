@@ -3,7 +3,7 @@
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, EmailStr
 
@@ -19,9 +19,10 @@ from src.core.tenants import (
 )
 from src.services.email_service import EmailService
 from src.services.otp_service import OTPService
+from src.web.i18n import DEFAULT_LANG, LANG_COOKIE, LANG_COOKIE_MAX_AGE, LANGUAGES, I18nRoute, safe_next
 from src.web.users import SessionStore, WebUserStore
 
-router = APIRouter(tags=["web"], include_in_schema=False)
+router = APIRouter(tags=["web"], include_in_schema=False, route_class=I18nRoute)
 logger = logging.getLogger(__name__)
 
 
@@ -107,6 +108,8 @@ tailwind.config = {{ theme: {{ extend: {{ fontFamily: {{ sans: ['Inter','sans-se
   .fade-up {{ animation:fadeUp .6s ease both; }}
   .fade-up-1 {{ animation-delay:.08s }} .fade-up-2 {{ animation-delay:.16s }} .fade-up-3 {{ animation-delay:.24s }}
   @media (max-width:640px) {{ .input {{ font-size:16px; }} }}
+  #sidebar {{ inset-inline-start:0; }}
+  @media (min-width:768px) {{ .sb-offset {{ margin-inline-start:16rem; }} }}
 </style>
 </head>"""
 
@@ -158,10 +161,11 @@ def _landing_page(content: str, debug: bool = True) -> HTMLResponse:
       <a href="/#pricing" class="navlink">Tarifs</a>
       <a href="/documentation" class="navlink">Documentation</a>
       <a href="/login" class="navlink">Connexion</a>
+      __LANG_SWITCH_LIGHT__
       <a href="/register" class="btn-primary text-sm px-4 py-2.5">Commencer</a>
     </div>
-    <div class="flex md:hidden items-center gap-2">
-      <a href="/register" class="btn-primary text-sm px-3.5 py-2">Commencer</a>
+    <div class="flex md:hidden items-center gap-1">
+      __LANG_SWITCH_LIGHT__
       <button type="button" aria-label="Menu"
               onclick="document.getElementById('mobileMenu').classList.toggle('hidden')"
               class="p-2 rounded-lg text-slate-600 hover:bg-slate-100">
@@ -175,6 +179,7 @@ def _landing_page(content: str, debug: bool = True) -> HTMLResponse:
       <a href="/#pricing" onclick="document.getElementById('mobileMenu').classList.add('hidden')" class="navlink py-3">Tarifs</a>
       <a href="/documentation" class="navlink py-3">Documentation</a>
       <a href="/login" class="navlink py-3">Connexion</a>
+      <a href="/register" class="btn-primary text-center text-sm my-3">Commencer</a>
     </div>
   </div>
 </nav>
@@ -202,11 +207,14 @@ def _dashboard_page(user, tenant, content: str, active: str = "dashboard", debug
 <body class="bg-slate-100 text-slate-800">
 <header class="md:hidden fixed top-0 inset-x-0 h-14 bg-slate-900 text-white flex items-center justify-between px-4 z-20">
   <a href="/dashboard" class="flex items-center gap-2 font-extrabold">{LOGO_SVG} MailHub</a>
-  <button type="button" aria-label="Menu"
-          onclick="document.getElementById('sidebar').classList.toggle('-translate-x-full');document.getElementById('sbOverlay').classList.toggle('hidden')"
-          class="p-2 rounded-lg hover:bg-white/10">
-    <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M4 7h16M4 12h16M4 17h16"/></svg>
-  </button>
+  <div class="flex items-center gap-1">
+    __LANG_SWITCH_HEADER__
+    <button type="button" aria-label="Menu"
+            onclick="document.getElementById('sidebar').classList.toggle('-translate-x-full');document.getElementById('sbOverlay').classList.toggle('hidden')"
+            class="p-2 rounded-lg hover:bg-white/10">
+      <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+  </div>
 </header>
 <div id="sbOverlay" class="hidden fixed inset-0 bg-black/50 z-20 md:hidden"
      onclick="document.getElementById('sidebar').classList.add('-translate-x-full');this.classList.add('hidden')"></div>
@@ -225,6 +233,7 @@ def _dashboard_page(user, tenant, content: str, active: str = "dashboard", debug
       <a href="/docs" class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-white/5 hover:text-white transition">{icons['docs']}Swagger</a>
     </nav>
     <div class="px-5 py-5 border-t border-white/10">
+      <div class="mb-4">__LANG_SWITCH_SIDEBAR__</div>
       <div class="flex items-center gap-3">
         <div class="w-9 h-9 rounded-full bg-brand-600 flex items-center justify-center text-sm font-bold uppercase">
           {user.email[0]}
@@ -240,9 +249,23 @@ def _dashboard_page(user, tenant, content: str, active: str = "dashboard", debug
       </a>
     </div>
   </aside>
-  <main class="md:ml-64 flex-1 min-w-0 pt-20 px-4 pb-8 sm:px-6 md:pt-8 md:px-8 lg:p-10">{content}</main>
+  <main class="sb-offset flex-1 min-w-0 pt-20 px-4 pb-8 sm:px-6 md:pt-8 md:px-8 lg:p-10">{content}</main>
 </div>
 </body></html>""")
+
+
+# =====================================================================
+# Changement de langue
+# =====================================================================
+
+@router.get("/lang/{code}")
+async def set_language(code: str, next_url: str = Query("/", alias="next")):
+    """Enregistre la langue choisie dans un cookie puis revient à la page d'origine."""
+    if code not in LANGUAGES:
+        code = DEFAULT_LANG
+    resp = RedirectResponse(safe_next(next_url), status_code=303)
+    resp.set_cookie(LANG_COOKIE, code, max_age=LANG_COOKIE_MAX_AGE, samesite="lax", path="/")
+    return resp
 
 
 # =====================================================================

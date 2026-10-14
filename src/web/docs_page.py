@@ -4,9 +4,10 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 
 from src.config import Settings, get_settings
+from src.web.i18n import I18nRoute
 from src.web.routes import _landing_page
 
-router = APIRouter(tags=["web"], include_in_schema=False)
+router = APIRouter(tags=["web"], include_in_schema=False, route_class=I18nRoute)
 
 
 def _code_block(code: str) -> str:
