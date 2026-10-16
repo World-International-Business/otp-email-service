@@ -3,6 +3,11 @@
 .env.*
 !.env.example
 
+# Secrets locaux (clés d'accès, ne jamais commiter)
+src/key
+key
+*.key
+
 # Python
 __pycache__/
 *.py[cod]
