@@ -109,6 +109,8 @@ class TenantCreateRequest(BaseModel):
     brand_name: str = Field(default="SendBID")
     from_email: EmailStr | None = None
     from_name: str | None = None
+    smtp_host: str | None = None
+    smtp_port: int | None = None
     smtp_user: str | None = None
     smtp_password: str | None = None
     risky_countries: list[str] = Field(default_factory=list)
@@ -132,6 +134,8 @@ class TenantUpdateRequest(BaseModel):
     brand_name: str | None = None
     from_email: EmailStr | None = None
     from_name: str | None = None
+    smtp_host: str | None = None
+    smtp_port: int | None = None
     smtp_user: str | None = None
     smtp_password: str | None = None
     risky_countries: list[str] | None = None

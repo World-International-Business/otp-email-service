@@ -18,6 +18,7 @@ Puis ouvre dans le navigateur :
 |-----|-------------|
 | `http://localhost:8001/` | Page d'accueil |
 | `http://localhost:8001/demo` | **Démo interactive** — teste envoi + vérification sans écrire de code |
+| `http://localhost:8001/admin` | **Espace admin** — gestion des tenants (login = `ADMIN_API_KEY`) |
 | `http://localhost:8001/docs` | Swagger UI |
 | `http://localhost:8001/redoc` | ReDoc |
 | `http://localhost:8001/health` | Healthcheck |
@@ -40,6 +41,8 @@ python examples/verify_otp.py req_xxxxxxxx 123456
 ## Multi-tenant
 
 L'API est **multi-tenant** : chaque application cliente a sa propre clé API, son secret HMAC, son branding et ses règles. Données isolées par tenant dans Redis.
+
+**Espace admin web** : `/admin` — connexion avec la valeur de `ADMIN_API_KEY`. Permet de créer des tenants (clés affichées une fois, compte dashboard client optionnel), modifier quotas/SMTp/purposes, activer/désactiver, et consulter le journal des interactions par tenant.
 
 **Créer un tenant** (clé admin `X-Admin-Key`) :
 

@@ -55,6 +55,8 @@ async def create_tenant(
         brand_name=payload.brand_name,
         from_email=str(payload.from_email) if payload.from_email else None,
         from_name=payload.from_name,
+        smtp_host=payload.smtp_host,
+        smtp_port=payload.smtp_port,
         smtp_user=payload.smtp_user,
         smtp_password=payload.smtp_password,
         risky_countries=[c.upper() for c in payload.risky_countries],

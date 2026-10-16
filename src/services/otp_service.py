@@ -11,6 +11,7 @@ from src.core.otp import OTPStore, verify_otp
 from src.core.security import hash_code, is_in_rollout
 from src.core.tenants import Tenant
 from src.email_providers.base import EmailProvider, SenderIdentity
+from src.services.events import log_event, mask_email
 from src.services.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,10 @@ class OTPService:
         include_debug_code: bool = False,
     ) -> OTPSendResponse:
         if purpose not in tenant.allowed_purposes:
+            await log_event(
+                self.redis, tenant, "otp_purpose_denied",
+                email=mask_email(email), purpose=purpose,
+            )
             raise HTTPException(
                 status_code=403,
                 detail=f"Purpose '{purpose}' is not allowed for this client",
@@ -78,6 +83,11 @@ class OTPService:
                     "country_code": country_code,
                 },
             )
+            await log_event(
+                self.redis, tenant, "otp_sms_fallback",
+                email=mask_email(email), country_code=country_code,
+                purpose=purpose,
+            )
             return OTPSendResponse(
                 channel=Channel.sms_fallback,
                 request_id="",
@@ -86,6 +96,11 @@ class OTPService:
 
         allowed, retry_after = await self._rate_limiter(tenant).can_send(user_id, client_ip)
         if not allowed:
+            await log_event(
+                self.redis, tenant, "otp_rate_limited",
+                email=mask_email(email), purpose=purpose,
+                retry_after=retry_after,
+            )
             raise HTTPException(
                 status_code=429,
                 detail="Too many OTP requests",
@@ -102,9 +117,18 @@ class OTPService:
 
         if not success:
             await store.delete(request_id)
+            await log_event(
+                self.redis, tenant, "otp_send_failed",
+                email=mask_email(email), purpose=purpose,
+            )
             raise HTTPException(status_code=502, detail="Failed to send email")
 
         await self._rate_limiter(tenant).record_send(user_id, client_ip)
+        await log_event(
+            self.redis, tenant, "otp_sent",
+            email=mask_email(email), purpose=purpose,
+            country_code=country_code, request_id=request_id,
+        )
         await self.redis.incr(f"{tenant.key_prefix()}stats:otps_sent")
 
         logger.info(
@@ -136,6 +160,12 @@ class OTPService:
         )
         if verified:
             await self.redis.incr(f"{tenant.key_prefix()}stats:otps_verified")
+
+        await log_event(
+            self.redis, tenant,
+            "otp_verified" if verified else "otp_verify_failed",
+            request_id=request_id, attempts_remaining=remaining,
+        )
 
         logger.info(
             "otp_verification_attempt",
