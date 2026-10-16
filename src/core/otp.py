@@ -18,7 +18,9 @@ class OTPStore:
     def _key(self, request_id: str) -> str:
         return f"{self.tenant.key_prefix()}otp:{request_id}"
 
-    async def create(self, user_id: str) -> tuple[str, str, str]:
+    async def create(
+        self, user_id: str, message_id: str | None = None
+    ) -> tuple[str, str, str]:
         """Crée un OTP et retourne (code, request_id, code_hash)."""
         code = generate_secure_code(6)
         request_id = generate_request_id()
@@ -27,6 +29,7 @@ class OTPStore:
         payload = {
             "code_hash": code_hash,
             "user_id_hash": hash_code(user_id),
+            "message_id": message_id,
             "attempts": 0,
             "verified": False,
             "created_at": datetime.now(timezone.utc).isoformat(),
@@ -56,6 +59,14 @@ class OTPStore:
             self.ttl,
             json.dumps(data),
         )
+
+    async def attach_message(self, request_id: str, message_id: str) -> None:
+        """Lie un message de notification à un OTP existant (traçabilité)."""
+        data = await self.get(request_id)
+        if data is None:
+            return
+        data["message_id"] = message_id
+        await self.redis.setex(self._key(request_id), self.ttl, json.dumps(data))
 
     async def delete(self, request_id: str) -> None:
         await self.redis.delete(self._key(request_id))

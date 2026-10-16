@@ -28,6 +28,7 @@ def _info(t: Tenant) -> TenantInfoResponse:
         from_email=t.from_email,
         rollout_percentage=t.rollout_percentage,
         allowed_purposes=t.allowed_purposes,
+        webhook_url=t.webhook_url,
         is_active=t.is_active,
     )
 
@@ -60,6 +61,7 @@ async def create_tenant(
         risky_countries=[c.upper() for c in payload.risky_countries],
         rollout_percentage=payload.rollout_percentage,
         allowed_purposes=payload.allowed_purposes,
+        webhook_url=payload.webhook_url,
         max_sends_per_user_per_10min=payload.max_sends_per_user_per_10min,
         max_sends_per_ip_per_10min=payload.max_sends_per_ip_per_10min,
         cooldown_seconds=payload.cooldown_seconds,

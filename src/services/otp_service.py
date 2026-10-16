@@ -6,11 +6,18 @@ from fastapi import HTTPException
 from redis.asyncio import Redis
 
 from src.config import Settings
-from src.core.models import Channel, Language, OTPSendResponse, OTPVerifyResponse
+from src.core.models import (
+    Channel,
+    Language,
+    NotificationChannel,
+    OTPSendResponse,
+    OTPVerifyResponse,
+)
 from src.core.otp import OTPStore, verify_otp
 from src.core.security import hash_code, is_in_rollout
+from src.core.templates import TemplateStore
 from src.core.tenants import Tenant
-from src.email_providers.base import EmailProvider, SenderIdentity
+from src.services.notification_service import NotificationService
 from src.services.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
@@ -21,27 +28,17 @@ class OTPService:
         self,
         redis: Redis,
         settings: Settings,
-        email_provider: EmailProvider,
+        notifications: NotificationService,
     ):
         self.redis = redis
         self.settings = settings
-        self.email_provider = email_provider
+        self.notifications = notifications
 
     def _store(self, tenant: Tenant) -> OTPStore:
         return OTPStore(self.redis, tenant)
 
     def _rate_limiter(self, tenant: Tenant) -> RateLimiter:
         return RateLimiter(self.redis, tenant)
-
-    def _sender(self, tenant: Tenant) -> SenderIdentity:
-        return SenderIdentity(
-            from_email=tenant.from_email or self.settings.from_email,
-            from_name=tenant.from_name or self.settings.from_name,
-            smtp_host=tenant.smtp_host or self.settings.smtp_host,
-            smtp_port=tenant.smtp_port or self.settings.smtp_port,
-            smtp_user=tenant.smtp_user or self.settings.smtp_user,
-            smtp_password=tenant.smtp_password or self.settings.smtp_password,
-        )
 
     def _choose_channel(self, tenant: Tenant, user_id: str, country_code: str) -> Channel:
         if country_code.upper() in {c.upper() for c in tenant.risky_countries}:
@@ -61,7 +58,8 @@ class OTPService:
         client_ip: str,
         include_debug_code: bool = False,
     ) -> OTPSendResponse:
-        if purpose not in tenant.allowed_purposes:
+        # Whitelist optionnelle : liste vide = provider agnostique
+        if tenant.allowed_purposes and purpose not in tenant.allowed_purposes:
             raise HTTPException(
                 status_code=403,
                 detail=f"Purpose '{purpose}' is not allowed for this client",
@@ -95,24 +93,32 @@ class OTPService:
         store = self._store(tenant)
         code, request_id, _code_hash = await store.create(user_id)
 
-        subject, text_body, html_body = self._render_email(code, language, tenant)
-        success = await self.email_provider.send_email(
-            email, subject, text_body, html_body, sender=self._sender(tenant)
-        )
+        subject, text_body, html_body = await self._render_email(code, language, tenant)
 
-        if not success:
-            await store.delete(request_id)
-            raise HTTPException(status_code=502, detail="Failed to send email")
+        # Envoi délégué au worker : la réponse ne dépend plus du provider SMTP.
+        # Le corps rendu (code inclus) ne transite que par la file, jamais
+        # persisté dans l'enregistrement de statut.
+        message_id = await self.notifications.submit(
+            tenant,
+            to=email,
+            channel=NotificationChannel.email,
+            subject=subject,
+            text=text_body,
+            html=html_body,
+            metadata={"purpose": purpose, "kind": "otp", "otp_request_id": request_id},
+        )
+        await store.attach_message(request_id, message_id)
 
         await self._rate_limiter(tenant).record_send(user_id, client_ip)
         await self.redis.incr(f"{tenant.key_prefix()}stats:otps_sent")
 
         logger.info(
-            "otp_email_sent",
+            "otp_queued",
             extra={
                 "tenant_id": tenant.tenant_id,
                 "user_id_hash": hash_code(user_id),
                 "request_id": request_id,
+                "message_id": message_id,
                 "country_code": country_code,
                 "purpose": purpose,
             },
@@ -122,6 +128,7 @@ class OTPService:
             channel=Channel.email,
             request_id=request_id,
             expires_in=tenant.otp_ttl_seconds,
+            message_id=message_id,
             debug_code=code if (include_debug_code and self.settings.debug) else None,
         )
 
@@ -150,12 +157,24 @@ class OTPService:
         return OTPVerifyResponse(verified=verified, attempts_remaining=remaining)
 
     # ------------------------------------------------------------------
-    # Templates — brand_name injecté par tenant
+    # Templates — surcharge tenant ("otp") sinon built-in par langue
     # ------------------------------------------------------------------
 
-    def _render_email(
+    async def _render_email(
         self, code: str, language: Language, tenant: Tenant
     ) -> tuple[str, str, str]:
+        rendered = await TemplateStore(self.redis, tenant).render(
+            "otp",
+            language.value,
+            {
+                "code": code,
+                "ttl_minutes": tenant.otp_ttl_seconds // 60,
+            },
+        )
+        if rendered is not None:
+            subject, text, html = rendered
+            return subject, text or "", html or ""
+
         brand = tenant.brand_name
         if language == Language.fr:
             subject = f"Votre code de vérification {brand}"

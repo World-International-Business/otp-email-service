@@ -1,5 +1,6 @@
 """Point d'entrée FastAPI."""
 
+import asyncio
 import logging
 import sys
 
@@ -9,12 +10,17 @@ from fastapi import FastAPI, HTTPException, status
 from pythonjsonlogger.jsonlogger import JsonFormatter
 
 from src.api.dependencies import get_email_provider, get_redis_client, get_settings
+from src.api.errors import register_error_handlers
 from src.api.middleware import JSONLogMiddleware
 from src.api.admin_routes import admin_router
+from src.api.notification_routes import notification_router
 from src.api.routes import email_router, router
 from src.core.tenants import seed_default_tenant
 from src.services.email_service import EmailService
+from src.services.notification_service import NotificationService
 from src.services.otp_service import OTPService
+from src.services.webhook_service import WebhookService
+from src.services.worker import NotificationWorker
 from src.web.docs_page import router as docs_router
 from src.web.routes import router as web_router
 
@@ -41,16 +47,33 @@ async def lifespan(app: FastAPI):
     await redis.ping()
 
     email_provider = get_email_provider(settings)
+    notification_service = NotificationService(redis, settings)
+    webhook_service = WebhookService(settings)
+    worker = NotificationWorker(
+        redis, settings, email_provider, notification_service, webhook_service
+    )
+
     app.state.settings = settings
     app.state.redis = redis
-    app.state.otp_service = OTPService(redis, settings, email_provider)
-    app.state.email_service = EmailService(redis, settings, email_provider)
+    app.state.notification_service = notification_service
+    app.state.webhook_service = webhook_service
+    app.state.otp_service = OTPService(redis, settings, notification_service)
+    app.state.email_service = EmailService(redis, settings, notification_service)
 
     # Tenant par défaut créé depuis les variables d'env (rétrocompatibilité)
     await seed_default_tenant(redis, settings)
 
+    # Worker asynchrone : envoi réel des notifications hors requête HTTP
+    worker_task = asyncio.create_task(worker.run())
+
     logging.getLogger(__name__).info("service_started", extra={"version": settings.app_version})
     yield
+
+    worker.stop()
+    try:
+        await asyncio.wait_for(asyncio.shield(worker_task), timeout=10)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        worker_task.cancel()
     await redis.close()
     logging.getLogger(__name__).info("service_stopped")
 
@@ -63,6 +86,9 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan,
 )
+
+register_error_handlers(app)
+
 
 @app.get("/health")
 async def health():
@@ -87,4 +113,5 @@ app.include_router(web_router)
 app.include_router(docs_router)
 app.include_router(router)
 app.include_router(email_router)
+app.include_router(notification_router)
 app.include_router(admin_router)

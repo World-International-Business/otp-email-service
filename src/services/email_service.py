@@ -1,16 +1,27 @@
-"""Service d'envoi d'emails transactionnels génériques — multi-tenant."""
+"""Service d'emails transactionnels — file d'attente + templates tenant.
+
+L'envoi est délégué au NotificationWorker : ce service ne fait que résoudre
+le contenu (template tenant > built-in > inline) puis enfiler le message.
+"""
 
 import logging
-import secrets
 
 from fastapi import HTTPException
 from redis.asyncio import Redis
 
 from src.config import Settings
-from src.core.models import EmailSendRequest, EmailSendResponse, EmailType, Language
+from src.core.models import (
+    EmailSendRequest,
+    EmailSendResponse,
+    EmailType,
+    Language,
+    MessageStatus,
+    NotificationChannel,
+)
 from src.core.security import hash_code
+from src.core.templates import TemplateStore, render_string
 from src.core.tenants import Tenant
-from src.email_providers.base import EmailProvider, SenderIdentity
+from src.services.notification_service import NotificationService
 
 logger = logging.getLogger(__name__)
 
@@ -22,54 +33,33 @@ class EmailService:
         self,
         redis: Redis,
         settings: Settings,
-        email_provider: EmailProvider,
+        notifications: NotificationService,
     ):
         self.redis = redis
         self.settings = settings
-        self.email_provider = email_provider
-
-    def _sender(self, tenant: Tenant) -> SenderIdentity:
-        return SenderIdentity(
-            from_email=tenant.from_email or self.settings.from_email,
-            from_name=tenant.from_name or self.settings.from_name,
-            smtp_host=tenant.smtp_host or self.settings.smtp_host,
-            smtp_port=tenant.smtp_port or self.settings.smtp_port,
-            smtp_user=tenant.smtp_user or self.settings.smtp_user,
-            smtp_password=tenant.smtp_password or self.settings.smtp_password,
-        )
+        self.notifications = notifications
 
     async def send(
         self, tenant: Tenant, request: EmailSendRequest
     ) -> EmailSendResponse:
-        """Envoie un email selon son type. Lève HTTPException en cas d'échec."""
-        subject, text_body, html_body = self._render(request, tenant)
+        """Accepte un email et le met en file d'attente (envoi asynchrone)."""
+        subject, text_body, html_body = await self._render(request, tenant)
 
-        message_id = f"msg_{secrets.token_urlsafe(16)}"
-
-        success = await self.email_provider.send_email(
-            to_email=request.to_email,
+        message_id = await self.notifications.submit(
+            tenant,
+            to=str(request.to_email),
+            channel=NotificationChannel.email,
             subject=subject,
-            text_body=text_body,
-            html_body=html_body,
-            sender=self._sender(tenant),
+            text=text_body,
+            html=html_body,
+            language=request.language.value,
+            metadata={"kind": "transactional_email", "email_type": request.type.value},
         )
 
-        if not success:
-            logger.error(
-                "email_send_failed",
-                extra={
-                    "tenant_id": tenant.tenant_id,
-                    "message_id": message_id,
-                    "type": request.type.value,
-                    "to_email_hash": hash_code(str(request.to_email)),
-                },
-            )
-            raise HTTPException(status_code=502, detail="Failed to send email")
-
-        await self.redis.incr(f"{tenant.key_prefix()}stats:emails_sent")
+        await self.redis.incr(f"{tenant.key_prefix()}stats:emails_queued")
 
         logger.info(
-            "email_sent",
+            "email_queued",
             extra={
                 "tenant_id": tenant.tenant_id,
                 "message_id": message_id,
@@ -81,18 +71,28 @@ class EmailService:
         return EmailSendResponse(
             sent=True,
             message_id=message_id,
-            to_email=request.to_email,
+            to_email=str(request.to_email),
+            status=MessageStatus.queued,
         )
 
     # ------------------------------------------------------------------
-    # Templates — brand_name injecté par tenant
+    # Templates — surcharge tenant (id = type) sinon built-in
     # ------------------------------------------------------------------
 
-    def _render(
+    async def _render(
         self, request: EmailSendRequest, tenant: Tenant
     ) -> tuple[str, str, str]:
         if request.type == EmailType.custom:
             return self._render_custom(request, tenant)
+
+        # Un template tenant portant le nom du type (welcome, notification…)
+        # surcharge le built-in.
+        rendered = await TemplateStore(self.redis, tenant).render(
+            request.type.value, request.language.value, request.data
+        )
+        if rendered is not None:
+            subject, text, html = rendered
+            return subject, text or "", html or ""
 
         builders = {
             EmailType.welcome: self._welcome,
@@ -109,12 +109,15 @@ class EmailService:
                 status_code=422,
                 detail="subject and text_body are required when type=custom",
             )
-        html = request.html_body or self._wrap_html(
-            request.subject,
-            request.text_body.replace("\n", "<br>"),
-            tenant.brand_name,
-        )
-        return request.subject, request.text_body, html
+        data = {"brand_name": tenant.brand_name, **request.data}
+        subject = render_string(request.subject, data) or ""
+        text_body = render_string(request.text_body, data) or ""
+        html = render_string(request.html_body, data) if request.html_body else None
+        if html is None:
+            html = self._wrap_html(
+                subject, text_body.replace("\n", "<br>"), tenant.brand_name
+            )
+        return subject, text_body, html
 
     def _welcome(
         self, request: EmailSendRequest, tenant: Tenant

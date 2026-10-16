@@ -26,6 +26,9 @@ class Settings(BaseSettings):
         default="admin_key_change_me_in_production_64chars_minimum_required_xx",
         min_length=32,
     )
+    # Clé de chiffrement des secrets tenant au repos (Fernet).
+    # Vide = dérivation depuis hmac_secret (OK en dev, déconseillé en prod).
+    encryption_key: str | None = None
 
     redis_url: str = "redis://localhost:6379/0"
     use_fakeredis: bool = False
@@ -54,6 +57,16 @@ class Settings(BaseSettings):
     cooldown_seconds: int = 60
     max_verify_attempts: int = 5
     otp_ttl_seconds: int = 300
+
+    # File d'attente de notifications + worker asynchrone
+    notification_queue: str = "queue:notifications"
+    message_ttl_seconds: int = 604800  # 7 jours de rétention des statuts
+    worker_max_attempts: int = 3
+    worker_poll_timeout_seconds: int = 5
+    worker_idle_sleep_seconds: float = 1.0
+
+    # Webhooks sortants (événements de statut vers les clients)
+    webhook_timeout_seconds: float = 5.0
 
     @field_validator("hmac_secret", mode="before")
     @classmethod

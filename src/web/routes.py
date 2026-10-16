@@ -584,7 +584,7 @@ async def register(
         api_key_hash=hash_api_key(api_key),
         hmac_secret=hmac_secret,
         brand_name=brand_name,
-        allowed_purposes=["login_2fa", "order_confirmation", "password_reset"],
+        allowed_purposes=[],  # agnostique : tous les purposes acceptés
         is_active=True,
     )
     await TenantStore(redis).create(tenant)
@@ -774,7 +774,7 @@ print(r.json())   # {{"verified":true,"attempts_remaining":0}}</pre>
 <div class="card p-4 sm:p-6">
   <h2 class="font-bold mb-4">Votre configuration</h2>
   <div class="grid md:grid-cols-2 gap-4 text-sm">
-    <div><p class="text-xs font-semibold text-slate-500">Purposes autorisés</p><p class="mt-1">{', '.join(f'<code>{p}</code>' for p in tenant.allowed_purposes)}</p></div>
+    <div><p class="text-xs font-semibold text-slate-500">Purposes autorisés</p><p class="mt-1">{', '.join(f'<code>{p}</code>' for p in tenant.allowed_purposes) if tenant.allowed_purposes else '<em>Tous (API agnostique)</em>'}</p></div>
     <div><p class="text-xs font-semibold text-slate-500">Rollout OTP</p><p class="font-semibold mt-1">{tenant.rollout_percentage} %</p></div>
     <div><p class="text-xs font-semibold text-slate-500">Pays en fallback SMS</p><p class="mt-1">{', '.join(tenant.risky_countries) or '—'}</p></div>
     <div><p class="text-xs font-semibold text-slate-500">Expiration OTP</p><p class="font-semibold mt-1">{tenant.otp_ttl_seconds} s</p></div>
@@ -818,20 +818,15 @@ async def dashboard_regenerate(request: Request):
     user = await _require_user(request)
     redis = request.app.state.redis
     store = TenantStore(redis)
-    tenant = await store.get(user.tenant_id)
-    if not tenant:
-        raise HTTPException(status_code=404, detail="Tenant introuvable")
 
-    # Nouvelle clé + secret ; on remplace l'ancien mapping de la clé
-    old_hash = tenant.api_key_hash
-    new_key = generate_api_key()
-    new_secret = generate_hmac_secret()
-    tenant.api_key_hash = hash_api_key(new_key)
-    tenant.hmac_secret = new_secret
-    await redis.set(f"tenant:{tenant.tenant_id}", tenant.model_dump_json())
-    await redis.delete(f"tenant:bykey:{old_hash}")
-    await redis.set(f"tenant:bykey:{tenant.api_key_hash}", tenant.tenant_id)
-    await redis.setex(f"webuser:creds:{tenant.tenant_id}", 86400, f"{new_key}|{new_secret}")
+    creds = await store.regenerate_credentials(user.tenant_id)
+    if creds is None:
+        raise HTTPException(status_code=404, detail="Tenant introuvable")
+    new_key, new_secret = creds
+
+    await redis.setex(
+        f"webuser:creds:{user.tenant_id}", 86400, f"{new_key}|{new_secret}"
+    )
     return RedirectResponse("/dashboard", status_code=303)
 
 

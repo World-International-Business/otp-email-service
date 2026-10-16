@@ -13,6 +13,10 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from src.core.crypto import SecretCipher, get_cipher
+
+_SECRET_FIELDS = ("smtp_password", "hmac_secret")
+
 
 class Tenant(BaseModel):
     tenant_id: str
@@ -28,7 +32,10 @@ class Tenant(BaseModel):
     smtp_password: str | None = None
     risky_countries: list[str] = Field(default_factory=list)
     rollout_percentage: int = Field(default=100, ge=0, le=100)
-    allowed_purposes: list[str] = Field(default_factory=lambda: ["login_2fa"])
+    # Whitelist OTP — liste vide = provider agnostique (tous purposes acceptés)
+    allowed_purposes: list[str] = Field(default_factory=list)
+    # Endpoint client notifié des changements de statut (webhook sortant signé HMAC)
+    webhook_url: str | None = None
     max_sends_per_user_per_10min: int = 3
     max_sends_per_ip_per_10min: int = 3
     cooldown_seconds: int = 60
@@ -61,8 +68,9 @@ class TenantStore:
       tenant:index                  -> set des tenant_id
     """
 
-    def __init__(self, redis):
+    def __init__(self, redis, cipher: SecretCipher | None = None):
         self.redis = redis
+        self.cipher = cipher or get_cipher()
 
     def _tenant_key(self, tenant_id: str) -> str:
         return f"tenant:{tenant_id}"
@@ -70,9 +78,25 @@ class TenantStore:
     def _bykey(self, api_key_hash: str) -> str:
         return f"tenant:bykey:{api_key_hash}"
 
+    def _dump(self, tenant: Tenant) -> str:
+        """Sérialise en chiffrant les champs sensibles."""
+        data = tenant.model_dump()
+        for field in _SECRET_FIELDS:
+            if data.get(field):
+                data[field] = self.cipher.encrypt(data[field])
+        return json.dumps(data)
+
+    def _load(self, raw: str) -> Tenant:
+        """Déchiffre les champs sensibles (rétrocompatible clair -> chiffré)."""
+        data = json.loads(raw)
+        for field in _SECRET_FIELDS:
+            if data.get(field):
+                data[field] = self.cipher.decrypt(data[field])
+        return Tenant.model_validate(data)
+
     async def create(self, tenant: Tenant) -> Tenant:
         pipe = self.redis.pipeline()
-        pipe.set(self._tenant_key(tenant.tenant_id), tenant.model_dump_json())
+        pipe.set(self._tenant_key(tenant.tenant_id), self._dump(tenant))
         pipe.set(self._bykey(tenant.api_key_hash), tenant.tenant_id)
         pipe.sadd("tenant:index", tenant.tenant_id)
         await pipe.execute()
@@ -82,7 +106,7 @@ class TenantStore:
         raw = await self.redis.get(self._tenant_key(tenant_id))
         if raw is None:
             return None
-        return Tenant.model_validate(json.loads(raw))
+        return self._load(raw)
 
     async def get_by_api_key(self, api_key: str) -> Tenant | None:
         api_key_hash = hash_api_key(api_key)
@@ -107,8 +131,29 @@ class TenantStore:
         data = tenant.model_dump()
         data.update({k: v for k, v in updates.items() if v is not None})
         updated = Tenant.model_validate(data)
-        await self.redis.set(self._tenant_key(tenant_id), updated.model_dump_json())
+        await self.redis.set(self._tenant_key(tenant_id), self._dump(updated))
         return updated
+
+    async def regenerate_credentials(
+        self, tenant_id: str
+    ) -> tuple[str, str] | None:
+        """Régénère api_key + hmac_secret. Retourne (api_key, hmac_secret)
+        en clair — à afficher UNE SEULE FOIS au client."""
+        tenant = await self.get(tenant_id)
+        if tenant is None:
+            return None
+        old_hash = tenant.api_key_hash
+        api_key = generate_api_key()
+        hmac_secret = generate_hmac_secret()
+        tenant.api_key_hash = hash_api_key(api_key)
+        tenant.hmac_secret = hmac_secret
+
+        pipe = self.redis.pipeline()
+        pipe.set(self._tenant_key(tenant_id), self._dump(tenant))
+        pipe.delete(self._bykey(old_hash))
+        pipe.set(self._bykey(tenant.api_key_hash), tenant_id)
+        await pipe.execute()
+        return api_key, hmac_secret
 
     async def deactivate(self, tenant_id: str) -> bool:
         updated = await self.update(tenant_id, {"is_active": False})
@@ -136,7 +181,7 @@ async def seed_default_tenant(redis, settings) -> Tenant:
         smtp_password=settings.smtp_password,
         risky_countries=sorted(settings.risky_countries_set),
         rollout_percentage=settings.rollout_percentage,
-        allowed_purposes=["login_2fa"],
+        allowed_purposes=[],
         max_sends_per_user_per_10min=settings.max_sends_per_user_per_10min,
         max_sends_per_ip_per_10min=settings.max_sends_per_ip_per_10min,
         cooldown_seconds=settings.cooldown_seconds,

@@ -3,7 +3,7 @@
 from enum import Enum
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 
 
 class Language(str, Enum):
@@ -14,6 +14,23 @@ class Language(str, Enum):
 class Channel(str, Enum):
     email = "email"
     sms_fallback = "sms_fallback"
+
+
+class NotificationChannel(str, Enum):
+    email = "email"
+    sms = "sms"    # réservé — non encore implémenté
+    push = "push"  # réservé — non encore implémenté
+
+
+class MessageStatus(str, Enum):
+    """Cycle de vie d'une notification, façon provider."""
+
+    queued = "queued"
+    processing = "processing"
+    sent = "sent"
+    delivered = "delivered"  # réservé : confirmé via callback provider
+    bounced = "bounced"      # réservé : confirmé via callback provider
+    failed = "failed"
 
 
 class OTPSendRequest(BaseModel):
@@ -36,6 +53,10 @@ class OTPSendResponse(BaseModel):
     channel: Channel
     request_id: str = Field(..., description="Identifiant unique de la tentative")
     expires_in: int = Field(..., description="Durée de validité en secondes")
+    message_id: str | None = Field(
+        default=None,
+        description="Identifiant du message en file d'attente (suivi via /v1/notifications/{id})",
+    )
     debug_code: str | None = Field(
         default=None,
         description="Code OTP en clair — DEBUG uniquement, jamais en production",
@@ -96,6 +117,119 @@ class EmailSendResponse(BaseModel):
     sent: bool
     message_id: str = Field(..., description="Identifiant de l'envoi")
     to_email: str = Field(..., description="Destinataire (masqué dans les logs)")
+    status: MessageStatus = Field(
+        default=MessageStatus.queued,
+        description="Statut du message dans le cycle de vie (queued au retour)",
+    )
+
+
+# ------------------------------------------------------------------
+# Notifications — API agnostique avec file d'attente (style Provider)
+# ------------------------------------------------------------------
+
+
+class NotificationRequest(BaseModel):
+    """Requête de notification agnostique — le provider ne connaît pas le métier.
+
+    Le client fournit soit un `template_id` (template stocké via /v1/templates),
+    soit un contenu inline (`subject` + `text`/`html`). Les variables `{{var}}`
+    sont rendues avec `data`.
+    """
+
+    channel: NotificationChannel = Field(
+        default=NotificationChannel.email, description="Canal de diffusion"
+    )
+    to: EmailStr = Field(..., description="Destinataire")
+    template_id: str | None = Field(
+        default=None,
+        description="ID d'un template tenant (via /v1/templates)",
+    )
+    subject: str | None = Field(
+        default=None, description="Sujet inline — requis sans template_id"
+    )
+    text: str | None = Field(
+        default=None, description="Corps texte inline — requis sans template_id"
+    )
+    html: str | None = Field(
+        default=None, description="Corps HTML inline (optionnel)"
+    )
+    data: dict = Field(
+        default_factory=dict,
+        description="Variables de rendu pour les placeholders {{var}}",
+    )
+    language: Language = Field(default=Language.en, description="Variante de langue")
+    metadata: dict = Field(
+        default_factory=dict,
+        description="Contexte client libre (purpose, order_id…) — renvoyé via webhooks",
+    )
+
+    @model_validator(mode="after")
+    def _content_or_template(self):
+        if not self.template_id and not (self.subject and self.text):
+            raise ValueError(
+                "subject and text are required when template_id is not provided"
+            )
+        return self
+
+
+class NotificationAcceptedResponse(BaseModel):
+    """Réponse 202 : la notification est acceptée et mise en file d'attente."""
+
+    message_id: str = Field(..., description="Identifiant du message (suivi)")
+    status: MessageStatus = Field(default=MessageStatus.queued)
+    channel: NotificationChannel
+    to: str
+
+
+class MessageStatusEvent(BaseModel):
+    status: MessageStatus
+    at: str = Field(..., description="Horodatage ISO-8601 UTC")
+    detail: str | None = None
+
+
+class MessageStatusResponse(BaseModel):
+    """État courant d'un message, consultable par le client."""
+
+    message_id: str
+    channel: NotificationChannel
+    to: str
+    subject: str | None
+    status: MessageStatus
+    attempts: int
+    metadata: dict
+    error: str | None
+    history: list[MessageStatusEvent]
+    created_at: str
+    updated_at: str
+
+
+# ------------------------------------------------------------------
+# Templates — stockés par tenant, rendus avec {{var}}
+# ------------------------------------------------------------------
+
+
+class TemplateVariant(BaseModel):
+    """Contenu d'un template pour une langue donnée."""
+
+    subject: str = Field(..., description="Sujet — supporte {{var}}")
+    text: str | None = Field(default=None, description="Corps texte — supporte {{var}}")
+    html: str | None = Field(default=None, description="Corps HTML — supporte {{var}}")
+
+
+class TemplateUpsertRequest(BaseModel):
+    variants: dict[str, TemplateVariant] = Field(
+        ...,
+        description="Variantes par langue : {'default': {...}, 'fr': {...}, 'en': {...}}",
+    )
+    description: str | None = None
+
+
+class TemplateResponse(BaseModel):
+    template_id: str
+    variants: dict[str, TemplateVariant]
+    description: str | None
+    created_at: str
+    updated_at: str
 
 
 # ------------------------------------------------------------------
@@ -113,7 +247,14 @@ class TenantCreateRequest(BaseModel):
     smtp_password: str | None = None
     risky_countries: list[str] = Field(default_factory=list)
     rollout_percentage: int = Field(default=100, ge=0, le=100)
-    allowed_purposes: list[str] = Field(default_factory=lambda: ["login_2fa"])
+    allowed_purposes: list[str] = Field(
+        default_factory=list,
+        description="Whitelist OTP — vide = agnostique (tous purposes acceptés)",
+    )
+    webhook_url: str | None = Field(
+        default=None,
+        description="URL du client recevant les événements de statut (POST signé HMAC)",
+    )
     max_sends_per_user_per_10min: int = 3
     max_sends_per_ip_per_10min: int = 3
     cooldown_seconds: int = 60
@@ -137,6 +278,7 @@ class TenantUpdateRequest(BaseModel):
     risky_countries: list[str] | None = None
     rollout_percentage: int | None = Field(default=None, ge=0, le=100)
     allowed_purposes: list[str] | None = None
+    webhook_url: str | None = None
     max_sends_per_user_per_10min: int | None = None
     max_sends_per_ip_per_10min: int | None = None
     cooldown_seconds: int | None = None
@@ -152,4 +294,5 @@ class TenantInfoResponse(BaseModel):
     from_email: str | None
     rollout_percentage: int
     allowed_purposes: list[str]
+    webhook_url: str | None
     is_active: bool

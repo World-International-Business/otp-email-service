@@ -65,8 +65,9 @@ async def verify_otp(
 @email_router.post(
     "/send",
     response_model=EmailSendResponse,
-    summary="Envoyer un email transactionnel",
-    response_description="message_id de l'envoi",
+    status_code=202,
+    summary="Envoyer un email transactionnel (asynchrone)",
+    response_description="message_id — suivi via GET /v1/notifications/{message_id}",
 )
 async def send_email(
     payload: EmailSendRequest,

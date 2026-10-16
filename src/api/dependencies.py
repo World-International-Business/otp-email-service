@@ -7,6 +7,7 @@ from src.config import Settings, get_settings
 from src.email_providers.base import EmailProvider
 from src.email_providers.gmail import GmailSMTPProvider
 from src.services.email_service import EmailService
+from src.services.notification_service import NotificationService
 from src.services.otp_service import OTPService
 
 _redis_client = None
@@ -51,6 +52,10 @@ def get_otp_service(request: Request) -> OTPService:
 
 def get_email_service(request: Request) -> EmailService:
     return request.app.state.email_service
+
+
+def get_notification_service(request: Request) -> NotificationService:
+    return request.app.state.notification_service
 
 
 def get_client_ip(request: Request) -> str:
