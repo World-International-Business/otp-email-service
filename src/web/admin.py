@@ -507,10 +507,16 @@ async def admin_edit_tenant(
     if tenant is None:
         raise HTTPException(status_code=404, detail="Tenant introuvable")
 
-    flash = (
-        '<p class="text-sm text-emerald-700 bg-emerald-50 rounded-lg p-3 mb-4">'
-        "Configuration enregistrée.</p>" if saved else ""
-    )
+    flash = ""
+    if saved:
+        flash = ('<p class="text-sm text-emerald-700 bg-emerald-50 rounded-lg p-3 mb-4">'
+                 "Configuration enregistrée.</p>")
+    elif request.query_params.get("account"):
+        flash = ('<p class="text-sm text-emerald-700 bg-emerald-50 rounded-lg p-3 mb-4">'
+                 "Compte dashboard créé — le client peut se connecter sur /login.</p>")
+    elif request.query_params.get("error") == "email":
+        flash = ('<p class="text-sm text-red-600 bg-red-50 rounded-lg p-3 mb-4">'
+                 "Cet email possède déjà un compte dashboard.</p>")
     info = f"""
 <div class="grid md:grid-cols-4 gap-4 mb-6 text-sm">
   <div class="card p-4"><p class="text-xs font-semibold text-slate-500">Statut</p>
@@ -536,8 +542,21 @@ async def admin_edit_tenant(
 </div>
 {flash}
 {info}
-<div class="card p-4 sm:p-6">
+<div class="card p-4 sm:p-6 mb-6">
   {_tenant_form(f'/admin/tenants/{_e(tenant_id)}', tenant, include_account=False)}
+</div>
+
+<div class="card p-4 sm:p-6">
+  <h2 class="font-bold mb-1">Compte dashboard du client</h2>
+  <p class="text-sm text-slate-500 mb-4">Crée un accès à <code>/dashboard</code> pour ce tenant —
+  le client y verra ses stats, configurera son SMTP et pourra régénérer ses clés.</p>
+  <form method="post" action="/admin/tenants/{_e(tenant_id)}/account" class="grid md:grid-cols-3 gap-4">
+    <div><label class="text-xs font-semibold text-slate-600">Email du client</label>
+    <input name="user_email" type="email" class="input mt-1" required placeholder="client@exemple.com"></div>
+    <div><label class="text-xs font-semibold text-slate-600">Mot de passe</label>
+    <input name="user_password" type="text" class="input mt-1" required minlength="8" placeholder="8 caractères min"></div>
+    <div class="flex items-end"><button class="btn-primary text-sm">Créer le compte</button></div>
+  </form>
 </div>"""
     return _admin_page(f"Tenant {tenant_id}", content)
 
@@ -597,6 +616,32 @@ async def admin_update_tenant(
     if tenant is None:
         raise HTTPException(status_code=404, detail="Tenant introuvable")
     return RedirectResponse(f"/admin/tenants/{tenant_id}?saved=1", status_code=303)
+
+
+@router.post("/tenants/{tenant_id}/account")
+async def admin_create_account(
+    tenant_id: str,
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    user_email: str = Form(...),
+    user_password: str = Form(...),
+):
+    """Crée un compte dashboard (webuser) lié à un tenant existant."""
+    await _require_admin(request, settings)
+    redis = request.app.state.redis
+    tenant = await TenantStore(redis).get(tenant_id)
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Tenant introuvable")
+    if len(user_password) < 8:
+        raise HTTPException(status_code=422, detail="Mot de passe trop court")
+
+    users = WebUserStore(redis)
+    if await users.get_by_email(user_email.strip()):
+        return RedirectResponse(
+            f"/admin/tenants/{tenant_id}?error=email", status_code=303
+        )
+    await users.create(user_email.strip(), user_password, tenant_id, tenant.name)
+    return RedirectResponse(f"/admin/tenants/{tenant_id}?account=1", status_code=303)
 
 
 @router.post("/tenants/{tenant_id}/toggle")
