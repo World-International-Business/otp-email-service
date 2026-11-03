@@ -12,7 +12,7 @@ from src.core.security import hash_code, is_in_rollout
 from src.core.tenants import Tenant
 from src.email_providers.base import EmailProvider, SenderIdentity
 from src.services.email_templates import otp_html
-from src.services.events import log_event, mask_email
+from src.services.events import incr_daily_stat, log_event, mask_email
 from src.services.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
@@ -131,6 +131,7 @@ class OTPService:
             country_code=country_code, request_id=request_id,
         )
         await self.redis.incr(f"{tenant.key_prefix()}stats:otps_sent")
+        await incr_daily_stat(self.redis, tenant, "otps_sent")
 
         logger.info(
             "otp_email_sent",
@@ -161,6 +162,7 @@ class OTPService:
         )
         if verified:
             await self.redis.incr(f"{tenant.key_prefix()}stats:otps_verified")
+            await incr_daily_stat(self.redis, tenant, "otps_verified")
 
         await log_event(
             self.redis, tenant,

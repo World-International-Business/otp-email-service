@@ -12,7 +12,7 @@ from src.core.security import hash_code
 from src.core.tenants import Tenant
 from src.email_providers.base import EmailProvider, SenderIdentity
 from src.services.email_templates import generic_html
-from src.services.events import log_event, mask_email
+from src.services.events import incr_daily_stat, log_event, mask_email
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +74,7 @@ class EmailService:
             raise HTTPException(status_code=502, detail="Failed to send email")
 
         await self.redis.incr(f"{tenant.key_prefix()}stats:emails_sent")
+        await incr_daily_stat(self.redis, tenant, "emails_sent")
         await log_event(
             self.redis, tenant, "email_sent",
             email=mask_email(str(request.to_email)),

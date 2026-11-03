@@ -717,6 +717,39 @@ async def dashboard(request: Request, settings: Settings = Depends(get_settings)
           <p class="text-3xl font-extrabold mt-1">{val}</p>
         </div>"""
 
+    # Graphique 7 derniers jours (OTP envoyés vs vérifiés)
+    from datetime import date, timedelta
+    days = [date.today() - timedelta(days=i) for i in range(6, -1, -1)]
+    series = {"otps_sent": [], "otps_verified": []}
+    for d in days:
+        for metric in series:
+            v = await redis.get(f"{tenant.key_prefix()}stats_daily:{metric}:{d.isoformat()}")
+            series[metric].append(int(v or 0))
+    max_v = max(max(series["otps_sent"], default=0), max(series["otps_verified"], default=0), 1)
+    bars = ""
+    for i, d in enumerate(days):
+        h_sent = int(series["otps_sent"][i] / max_v * 100)
+        h_ver = int(series["otps_verified"][i] / max_v * 100)
+        bars += f"""
+        <div class="flex-1 flex flex-col items-center gap-1.5">
+          <div class="w-full flex items-end justify-center gap-1 h-28">
+            <div class="w-4 rounded-t bg-gradient-to-t from-brand-500 to-violet-500" style="height:{max(h_sent,4) if series['otps_sent'][i] else 2}%" title="{series['otps_sent'][i]} envoyés"></div>
+            <div class="w-4 rounded-t bg-emerald-400" style="height:{max(h_ver,4) if series['otps_verified'][i] else 2}%" title="{series['otps_verified'][i]} vérifiés"></div>
+          </div>
+          <span class="text-[10px] text-slate-400">{d.strftime('%d/%m')}</span>
+        </div>"""
+    chart_html = f"""
+<div class="card p-4 sm:p-6 mb-6">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="font-bold">OTP — 7 derniers jours</h2>
+    <div class="flex gap-4 text-xs text-slate-500">
+      <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-brand-500"></span>Envoyés</span>
+      <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-emerald-400"></span>Vérifiés</span>
+    </div>
+  </div>
+  <div class="flex gap-2">{bars}</div>
+</div>"""
+
     # Activité récente (20 derniers événements du tenant)
     event_labels = {
         "otp_sent": ("OTP envoyé", "bg-brand-50 text-brand-700"),
@@ -758,6 +791,7 @@ async def dashboard(request: Request, settings: Settings = Depends(get_settings)
 
 <div class="grid md:grid-cols-3 gap-5 mb-8">{stats_cards}</div>
 
+{chart_html}
 {activity_html}
 
 <div class="card p-4 sm:p-6 mb-6">

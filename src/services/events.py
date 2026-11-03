@@ -34,3 +34,12 @@ async def get_events(redis, tenant: Tenant, limit: int = 50) -> list[dict]:
     """Retourne les `limit` derniers événements du tenant (plus récent d'abord)."""
     raw = await redis.lrange(f"{tenant.key_prefix()}events", 0, limit - 1)
     return [json.loads(e) for e in raw]
+
+
+async def incr_daily_stat(redis, tenant: Tenant, metric: str) -> None:
+    """Incrémente un compteur journalier : t:{id}:stats_daily:{metric}:{YYYY-MM-DD}."""
+    from datetime import date
+
+    key = f"{tenant.key_prefix()}stats_daily:{metric}:{date.today().isoformat()}"
+    await redis.incr(key)
+    await redis.expire(key, 60 * 60 * 24 * 31)  # 31 jours
