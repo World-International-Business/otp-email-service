@@ -18,6 +18,7 @@ from src.core.tenants import (
     hash_api_key,
 )
 from src.services.email_service import EmailService
+from src.services.events import get_events
 from src.services.otp_service import OTPService
 from src.web.i18n import (
     DEFAULT_LANG,
@@ -716,6 +717,39 @@ async def dashboard(request: Request, settings: Settings = Depends(get_settings)
           <p class="text-3xl font-extrabold mt-1">{val}</p>
         </div>"""
 
+    # Activité récente (20 derniers événements du tenant)
+    event_labels = {
+        "otp_sent": ("OTP envoyé", "bg-brand-50 text-brand-700"),
+        "otp_verified": ("OTP vérifié", "bg-emerald-100 text-emerald-700"),
+        "otp_verify_failed": ("Vérif. échouée", "bg-rose-100 text-rose-700"),
+        "otp_send_failed": ("Envoi OTP échoué", "bg-rose-100 text-rose-700"),
+        "otp_rate_limited": ("Rate limit", "bg-amber-100 text-amber-700"),
+        "otp_sms_fallback": ("Fallback SMS", "bg-violet-100 text-violet-700"),
+        "otp_purpose_denied": ("Purpose refusé", "bg-slate-200 text-slate-600"),
+        "email_sent": ("Email envoyé", "bg-emerald-100 text-emerald-700"),
+        "email_failed": ("Email échoué", "bg-rose-100 text-rose-700"),
+    }
+    events = await get_events(redis, tenant, limit=20)
+    if events:
+        rows = "".join(
+            f"""<tr class="hover:bg-slate-50 transition">
+              <td class="py-2.5 pr-3 whitespace-nowrap"><span class="badge {cls}">{lbl}</span></td>
+              <td class="py-2.5 pr-3 text-slate-500 text-xs whitespace-nowrap">{e.get('ts','')[11:19]} {e.get('ts','')[:10]}</td>
+              <td class="py-2.5 text-slate-600 text-xs truncate max-w-[220px]">{e.get('email') or e.get('request_id') or e.get('email_type') or '—'}</td>
+            </tr>"""
+            for e in events
+            for lbl, cls in [event_labels.get(e.get("type", ""), (e.get("type", "?"), "bg-slate-100 text-slate-600"))]
+        )
+        activity_html = f"""
+<div class="card p-4 sm:p-6 mb-6">
+  <h2 class="font-bold mb-4">Activité récente</h2>
+  <div class="overflow-x-auto"><table class="w-full text-sm">
+    <tbody class="divide-y divide-slate-100">{rows}</tbody>
+  </table></div>
+</div>"""
+    else:
+        activity_html = ""
+
     base_url = str(request.base_url).rstrip("/")
 
     content = f"""
@@ -723,6 +757,8 @@ async def dashboard(request: Request, settings: Settings = Depends(get_settings)
 <p class="text-sm text-slate-500 mb-8">Bienvenue {user.app_name} — voici votre espace API.</p>
 
 <div class="grid md:grid-cols-3 gap-5 mb-8">{stats_cards}</div>
+
+{activity_html}
 
 <div class="card p-4 sm:p-6 mb-6">
   <div class="flex items-center justify-between mb-2">
