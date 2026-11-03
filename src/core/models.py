@@ -30,6 +30,10 @@ class OTPSendRequest(BaseModel):
         description="Usage de l'OTP (ex: login_2fa, order_confirmation, password_reset)",
     )
     language: Language = Field(default=Language.en, description="Langue de l'email")
+    magic_link: bool = Field(
+        default=False,
+        description="Si true, l'email contient aussi un bouton 'vérifier en un clic'",
+    )
 
 
 class OTPSendResponse(BaseModel):

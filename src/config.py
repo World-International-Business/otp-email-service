@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     )
 
     redis_url: str = "redis://localhost:6379/0"
+    public_base_url: str = ""  # ex: https://mail.aiforge.world — pour les magic links
     use_fakeredis: bool = False
 
     # Inscription web publique

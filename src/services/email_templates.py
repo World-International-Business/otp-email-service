@@ -58,8 +58,8 @@ def email_layout(brand: str, content_html: str, preheader: str = "") -> str:
 </html>"""
 
 
-def otp_html(code: str, brand: str, language: str = "fr") -> str:
-    """Email OTP : code en grand, avertissement anti-partage."""
+def otp_html(code: str, brand: str, language: str = "fr", magic_url: str | None = None) -> str:
+    """Email OTP : code en grand, avertissement anti-partage, bouton magique optionnel."""
     c = _esc(code)
     if language == "en":
         title = "Your verification code"
@@ -81,11 +81,23 @@ def otp_html(code: str, brand: str, language: str = "fr") -> str:
         f'<td style="width:8px;"></td>'
         for d in c
     )
+    button = ""
+    if magic_url:
+        btn_label = "Verify with one click" if language == "en" else "Vérifier en un clic"
+        button = f"""
+      <div style="text-align:center; margin:0 0 24px;">
+        <a href="{_esc(magic_url)}" style="display:inline-block;
+           background:linear-gradient(135deg,#6366f1,#8b5cf6);
+           color:#fff; font-weight:700; font-size:15px; padding:13px 34px; border-radius:10px;
+           text-decoration:none;">{btn_label}</a>
+      </div>"""
+
     content = f"""
       <h1 style="margin:0 0 8px; font-size:22px; font-weight:800; color:#111827;">{title}</h1>
       <p style="margin:0 0 24px; color:#4b5563; font-size:15px; line-height:1.6;">{intro}</p>
       <table role="presentation" cellpadding="0" cellspacing="0"
              style="margin:0 auto 24px;"><tr>{digits}</tr></table>
+      {button}
       <p style="margin:0 0 6px; color:#6b7280; font-size:13px;">{validity}</p>
       <p style="margin:0; color:#dc2626; font-size:13px; font-weight:700;">{warning}</p>
     """

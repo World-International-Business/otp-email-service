@@ -62,6 +62,7 @@ class OTPService:
         language: Language,
         client_ip: str,
         include_debug_code: bool = False,
+        magic_link: bool = False,
     ) -> OTPSendResponse:
         if purpose not in tenant.allowed_purposes:
             await log_event(
@@ -111,7 +112,14 @@ class OTPService:
         store = self._store(tenant)
         code, request_id, _code_hash = await store.create(user_id)
 
-        subject, text_body, html_body = self._render_email(code, language, tenant)
+        magic_url = None
+        if magic_link and self.settings.public_base_url:
+            base = self.settings.public_base_url.rstrip("/")
+            from urllib.parse import urlencode
+            qs = urlencode({"request_id": request_id, "code": code})
+            magic_url = f"{base}/v1/otp/confirm?{qs}"
+
+        subject, text_body, html_body = self._render_email(code, language, tenant, magic_url)
         success = await self.email_provider.send_email(
             email, subject, text_body, html_body, sender=self._sender(tenant)
         )
@@ -187,7 +195,7 @@ class OTPService:
     # ------------------------------------------------------------------
 
     def _render_email(
-        self, code: str, language: Language, tenant: Tenant
+        self, code: str, language: Language, tenant: Tenant, magic_url: str | None = None
     ) -> tuple[str, str, str]:
         brand = tenant.brand_name
         lang = "fr" if language == Language.fr else "en"
@@ -197,7 +205,7 @@ class OTPService:
         else:
             subject = f"Your {brand} verification code"
             text_body = self._text_template_en(code, brand)
-        return subject, text_body, otp_html(code, brand, lang)
+        return subject, text_body, otp_html(code, brand, lang, magic_url)
 
     def _text_template_fr(self, code: str, brand: str) -> str:
         return (
