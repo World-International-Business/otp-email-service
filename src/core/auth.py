@@ -10,7 +10,7 @@ import hmac
 import time
 from typing import Callable
 
-from fastapi import Depends, Header, HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import APIKeyHeader
 
 from src.config import Settings, get_settings

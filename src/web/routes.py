@@ -19,7 +19,14 @@ from src.core.tenants import (
 )
 from src.services.email_service import EmailService
 from src.services.otp_service import OTPService
-from src.web.i18n import DEFAULT_LANG, LANG_COOKIE, LANG_COOKIE_MAX_AGE, LANGUAGES, I18nRoute, safe_next
+from src.web.i18n import (
+    DEFAULT_LANG,
+    LANG_COOKIE,
+    LANG_COOKIE_MAX_AGE,
+    LANGUAGES,
+    I18nRoute,
+    safe_next,
+)
 from src.web.users import SessionStore, WebUserStore
 
 router = APIRouter(tags=["web"], include_in_schema=False, route_class=I18nRoute)
@@ -541,6 +548,13 @@ def _auth_form(title: str, action: str, fields: str, link: str, debug: bool = Tr
 
 @router.get("/register", response_class=HTMLResponse)
 async def register_page(settings: Settings = Depends(get_settings)) -> HTMLResponse:
+    if not settings.web_signup_enabled:
+        raise HTTPException(status_code=404)
+    invite_field = ""
+    if settings.signup_invite_code:
+        invite_field = """
+      <div><label class="text-xs font-semibold text-slate-600">Code d'invitation</label>
+      <input name="invite_code" class="input mt-1" required></div>"""
     fields = """
       <div><label class="text-xs font-semibold text-slate-600">Nom de votre application</label>
       <input name="app_name" class="input mt-1" placeholder="Ma Boutique" required></div>
@@ -550,7 +564,7 @@ async def register_page(settings: Settings = Depends(get_settings)) -> HTMLRespo
       <input name="email" type="email" class="input mt-1" placeholder="vous@exemple.com" required></div>
       <div><label class="text-xs font-semibold text-slate-600">Mot de passe</label>
       <input name="password" type="password" class="input mt-1" minlength="8" required></div>
-    """
+    """ + invite_field
     link = 'Déjà un compte ? <a href="/login" class="text-indigo-600 font-semibold">Se connecter</a>'
     return _auth_form("Créer un compte", "/register", fields, link, debug=settings.debug)
 
@@ -618,13 +632,24 @@ async def login(
     request: Request,
     email: str = Form(...),
     password: str = Form(...),
+    settings: Settings = Depends(get_settings),
 ):
-    user = await WebUserStore(request.app.state.redis).authenticate(email, password)
+    # Anti brute-force : 5 tentatives / IP / 10 min
+    redis = request.app.state.redis
+    ip = request.client.host if request.client else "unknown"
+    rl_key = f"rl:login:{ip}"
+    if int(await redis.incr(rl_key) or 0) > settings.web_login_max_attempts:
+        await redis.expire(rl_key, 600)
+        raise HTTPException(status_code=429, detail="Too many attempts, retry later")
+    await redis.expire(rl_key, 600)
+
+    user = await WebUserStore(redis).authenticate(email, password)
     if not user:
         return _auth_form(
             "Connexion", "/login",
             '<p class="text-sm text-red-600">Email ou mot de passe incorrect.</p>',
             '<a href="/register" class="text-indigo-600">Créer un compte</a>',
+            debug=settings.debug,
         )
     token = await SessionStore(request.app.state.redis).create(user.user_id)
     resp = RedirectResponse("/dashboard", status_code=303)

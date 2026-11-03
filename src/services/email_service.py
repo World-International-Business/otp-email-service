@@ -11,6 +11,7 @@ from src.core.models import EmailSendRequest, EmailSendResponse, EmailType, Lang
 from src.core.security import hash_code
 from src.core.tenants import Tenant
 from src.email_providers.base import EmailProvider, SenderIdentity
+from src.services.email_templates import generic_html
 from src.services.events import log_event, mask_email
 
 logger = logging.getLogger(__name__)
@@ -190,15 +191,4 @@ class EmailService:
         return subject, text, html
 
     def _wrap_html(self, title: str, content_html: str, brand: str) -> str:
-        return f"""<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"><title>{title}</title></head>
-<body style="font-family: Arial, sans-serif; background:#f4f4f4; padding:20px;">
-  <div style="max-width:480px; margin:auto; background:#fff; border-radius:8px; padding:32px;">
-    <h2 style="color:#111; margin-top:0;">{title}</h2>
-    <p style="color:#333; line-height:1.6;">{content_html}</p>
-    <hr style="border:none; border-top:1px solid #eee; margin:24px 0;">
-    <p style="color:#999; font-size:12px;">{brand}</p>
-  </div>
-</body>
-</html>"""
+        return generic_html(title, content_html, brand)

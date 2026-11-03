@@ -282,7 +282,8 @@ async def admin_dashboard(
 
 def _tenant_form(action: str, t: Tenant | None, include_account: bool) -> str:
     """Formulaire de création/édition — valeurs préremplies si `t` fourni."""
-    g = lambda k, d="": _e(getattr(t, k, d) if t else d)
+    def g(k, d=""):
+        return _e(getattr(t, k, d) if t else d)
     risks = _e(",".join(t.risky_countries) if t else "")
     purposes = _e(",".join(t.allowed_purposes) if t else "login_2fa")
     smtp_pass = ""  # jamais prérempli

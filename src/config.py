@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     use_fakeredis: bool = False
 
+    # Inscription web publique
+    web_signup_enabled: bool = True
+    signup_invite_code: str | None = None  # si défini, requis à l'inscription
+    web_login_max_attempts: int = 5        # par IP / 10 min
+
     email_provider: str = "gmail"
     from_email: str
     from_name: str = "SendBID"

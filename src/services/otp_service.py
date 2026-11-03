@@ -11,6 +11,7 @@ from src.core.otp import OTPStore, verify_otp
 from src.core.security import hash_code, is_in_rollout
 from src.core.tenants import Tenant
 from src.email_providers.base import EmailProvider, SenderIdentity
+from src.services.email_templates import otp_html
 from src.services.events import log_event, mask_email
 from src.services.rate_limiter import RateLimiter
 
@@ -187,15 +188,14 @@ class OTPService:
         self, code: str, language: Language, tenant: Tenant
     ) -> tuple[str, str, str]:
         brand = tenant.brand_name
+        lang = "fr" if language == Language.fr else "en"
         if language == Language.fr:
             subject = f"Votre code de vérification {brand}"
             text_body = self._text_template_fr(code, brand)
-            html_body = self._html_template_fr(code, brand)
         else:
             subject = f"Your {brand} verification code"
             text_body = self._text_template_en(code, brand)
-            html_body = self._html_template_en(code, brand)
-        return subject, text_body, html_body
+        return subject, text_body, otp_html(code, brand, lang)
 
     def _text_template_fr(self, code: str, brand: str) -> str:
         return (
@@ -217,36 +217,4 @@ class OTPService:
             f"The {brand} Team"
         )
 
-    def _html_template_fr(self, code: str, brand: str) -> str:
-        return f"""<!DOCTYPE html>
-<html lang="fr">
-<head><meta charset="UTF-8"><title>Code {brand}</title></head>
-<body style="font-family: Arial, sans-serif; background:#f4f4f4; padding:20px;">
-  <div style="max-width:480px; margin:auto; background:#fff; border-radius:8px; padding:32px;">
-    <h2 style="color:#111;">Votre code de vérification</h2>
-    <p style="color:#333;">Utilisez ce code pour finaliser votre connexion :</p>
-    <div style="font-size:42px; font-weight:bold; letter-spacing:8px; color:#2d6cdf; margin:24px 0;">{code}</div>
-    <p style="color:#666; font-size:14px;">Ce code est valable 5 minutes.</p>
-    <p style="color:#c00; font-size:14px; font-weight:bold;">Ne partagez jamais ce code, même avec le support {brand}.</p>
-    <hr style="border:none; border-top:1px solid #eee; margin:24px 0;">
-    <p style="color:#999; font-size:12px;">{brand}</p>
-  </div>
-</body>
-</html>"""
-
-    def _html_template_en(self, code: str, brand: str) -> str:
-        return f"""<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><title>{brand} Code</title></head>
-<body style="font-family: Arial, sans-serif; background:#f4f4f4; padding:20px;">
-  <div style="max-width:480px; margin:auto; background:#fff; border-radius:8px; padding:32px;">
-    <h2 style="color:#111;">Your verification code</h2>
-    <p style="color:#333;">Use this code to complete your login:</p>
-    <div style="font-size:42px; font-weight:bold; letter-spacing:8px; color:#2d6cdf; margin:24px 0;">{code}</div>
-    <p style="color:#666; font-size:14px;">This code is valid for 5 minutes.</p>
-    <p style="color:#c00; font-size:14px; font-weight:bold;">Never share this code, even with {brand} support.</p>
-    <hr style="border:none; border-top:1px solid #eee; margin:24px 0;">
-    <p style="color:#999; font-size:12px;">{brand}</p>
-  </div>
-</body>
-</html>"""
+    # Les templates HTML partagés vivent dans src/services/email_templates.py
