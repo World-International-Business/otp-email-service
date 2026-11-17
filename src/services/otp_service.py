@@ -221,7 +221,10 @@ class OTPService:
             subject = f"Your {brand} verification code"
             text_body = self._text_template_en(code, brand, mins)
         return subject, text_body, otp_html(
-            code, brand, lang, magic_url, ttl_minutes=mins
+            code, brand, lang, magic_url, ttl_minutes=mins,
+            color=tenant.brand_color,
+            logo_url=tenant.email_logo_url,
+            footer=tenant.email_footer,
         )
 
     def _text_template_fr(self, code: str, brand: str, mins: int) -> str:

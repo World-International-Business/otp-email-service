@@ -29,6 +29,7 @@ from src.core.tenants import (
     plan_quota_updates,
 )
 from src.services.email_service import EmailService
+from src.services.email_templates import otp_html
 from src.services.events import get_events, mask_email
 from src.services.otp_service import OTPService
 from src.web.i18n import (
@@ -1012,34 +1013,37 @@ async def dashboard(
           <p class="text-3xl font-extrabold mt-1">{_e(val)}</p>
         </div>"""
 
-    # Graphique 7 derniers jours (OTP envoyés vs vérifiés)
+    # Graphique 7 derniers jours (OTP envoyés/vérifiés + emails transactionnels)
     from datetime import date, timedelta
     days = [date.today() - timedelta(days=i) for i in range(6, -1, -1)]
-    series = {"otps_sent": [], "otps_verified": []}
+    series = {"otps_sent": [], "otps_verified": [], "emails_sent": []}
     for d in days:
         for metric in series:
             v = await redis.get(f"{tenant.key_prefix()}stats_daily:{metric}:{d.isoformat()}")
             series[metric].append(int(v or 0))
-    max_v = max(max(series["otps_sent"], default=0), max(series["otps_verified"], default=0), 1)
+    max_v = max(*(max(v, default=0) for v in series.values()), 1)
     bars = ""
     for i, d in enumerate(days):
         h_sent = int(series["otps_sent"][i] / max_v * 100)
         h_ver = int(series["otps_verified"][i] / max_v * 100)
+        h_em = int(series["emails_sent"][i] / max_v * 100)
         bars += f"""
         <div class="flex-1 flex flex-col items-center gap-1.5">
           <div class="w-full flex items-end justify-center gap-1 h-28">
-            <div class="w-4 rounded-t bg-gradient-to-t from-brand-500 to-violet-500" style="height:{max(h_sent,4) if series['otps_sent'][i] else 2}%" title="{series['otps_sent'][i]} envoyés"></div>
-            <div class="w-4 rounded-t bg-emerald-400" style="height:{max(h_ver,4) if series['otps_verified'][i] else 2}%" title="{series['otps_verified'][i]} vérifiés"></div>
+            <div class="w-4 rounded-t bg-gradient-to-t from-brand-500 to-violet-500" style="height:{max(h_sent,4) if series['otps_sent'][i] else 2}%" title="{series['otps_sent'][i]} OTP envoyés"></div>
+            <div class="w-4 rounded-t bg-emerald-400" style="height:{max(h_ver,4) if series['otps_verified'][i] else 2}%" title="{series['otps_verified'][i]} OTP vérifiés"></div>
+            <div class="w-4 rounded-t bg-amber-400" style="height:{max(h_em,4) if series['emails_sent'][i] else 2}%" title="{series['emails_sent'][i]} emails envoyés"></div>
           </div>
           <span class="text-[10px] text-slate-400">{d.strftime('%d/%m')}</span>
         </div>"""
     chart_html = f"""
 <div class="card p-4 sm:p-6 mb-6">
-  <div class="flex items-center justify-between mb-4">
-    <h2 class="font-bold">OTP — 7 derniers jours</h2>
-    <div class="flex gap-4 text-xs text-slate-500">
-      <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-brand-500"></span>Envoyés</span>
-      <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-emerald-400"></span>Vérifiés</span>
+  <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+    <h2 class="font-bold">Envois — 7 derniers jours</h2>
+    <div class="flex flex-wrap gap-4 text-xs text-slate-500">
+      <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-brand-500"></span>OTP envoyés</span>
+      <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-emerald-400"></span>OTP vérifiés</span>
+      <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-amber-400"></span>Emails</span>
     </div>
   </div>
   <div class="flex gap-2">{bars}</div>
@@ -1173,6 +1177,27 @@ async def dashboard(
 </div>
 
 <div class="card p-4 sm:p-6 mb-6">
+  <h2 class="font-bold mb-1">Personnalisation des emails</h2>
+  <p class="text-sm text-slate-500 mb-4">Couleur, logo et pied de page appliqués à tous vos emails (OTP et transactionnels).</p>
+  <form method="post" action="/dashboard/branding" class="grid md:grid-cols-2 gap-4 mb-4">
+    <div><label class="text-xs font-semibold text-slate-600">Couleur de marque</label>
+    <div class="flex gap-2 mt-1">
+      <input name="brand_color" type="color" class="h-10 w-14 rounded-lg border border-slate-200 cursor-pointer" value="{_e(tenant.brand_color)}">
+      <input class="input flex-1" value="{_e(tenant.brand_color)}" readonly>
+    </div></div>
+    <div><label class="text-xs font-semibold text-slate-600">URL du logo (optionnel)</label>
+    <input name="email_logo_url" type="url" class="input mt-1" value="{_e(tenant.email_logo_url or '')}" placeholder="https://votresite.com/logo.png">
+    <p class="text-[11px] text-slate-400 mt-1">PNG/JPG, fond transparent conseillé, ~180×36 px.</p></div>
+    <div class="md:col-span-2"><label class="text-xs font-semibold text-slate-600">Pied de page personnalisé (optionnel)</label>
+    <input name="email_footer" class="input mt-1" value="{_e(tenant.email_footer or '')}" placeholder="Ex : © 2026 MaSociété — contact@maboite.com">
+    <p class="text-[11px] text-slate-400 mt-1">Vide = « Message automatique de VotreMarque — merci de ne pas répondre. »</p></div>
+    <div class="md:col-span-2"><button class="btn-primary">Sauvegarder le branding</button></div>
+  </form>
+  <p class="text-xs font-semibold text-slate-600 mb-2">Aperçu de votre email OTP :</p>
+  <iframe src="/dashboard/email-preview" class="w-full h-96 rounded-xl border border-slate-200 bg-white" title="Aperçu email"></iframe>
+</div>
+
+<div class="card p-4 sm:p-6 mb-6">
   <h2 class="font-bold mb-1">Intégrer l'API dans votre projet</h2>
   <p class="text-sm text-slate-500 mb-4">Chaque requête doit être signée : <code>HMAC-SHA256(body + timestamp, votre secret)</code>.</p>
   <div class="bg-slate-900 text-slate-100 rounded-lg p-5 text-xs overflow-auto font-mono">
@@ -1201,6 +1226,16 @@ r = requests.post(BASE_URL+"/v1/otp/verify", data=body, headers=sign(body))
 print(r.json())   # {{"verified":true,"attempts_remaining":0}}</pre>
   </div>
   <p class="text-xs text-slate-500 mt-3">Node.js / PHP / cURL : voir <a href="/docs" class="text-indigo-600 underline">la documentation Swagger</a>.</p>
+</div>
+
+<div class="card p-4 sm:p-6 mb-6">
+  <h2 class="font-bold mb-1">Contacter le support</h2>
+  <p class="text-sm text-slate-500 mb-4">Un problème, une question ? L'équipe admin vous répond.</p>
+  <form method="post" action="/dashboard/support" class="grid gap-3">
+    <input name="subject" class="input" placeholder="Sujet" maxlength="120" required>
+    <textarea name="message" class="input" rows="3" maxlength="2000" placeholder="Décrivez votre problème..." required></textarea>
+    <div><button class="btn-outline text-sm">Envoyer la demande</button></div>
+  </form>
 </div>
 
 <div class="card p-4 sm:p-6">
@@ -1258,6 +1293,87 @@ async def dashboard_config(
         updates["smtp_password"] = smtp_password.strip()
     await store.update(user.tenant_id, updates)
     return RedirectResponse("/dashboard", status_code=303)
+
+
+@router.post("/dashboard/branding")
+async def dashboard_branding(
+    request: Request,
+    brand_color: str = Form("#6366f1"),
+    email_logo_url: str = Form(""),
+    email_footer: str = Form(""),
+    _: None = Depends(require_same_origin),
+):
+    user = await _require_user(request)
+    color = brand_color.strip()
+    if not (
+        len(color) == 7
+        and color.startswith("#")
+        and all(c in "0123456789abcdefABCDEF" for c in color[1:])
+    ):
+        raise HTTPException(status_code=422, detail="Couleur invalide (format #rrggbb)")
+    logo = email_logo_url.strip()
+    if logo and not logo.startswith(("https://", "http://")):
+        raise HTTPException(status_code=422, detail="URL de logo invalide")
+    await TenantStore(request.app.state.redis).update(
+        user.tenant_id,
+        {
+            "brand_color": color,
+            "email_logo_url": logo or None,
+            "email_footer": email_footer.strip() or None,
+        },
+    )
+    return RedirectResponse("/dashboard", status_code=303)
+
+
+@router.post("/dashboard/support")
+async def dashboard_support(
+    request: Request,
+    subject: str = Form(...),
+    message: str = Form(...),
+    _: None = Depends(require_same_origin),
+):
+    user = await _require_user(request)
+    redis = request.app.state.redis
+    from datetime import datetime, timezone
+    req_id = f"sup_{uuid.uuid4().hex[:12]}"
+    await redis.set(
+        f"support:{req_id}",
+        json.dumps(
+            {
+                "id": req_id,
+                "tenant_id": user.tenant_id,
+                "email": user.email,
+                "app_name": user.app_name,
+                "subject": subject.strip()[:120],
+                "message": message.strip()[:2000],
+                "status": "open",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
+            ensure_ascii=False,
+        ),
+        ex=2592000,
+    )
+    await redis.lpush("support:open", req_id)
+    return RedirectResponse("/dashboard", status_code=303)
+
+
+@router.get("/dashboard/email-preview", response_class=HTMLResponse)
+async def dashboard_email_preview(request: Request):
+    user = await _require_user(request)
+    tenant = await TenantStore(request.app.state.redis).get(user.tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant introuvable")
+    return HTMLResponse(
+        otp_html(
+            "482915",
+            tenant.brand_name,
+            "fr",
+            ttl_minutes=max(1, round(tenant.otp_ttl_seconds / 60)),
+            color=tenant.brand_color,
+            logo_url=tenant.email_logo_url,
+            footer=tenant.email_footer,
+        )
+    )
 
 
 @router.post("/dashboard/regenerate-keys")

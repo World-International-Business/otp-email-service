@@ -12,6 +12,7 @@ Pages :
 
 import hmac
 import html
+import json
 import re
 import secrets
 
@@ -66,6 +67,7 @@ def _admin_page(title: str, content: str) -> HTMLResponse:
     <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
       <a href="/admin" class="text-slate-300 hover:text-white font-medium">Tenants</a>
       <a href="/admin/tenants/new" class="text-slate-300 hover:text-white font-medium">Nouveau tenant</a>
+      <a href="/admin/support" class="text-slate-300 hover:text-white font-medium">Support</a>
       <a href="/" class="text-slate-300 hover:text-white font-medium">Site</a>
       <form method="post" action="/admin/logout" class="inline">
         <button type="submit" class="text-rose-300 hover:text-rose-200 font-medium bg-transparent border-0 p-0 cursor-pointer text-sm">Déconnexion</button>
@@ -361,6 +363,12 @@ def _tenant_form(action: str, t: Tenant | None, include_account: bool) -> str:
   <input name="from_email" type="email" class="input mt-1" value="{g('from_email')}" placeholder="no-reply@client.com"></div>
   <div><label class="text-xs font-semibold text-slate-600">Nom expéditeur</label>
   <input name="from_name" class="input mt-1" value="{g('from_name')}"></div>
+  <div><label class="text-xs font-semibold text-slate-600">Couleur emails</label>
+  <input name="brand_color" type="color" class="mt-1 h-10 w-full rounded-lg border border-slate-200 cursor-pointer" value="{g('brand_color', '#6366f1')}"></div>
+  <div><label class="text-xs font-semibold text-slate-600">Logo emails (URL)</label>
+  <input name="email_logo_url" type="url" class="input mt-1" value="{g('email_logo_url')}" placeholder="https://…"></div>
+  <div class="md:col-span-2"><label class="text-xs font-semibold text-slate-600">Pied de page emails</label>
+  <input name="email_footer" class="input mt-1" value="{g('email_footer')}" placeholder="Vide = texte par défaut"></div>
 
   <h3 class="font-bold text-sm text-slate-700 md:col-span-2 mt-2">SMTP du client <span class="font-normal text-slate-400">(vide = config globale du serveur ; IONOS : smtp.ionos.fr:587)</span></h3>
   <div><label class="text-xs font-semibold text-slate-600">SMTP Host</label>
@@ -449,6 +457,9 @@ async def admin_create_tenant(
     brand_name: str = Form("SendBID"),
     from_email: str = Form(""),
     from_name: str = Form(""),
+    brand_color: str = Form("#6366f1"),
+    email_logo_url: str = Form(""),
+    email_footer: str = Form(""),
     smtp_host: str = Form(""),
     smtp_port: str = Form(""),
     smtp_user: str = Form(""),
@@ -493,6 +504,9 @@ async def admin_create_tenant(
         brand_name=brand_name.strip() or "SendBID",
         from_email=from_email.strip() or None,
         from_name=from_name.strip() or None,
+        brand_color=brand_color.strip() or "#6366f1",
+        email_logo_url=email_logo_url.strip() or None,
+        email_footer=email_footer.strip() or None,
         smtp_host=smtp_host.strip() or None,
         smtp_port=_int_or_none(smtp_port),
         smtp_user=smtp_user.strip() or None,
@@ -640,6 +654,9 @@ async def admin_update_tenant(
     brand_name: str = Form("SendBID"),
     from_email: str = Form(""),
     from_name: str = Form(""),
+    brand_color: str = Form("#6366f1"),
+    email_logo_url: str = Form(""),
+    email_footer: str = Form(""),
     smtp_host: str = Form(""),
     smtp_port: str = Form(""),
     smtp_user: str = Form(""),
@@ -667,6 +684,9 @@ async def admin_update_tenant(
         "brand_name": brand_name.strip() or "SendBID",
         "from_email": _opt(from_email),
         "from_name": _opt(from_name),
+        "brand_color": brand_color.strip() or "#6366f1",
+        "email_logo_url": _opt(email_logo_url),
+        "email_footer": _opt(email_footer),
         "smtp_host": _opt(smtp_host),
         "smtp_port": _int_or_none(smtp_port),
         "smtp_user": _opt(smtp_user),
@@ -731,3 +751,75 @@ async def admin_toggle_tenant(
         raise HTTPException(status_code=404, detail="Tenant introuvable")
     await store.update(tenant_id, {"is_active": not tenant.is_active})
     return RedirectResponse("/admin", status_code=303)
+
+
+# ---------------------------------------------------------------------
+# Boîte support — demandes envoyées par les clients depuis leur dashboard
+# ---------------------------------------------------------------------
+
+@router.get("/support", response_class=HTMLResponse)
+async def admin_support(
+    request: Request, settings: Settings = Depends(get_settings)
+) -> HTMLResponse:
+    await _require_admin(request, settings)
+    redis = request.app.state.redis
+    ids = await redis.lrange("support:open", 0, 99)
+    rows = ""
+    for rid in ids:
+        raw = await redis.get(f"support:{rid}")
+        if not raw:
+            continue
+        req = json.loads(raw)
+        rows += f"""<tr class="hover:bg-slate-50 transition align-top">
+  <td class="py-4 pl-5 pr-4">
+    <p class="font-bold">{html.escape(req['subject'])}</p>
+    <p class="text-xs text-slate-400 mt-0.5">{html.escape(req['app_name'])}
+    · {html.escape(req['email'])} · <code>{html.escape(req['tenant_id'])}</code></p>
+    <p class="text-sm text-slate-600 mt-2 whitespace-pre-line">{html.escape(req['message'])}</p>
+  </td>
+  <td class="py-4 pr-4 text-xs text-slate-500 whitespace-nowrap">
+    {html.escape(req['created_at'][:16].replace('T', ' '))} UTC
+  </td>
+  <td class="py-4 pr-5 text-right whitespace-nowrap">
+    <a href="/admin/tenants/{html.escape(req['tenant_id'])}" class="btn-outline text-xs mr-2">Voir le compte</a>
+    <form method="post" action="/admin/support/{html.escape(req['id'])}/resolve" class="inline">
+      <button class="text-xs font-semibold text-emerald-600 border border-emerald-200 rounded-lg px-3 py-1.5 hover:bg-emerald-50">Résolu</button>
+    </form>
+  </td>
+</tr>"""
+    empty = (
+        '<tr><td colspan="3" class="py-10 text-center text-slate-400 text-sm">'
+        "Aucune demande en cours.</td></tr>"
+        if not rows
+        else ""
+    )
+    content = f"""
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-extrabold">Demandes support</h1>
+  <span class="badge bg-indigo-100 text-indigo-700">{len(ids)} en attente</span>
+</div>
+<div class="card overflow-hidden">
+  <table class="w-full text-sm"><tbody class="divide-y divide-slate-100">
+  {rows}{empty}</tbody></table>
+</div>"""
+    return _admin_page("Support", content)
+
+
+@router.post("/support/{req_id}/resolve")
+async def admin_support_resolve(
+    req_id: str,
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    _: None = Depends(require_same_origin),
+):
+    await _require_admin(request, settings)
+    if not re.fullmatch(r"sup_[0-9a-f]{12}", req_id):
+        raise HTTPException(status_code=404, detail="Demande introuvable")
+    redis = request.app.state.redis
+    raw = await redis.get(f"support:{req_id}")
+    if raw:
+        req = json.loads(raw)
+        req["status"] = "resolved"
+        await redis.set(f"support:{req_id}", json.dumps(req), keepttl=True)
+    await redis.lrem("support:open", 0, req_id)
+    return RedirectResponse("/admin/support", status_code=303)
