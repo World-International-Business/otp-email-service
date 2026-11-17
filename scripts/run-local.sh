@@ -11,6 +11,10 @@
 cd "$(dirname "$0")/.."
 
 if [ -f .env ]; then
+    # Purger les variables héritées du shell qui écraseraient .env
+    unset USE_FAKEREDIS DEBUG DEMO_ENABLED EMAIL_PROVIDER FROM_EMAIL FROM_NAME \
+          SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASSWORD BREVO_API_KEY \
+          RESEND_API_KEY REDIS_URL PUBLIC_BASE_URL
     echo "============================================================"
     echo "  OTP Email Service — config chargée depuis .env"
     echo "  Interface : http://localhost:8001/"

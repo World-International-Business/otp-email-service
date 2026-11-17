@@ -1,12 +1,15 @@
 """Implémentation SMTP Gmail du provider d'email — supporte le sender par tenant."""
 
 import asyncio
+import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from src.config import Settings
 from src.email_providers.base import EmailProvider, SenderIdentity
+
+logger = logging.getLogger(__name__)
 
 
 class GmailSMTPProvider(EmailProvider):
@@ -45,7 +48,14 @@ class GmailSMTPProvider(EmailProvider):
                 from_email, to_email, msg.as_string(),
             )
             return True
-        except Exception:
+        except Exception as exc:
+            # Ne jamais logger smtp_password — le message d'erreur SMTP
+            # (ex. "535 Username and Password not accepted") suffit au diag.
+            logger.error(
+                "smtp_send_error",
+                extra={"smtp_host": smtp_host, "smtp_port": smtp_port,
+                       "error": str(exc)},
+            )
             return False
 
     @staticmethod
@@ -61,4 +71,8 @@ class GmailSMTPProvider(EmailProvider):
         with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
             server.starttls()
             server.login(smtp_user, smtp_password)
-            server.sendmail(from_email, [to_email], raw_message)
+            refused = server.sendmail(from_email, [to_email], raw_message)
+            if refused:
+                # sendmail() ne lève PAS d'exception sur RCPT refusé :
+                # il retourne {destinataire: (code, msg)}. Le traiter en erreur.
+                raise smtplib.SMTPRecipientsRefused(refused)

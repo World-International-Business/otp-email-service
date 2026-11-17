@@ -28,7 +28,7 @@ Linux/macOS : `bash scripts/run-local.sh`
 ## Tester sans navigateur
 
 ```bash
-# Envoyer un OTP (l'email s'affiche dans les logs du serveur)
+# Envoyer un OTP (l'email s'affiche dans les logs du serveur en mode console)
 python examples/send_otp.py test@example.com FR fr
 
 # Pays à risque → sms_fallback
@@ -37,6 +37,81 @@ python examples/send_otp.py test@example.com CN fr
 # Vérifier le code (visible dans les logs)
 python examples/verify_otp.py req_xxxxxxxx 123456
 ```
+
+## Envoyer de vrais emails en local
+
+Par défaut (`run-local` sans `.env`), les emails sont **simulés** : `sent: true`
+mais ils partent uniquement dans les logs du serveur (provider `console`).
+Pour recevoir de vrais emails dans une boîte mail :
+
+### 1. Créer `.env`
+
+```bash
+cp .env.example .env   # Windows : copy .env.example .env
+```
+
+### 2. Configurer le compte expéditeur Gmail
+
+`SMTP_USER`/`SMTP_PASSWORD` = le compte qui **envoie** ; les destinataires
+peuvent être n'importe quelle adresse. `SMTP_PASSWORD` n'est **pas** le mot
+de passe Google normal — il faut un **mot de passe d'application** :
+
+1. Activer la **validation en 2 étapes** sur le compte Gmail (obligatoire)
+2. `myaccount.google.com` → **Sécurité** → **Mots de passe des applications**
+   (ou taper « mots de passe des applications » dans la recherche du compte)
+3. Générer → copier les **16 caractères** (affiché une seule fois, avec ou
+   sans espaces — les deux fonctionnent)
+4. Coller dans `.env` :
+
+```ini
+EMAIL_PROVIDER=gmail
+SMTP_USER=mon.adresse@gmail.com
+SMTP_PASSWORD=abcdefghijklmnop
+FROM_EMAIL=mon.adresse@gmail.com
+FROM_NAME=MonApp
+DEBUG=false            # le code OTP n'apparaît plus dans /demo — boîte mail uniquement
+DEMO_ENABLED=true      # garde /demo accessible en local
+USE_FAKEREDIS=true
+```
+
+### 3. Tester les credentials AVANT de lancer le serveur
+
+```bash
+venv\Scripts\python scripts\test-smtp.py            # auto-test (envoie à soi-même)
+venv\Scripts\python scripts\test-smtp.py autre@x.com  # vers un autre destinataire
+```
+
+Affiche le dialogue SMTP complet. `Gmail a ACCEPTÉ le message` = credentials OK.
+`AUTH REFUSÉE` = mauvais mot de passe d'application ou 2FA non activée.
+
+### 4. Relancer
+
+```bash
+scripts\run-local.bat   # affiche "config chargée depuis .env"
+```
+
+Les envois prennent ~2 s (vrai SMTP, normal). Le code OTP arrive dans la
+boîte du destinataire — **regarder aussi "Messages envoyés" du compte
+expéditeur et le dossier Spam du destinataire**.
+
+### Alternatives à Gmail
+
+- **Resend** : `EMAIL_PROVIDER=resend` + `RESEND_API_KEY` — tier gratuit
+  (envoi vers l'adresse du compte uniquement sans domaine vérifié)
+- **Brevo** : `EMAIL_PROVIDER=brevo` + `BREVO_API_KEY` — 300 emails/jour,
+  expéditeur à vérifier
+- **Par tenant** : chaque client peut connecter son propre compte email
+  (SMTP ou domaine) dans `/dashboard/config` — ses envois passent par
+  son compte au lieu du global
+
+### Dépannage envois
+
+| Symptôme | Cause | Solution |
+|----------|-------|----------|
+| `sent:true` instantané (~5 ms), rien reçu | Provider `console` actif | `.env` absent ou `EMAIL_PROVIDER` hérité du shell — relancer via `run-local` (purge les variables héritées) |
+| `502 Failed to send email` + `smtp_send_error ... Connection unexpectedly closed` | Mot de passe placeholder/invalide | Mot de passe d'application requis |
+| `smtp_send_error ... 535 Username and Password not accepted` | Mot de passe normal au lieu d'app password, ou 2FA absente | Activer la 2FA puis régénérer un app password |
+| `sent:true` ~2 s mais rien reçu | Gmail a accepté, livraison retardée/spam | Vérifier "Messages envoyés" de l'expéditeur + Spam du destinataire |
 
 ## Multi-tenant
 
@@ -98,9 +173,9 @@ Réponse : `api_key` + `hmac_secret` à donner au client **une seule fois**.
 | | Test local | Production |
 |---|---|---|
 | Redis | `USE_FAKEREDIS=true` (en mémoire) | `redis://...` réel |
-| Email | `EMAIL_PROVIDER=console` (logs) | `EMAIL_PROVIDER=gmail` |
+| Email | `EMAIL_PROVIDER=console` (logs) ou réel via `.env` | `EMAIL_PROVIDER=gmail` (ou brevo/resend) |
 | Démo `/demo` | `DEMO_ENABLED=true` (endpoints non authentifiés) | **`DEMO_ENABLED=false` obligatoire** |
-| `.env` | Valeurs dans `run-local.bat` | Fichier `.env` (copier `.env.example`) |
+| `.env` | `run-local` utilise `.env` s'il existe, sinon mode démo rapide | Fichier `.env` (copier `.env.example`) |
 
 ## Déploiement
 
@@ -146,4 +221,6 @@ src/
 └── web/routes.py            # pages /, /demo (DEMO_ENABLED uniquement)
 ```
 
-Docs complètes dans `docs/` : architecture, code, déploiement, intégration Django.
+Docs complètes dans `docs/` : architecture, code, déploiement, intégration Django,
+**`docs/08-emails-reels.md`** (guide complet envoi réel : Gmail app password,
+Brevo/Resend, dépannage livraison).
