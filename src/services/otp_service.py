@@ -96,7 +96,7 @@ class OTPService:
                 expires_in=0,
             )
 
-        allowed, retry_after = await self._rate_limiter(tenant).can_send(user_id, client_ip)
+        allowed, retry_after = await self._rate_limiter(tenant).try_send(user_id, client_ip)
         if not allowed:
             await log_event(
                 self.redis, tenant, "otp_rate_limited",
@@ -116,7 +116,9 @@ class OTPService:
         if magic_link and self.settings.public_base_url:
             base = self.settings.public_base_url.rstrip("/")
             from urllib.parse import urlencode
-            qs = urlencode({"request_id": request_id, "code": code})
+            qs = urlencode(
+                {"request_id": request_id, "code": code, "t": tenant.tenant_id}
+            )
             magic_url = f"{base}/v1/otp/confirm?{qs}"
 
         subject, text_body, html_body = self._render_email(code, language, tenant, magic_url)
@@ -126,13 +128,13 @@ class OTPService:
 
         if not success:
             await store.delete(request_id)
+            await self._rate_limiter(tenant).release_send(user_id, client_ip)
             await log_event(
                 self.redis, tenant, "otp_send_failed",
                 email=mask_email(email), purpose=purpose,
             )
             raise HTTPException(status_code=502, detail="Failed to send email")
 
-        await self._rate_limiter(tenant).record_send(user_id, client_ip)
         await log_event(
             self.redis, tenant, "otp_sent",
             email=mask_email(email), purpose=purpose,
@@ -199,30 +201,33 @@ class OTPService:
     ) -> tuple[str, str, str]:
         brand = tenant.brand_name
         lang = "fr" if language == Language.fr else "en"
+        mins = max(1, round(tenant.otp_ttl_seconds / 60))
         if language == Language.fr:
             subject = f"Votre code de vérification {brand}"
-            text_body = self._text_template_fr(code, brand)
+            text_body = self._text_template_fr(code, brand, mins)
         else:
             subject = f"Your {brand} verification code"
-            text_body = self._text_template_en(code, brand)
-        return subject, text_body, otp_html(code, brand, lang, magic_url)
+            text_body = self._text_template_en(code, brand, mins)
+        return subject, text_body, otp_html(
+            code, brand, lang, magic_url, ttl_minutes=mins
+        )
 
-    def _text_template_fr(self, code: str, brand: str) -> str:
+    def _text_template_fr(self, code: str, brand: str, mins: int) -> str:
         return (
             "Bonjour,\n\n"
             f"Voici votre code de vérification {brand} :\n\n"
             f"{code}\n\n"
-            "Ce code est valable 5 minutes.\n"
+            f"Ce code est valable {mins} {'minute' if mins == 1 else 'minutes'}.\n"
             f"Ne partagez jamais ce code, même avec le support {brand}.\n\n"
             f"L'équipe {brand}"
         )
 
-    def _text_template_en(self, code: str, brand: str) -> str:
+    def _text_template_en(self, code: str, brand: str, mins: int) -> str:
         return (
             "Hello,\n\n"
             f"Here is your {brand} verification code:\n\n"
             f"{code}\n\n"
-            "This code is valid for 5 minutes.\n"
+            f"This code is valid for {mins} {'minute' if mins == 1 else 'minutes'}.\n"
             f"Never share this code, even with {brand} support.\n\n"
             f"The {brand} Team"
         )

@@ -1,5 +1,7 @@
 """Interface web de la plateforme — landing, auth, dashboard, démo."""
 
+import hmac
+import html
 import logging
 import uuid
 
@@ -7,7 +9,12 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, EmailStr
 
-from src.api.dependencies import get_email_service, get_otp_service
+from src.api.dependencies import (
+    get_client_ip,
+    get_email_service,
+    get_otp_service,
+    require_same_origin,
+)
 from src.config import Settings, get_settings
 from src.core.models import EmailSendRequest, EmailType, Language
 from src.core.tenants import (
@@ -32,6 +39,11 @@ from src.web.users import SessionStore, WebUserStore
 
 router = APIRouter(tags=["web"], include_in_schema=False, route_class=I18nRoute)
 logger = logging.getLogger(__name__)
+
+
+def _e(value) -> str:
+    """Échappe une valeur avant injection dans le HTML (anti-XSS)."""
+    return html.escape(str(value), quote=True)
 
 
 # =====================================================================
@@ -155,7 +167,7 @@ def _footer() -> str:
 </footer>"""
 
 
-def _landing_page(content: str, debug: bool = True) -> HTMLResponse:
+def _landing_page(content: str) -> HTMLResponse:
     return HTMLResponse(f"""{_head("Accueil")}
 <body class="bg-slate-50 text-slate-800">
 <nav class="bg-white/90 backdrop-blur border-b border-slate-200 sticky top-0 z-20">
@@ -244,11 +256,11 @@ def _dashboard_page(user, tenant, content: str, active: str = "dashboard", debug
       <div class="mb-4">__LANG_SWITCH_SIDEBAR__</div>
       <div class="flex items-center gap-3">
         <div class="w-9 h-9 rounded-full bg-brand-600 flex items-center justify-center text-sm font-bold uppercase">
-          {user.email[0]}
+          {_e(user.email[0])}
         </div>
         <div class="min-w-0">
-          <p class="text-xs font-semibold text-slate-200 truncate">{user.email}</p>
-          <p class="text-[11px] text-slate-500 truncate">{tenant.brand_name}</p>
+          <p class="text-xs font-semibold text-slate-200 truncate">{_e(user.email)}</p>
+          <p class="text-[11px] text-slate-500 truncate">{_e(tenant.brand_name)}</p>
         </div>
       </div>
       <a href="/logout" class="mt-4 inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition">
@@ -409,7 +421,7 @@ async def home(settings: Settings = Depends(get_settings)) -> HTMLResponse:
         </p>
         <div class="mt-9 flex flex-col sm:flex-row gap-4 fade-up fade-up-3">
           <a href="/register" class="btn-primary text-base px-8 py-3.5 text-center">Créer un compte gratuit</a>
-          {'<a href="/demo" class="btn-ghost text-base text-center">Essayer la console</a>' if settings.debug else '<a href="/docs" class="btn-ghost text-base text-center">Documentation API</a>'}
+          {'<a href="/demo" class="btn-ghost text-base text-center">Essayer la console</a>' if settings.demo_enabled else '<a href="/docs" class="btn-ghost text-base text-center">Documentation API</a>'}
         </div>
         <div class="mt-10 flex flex-wrap gap-x-7 gap-y-2 text-xs text-slate-400 fade-up fade-up-3">
           <span class="inline-flex items-center gap-1.5"><span class="text-emerald-400">✓</span> Sans carte bancaire</span>
@@ -520,10 +532,10 @@ async def home(settings: Settings = Depends(get_settings)) -> HTMLResponse:
   </div>
 </section>
 """
-    return _landing_page(content, debug=settings.debug)
+    return _landing_page(content)
 
 
-def _auth_form(title: str, action: str, fields: str, link: str, debug: bool = True) -> HTMLResponse:
+def _auth_form(title: str, action: str, fields: str, link: str) -> HTMLResponse:
     return _landing_page(f"""
 <div class="min-h-[80vh] flex items-center justify-center px-4 sm:px-6 py-10 sm:py-16">
   <div class="w-full max-w-md fade-up">
@@ -544,7 +556,7 @@ def _auth_form(title: str, action: str, fields: str, link: str, debug: bool = Tr
     </p>
   </div>
 </div>
-""", debug=debug)
+""")
 
 
 @router.get("/register", response_class=HTMLResponse)
@@ -567,7 +579,7 @@ async def register_page(settings: Settings = Depends(get_settings)) -> HTMLRespo
       <input name="password" type="password" class="input mt-1" minlength="8" required></div>
     """ + invite_field
     link = 'Déjà un compte ? <a href="/login" class="text-indigo-600 font-semibold">Se connecter</a>'
-    return _auth_form("Créer un compte", "/register", fields, link, debug=settings.debug)
+    return _auth_form("Créer un compte", "/register", fields, link)
 
 
 
@@ -579,7 +591,34 @@ async def register(
     brand_name: str = Form(...),
     email: str = Form(...),
     password: str = Form(...),
+    invite_code: str = Form(""),
+    settings: Settings = Depends(get_settings),
+    _: None = Depends(require_same_origin),
 ):
+    if not settings.web_signup_enabled:
+        raise HTTPException(status_code=404)
+    if settings.signup_invite_code and not hmac.compare_digest(
+        invite_code.encode("utf-8", "ignore"),
+        settings.signup_invite_code.encode(),
+    ):
+        return _auth_form(
+            "Créer un compte", "/register",
+            '<p class="text-sm text-red-600">Code d\'invitation invalide.</p>',
+            '<a href="/login" class="text-indigo-600">Se connecter</a>',
+        )
+    if len(password) < 8:
+        return _auth_form(
+            "Créer un compte", "/register",
+            '<p class="text-sm text-red-600">Le mot de passe doit contenir au moins 8 caractères.</p>',
+            '<a href="/login" class="text-indigo-600">Se connecter</a>',
+        )
+    if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
+        return _auth_form(
+            "Créer un compte", "/register",
+            '<p class="text-sm text-red-600">Adresse email invalide.</p>',
+            '<a href="/login" class="text-indigo-600">Se connecter</a>',
+        )
+
     redis = request.app.state.redis
     users = WebUserStore(redis)
     if await users.get_by_email(email):
@@ -606,18 +645,21 @@ async def register(
 
     # Stocker les credentials en clair temporairement pour les afficher
     # une fois dans le dashboard (puis régénérables)
-    await redis.setex(f"webuser:creds:{tenant_id}", 86400, f"{api_key}|{hmac_secret}")
+    await redis.set(f"webuser:creds:{tenant_id}", f"{api_key}|{hmac_secret}", ex=86400)
 
     user = await users.create(email, password, tenant_id, app_name)
     token = await SessionStore(redis).create(user.user_id)
 
     resp = RedirectResponse("/dashboard", status_code=303)
-    resp.set_cookie("session_id", token, httponly=True, samesite="lax")
+    resp.set_cookie(
+        "session_id", token, httponly=True, samesite="lax",
+        secure=str(settings.public_base_url).startswith("https://"),
+    )
     return resp
 
 
 @router.get("/login", response_class=HTMLResponse)
-async def login_page(settings: Settings = Depends(get_settings)) -> HTMLResponse:
+async def login_page() -> HTMLResponse:
     fields = """
       <div><label class="text-xs font-semibold text-slate-600">Email</label>
       <input name="email" type="email" class="input mt-1" required></div>
@@ -625,7 +667,7 @@ async def login_page(settings: Settings = Depends(get_settings)) -> HTMLResponse
       <input name="password" type="password" class="input mt-1" required></div>
     """
     link = 'Pas de compte ? <a href="/register" class="text-indigo-600 font-semibold">Créer un compte</a>'
-    return _auth_form("Connexion", "/login", fields, link, debug=settings.debug)
+    return _auth_form("Connexion", "/login", fields, link)
 
 
 @router.post("/login")
@@ -634,15 +676,17 @@ async def login(
     email: str = Form(...),
     password: str = Form(...),
     settings: Settings = Depends(get_settings),
+    _: None = Depends(require_same_origin),
 ):
     # Anti brute-force : 5 tentatives / IP / 10 min
     redis = request.app.state.redis
-    ip = request.client.host if request.client else "unknown"
+    ip = get_client_ip(request)
     rl_key = f"rl:login:{ip}"
-    if int(await redis.incr(rl_key) or 0) > settings.web_login_max_attempts:
+    attempts = await redis.incr(rl_key)
+    if attempts == 1:
         await redis.expire(rl_key, 600)
+    if attempts > settings.web_login_max_attempts:
         raise HTTPException(status_code=429, detail="Too many attempts, retry later")
-    await redis.expire(rl_key, 600)
 
     user = await WebUserStore(redis).authenticate(email, password)
     if not user:
@@ -650,11 +694,13 @@ async def login(
             "Connexion", "/login",
             '<p class="text-sm text-red-600">Email ou mot de passe incorrect.</p>',
             '<a href="/register" class="text-indigo-600">Créer un compte</a>',
-            debug=settings.debug,
         )
     token = await SessionStore(request.app.state.redis).create(user.user_id)
     resp = RedirectResponse("/dashboard", status_code=303)
-    resp.set_cookie("session_id", token, httponly=True, samesite="lax")
+    resp.set_cookie(
+        "session_id", token, httponly=True, samesite="lax",
+        secure=str(settings.public_base_url).startswith("https://"),
+    )
     return resp
 
 
@@ -683,7 +729,7 @@ async def dashboard(request: Request, settings: Settings = Depends(get_settings)
     # Credentials (affichés si encore en cache — sinon régénérables)
     creds = await redis.get(f"webuser:creds:{tenant.tenant_id}")
     if creds:
-        api_key, hmac_secret = creds.split("|")
+        api_key, hmac_secret = (_e(v) for v in creds.split("|"))
         creds_html = f"""
         <div class="mt-4 space-y-3">
           <div>
@@ -714,7 +760,7 @@ async def dashboard(request: Request, settings: Settings = Depends(get_settings)
         stats_cards += f"""
         <div class="card p-5">
           <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">{label}</p>
-          <p class="text-3xl font-extrabold mt-1">{val}</p>
+          <p class="text-3xl font-extrabold mt-1">{_e(val)}</p>
         </div>"""
 
     # Graphique 7 derniers jours (OTP envoyés vs vérifiés)
@@ -761,14 +807,15 @@ async def dashboard(request: Request, settings: Settings = Depends(get_settings)
         "otp_purpose_denied": ("Purpose refusé", "bg-slate-200 text-slate-600"),
         "email_sent": ("Email envoyé", "bg-emerald-100 text-emerald-700"),
         "email_failed": ("Email échoué", "bg-rose-100 text-rose-700"),
+        "email_rate_limited": ("Rate limit", "bg-amber-100 text-amber-700"),
     }
     events = await get_events(redis, tenant, limit=20)
     if events:
         rows = "".join(
             f"""<tr class="hover:bg-slate-50 transition">
               <td class="py-2.5 pr-3 whitespace-nowrap"><span class="badge {cls}">{lbl}</span></td>
-              <td class="py-2.5 pr-3 text-slate-500 text-xs whitespace-nowrap">{e.get('ts','')[11:19]} {e.get('ts','')[:10]}</td>
-              <td class="py-2.5 text-slate-600 text-xs truncate max-w-[220px]">{e.get('email') or e.get('request_id') or e.get('email_type') or '—'}</td>
+              <td class="py-2.5 pr-3 text-slate-500 text-xs whitespace-nowrap">{_e(e.get('ts','')[11:19])} {_e(e.get('ts','')[:10])}</td>
+              <td class="py-2.5 text-slate-600 text-xs truncate max-w-[220px]">{_e(e.get('email') or e.get('request_id') or e.get('email_type') or '—')}</td>
             </tr>"""
             for e in events
             for lbl, cls in [event_labels.get(e.get("type", ""), (e.get("type", "?"), "bg-slate-100 text-slate-600"))]
@@ -783,11 +830,11 @@ async def dashboard(request: Request, settings: Settings = Depends(get_settings)
     else:
         activity_html = ""
 
-    base_url = str(request.base_url).rstrip("/")
+    base_url = _e(str(request.base_url).rstrip("/"))
 
     content = f"""
 <h1 class="text-2xl font-extrabold mb-1">Dashboard</h1>
-<p class="text-sm text-slate-500 mb-8">Bienvenue {user.app_name} — voici votre espace API.</p>
+<p class="text-sm text-slate-500 mb-8">Bienvenue {_e(user.app_name)} — voici votre espace API.</p>
 
 <div class="grid md:grid-cols-3 gap-5 mb-8">{stats_cards}</div>
 
@@ -799,7 +846,7 @@ async def dashboard(request: Request, settings: Settings = Depends(get_settings)
     <h2 class="font-bold">Vos credentials API</h2>
     <span class="badge bg-emerald-100 text-emerald-700">ACTIF</span>
   </div>
-  <p class="text-sm text-slate-500">Tenant ID : <code>{tenant.tenant_id}</code> — URL de base : <code>{base_url}</code></p>
+  <p class="text-sm text-slate-500">Tenant ID : <code>{_e(tenant.tenant_id)}</code> — URL de base : <code>{base_url}</code></p>
   {creds_html}
   <form method="post" action="/dashboard/regenerate-keys" class="mt-4">
     <button class="text-xs font-semibold text-rose-600 border border-rose-200 rounded-lg px-4 py-2 hover:bg-rose-50">
@@ -814,15 +861,15 @@ async def dashboard(request: Request, settings: Settings = Depends(get_settings)
   (Gmail : utilisez un <a class="text-indigo-600 underline" href="https://myaccount.google.com/apppasswords" target="_blank">mot de passe d'application</a>).</p>
   <form method="post" action="/dashboard/config" class="grid md:grid-cols-2 gap-4">
     <div><label class="text-xs font-semibold text-slate-600">Marque affichée</label>
-    <input name="brand_name" class="input mt-1" value="{tenant.brand_name}"></div>
+    <input name="brand_name" class="input mt-1" value="{_e(tenant.brand_name)}"></div>
     <div><label class="text-xs font-semibold text-slate-600">Adresse expéditrice</label>
-    <input name="from_email" type="email" class="input mt-1" value="{tenant.from_email or ''}" placeholder="no-reply@votredomaine.com"></div>
+    <input name="from_email" type="email" class="input mt-1" value="{_e(tenant.from_email or '')}" placeholder="no-reply@votredomaine.com"></div>
     <div><label class="text-xs font-semibold text-slate-600">Nom expéditeur</label>
-    <input name="from_name" class="input mt-1" value="{tenant.from_name or ''}" placeholder="{tenant.brand_name}"></div>
+    <input name="from_name" class="input mt-1" value="{_e(tenant.from_name or '')}" placeholder="{_e(tenant.brand_name)}"></div>
     <div><label class="text-xs font-semibold text-slate-600">SMTP Host</label>
-    <input name="smtp_host" class="input mt-1" value="{_cfg(tenant,'smtp_host') or 'smtp.gmail.com'}"></div>
+    <input name="smtp_host" class="input mt-1" value="{_e(_cfg(tenant,'smtp_host') or 'smtp.gmail.com')}"></div>
     <div><label class="text-xs font-semibold text-slate-600">SMTP User</label>
-    <input name="smtp_user" class="input mt-1" value="{tenant.smtp_user or ''}" placeholder="votre.email@gmail.com"></div>
+    <input name="smtp_user" class="input mt-1" value="{_e(tenant.smtp_user or '')}" placeholder="votre.email@gmail.com"></div>
     <div><label class="text-xs font-semibold text-slate-600">SMTP Password (app password)</label>
     <input name="smtp_password" type="password" class="input mt-1" placeholder="16 caractères"></div>
     <div class="md:col-span-2 flex gap-3">
@@ -869,14 +916,14 @@ print(r.json())   # {{"verified":true,"attempts_remaining":0}}</pre>
 <div class="card p-4 sm:p-6">
   <h2 class="font-bold mb-4">Votre configuration</h2>
   <div class="grid md:grid-cols-2 gap-4 text-sm">
-    <div><p class="text-xs font-semibold text-slate-500">Purposes autorisés</p><p class="mt-1">{', '.join(f'<code>{p}</code>' for p in tenant.allowed_purposes)}</p></div>
+    <div><p class="text-xs font-semibold text-slate-500">Purposes autorisés</p><p class="mt-1">{', '.join(f'<code>{_e(p)}</code>' for p in tenant.allowed_purposes)}</p></div>
     <div><p class="text-xs font-semibold text-slate-500">Rollout OTP</p><p class="font-semibold mt-1">{tenant.rollout_percentage} %</p></div>
-    <div><p class="text-xs font-semibold text-slate-500">Pays en fallback SMS</p><p class="mt-1">{', '.join(tenant.risky_countries) or '—'}</p></div>
+    <div><p class="text-xs font-semibold text-slate-500">Pays en fallback SMS</p><p class="mt-1">{_e(', '.join(tenant.risky_countries)) or '—'}</p></div>
     <div><p class="text-xs font-semibold text-slate-500">Expiration OTP</p><p class="font-semibold mt-1">{tenant.otp_ttl_seconds} s</p></div>
   </div>
 </div>
 """
-    return _dashboard_page(user, tenant, content, debug=settings.debug)
+    return _dashboard_page(user, tenant, content, debug=settings.demo_enabled)
 
 
 def _cfg(tenant: Tenant, key: str):
@@ -892,11 +939,16 @@ async def dashboard_config(
     smtp_host: str = Form(""),
     smtp_user: str = Form(""),
     smtp_password: str = Form(""),
+    _: None = Depends(require_same_origin),
 ):
     user = await _require_user(request)
+    if from_email.strip() and (
+        "@" not in from_email or "." not in from_email.rsplit("@", 1)[-1]
+    ):
+        raise HTTPException(status_code=422, detail="Email expéditeur invalide")
     store = TenantStore(request.app.state.redis)
     updates = {
-        "brand_name": brand_name.strip(),
+        "brand_name": brand_name.strip() or "SendBID",
         "from_email": from_email.strip() or None,
         "from_name": from_name.strip() or None,
         "smtp_host": smtp_host.strip() or None,
@@ -909,7 +961,9 @@ async def dashboard_config(
 
 
 @router.post("/dashboard/regenerate-keys")
-async def dashboard_regenerate(request: Request):
+async def dashboard_regenerate(
+    request: Request, _: None = Depends(require_same_origin)
+):
     user = await _require_user(request)
     redis = request.app.state.redis
     store = TenantStore(redis)
@@ -926,7 +980,9 @@ async def dashboard_regenerate(request: Request):
     await redis.set(f"tenant:{tenant.tenant_id}", tenant.model_dump_json())
     await redis.delete(f"tenant:bykey:{old_hash}")
     await redis.set(f"tenant:bykey:{tenant.api_key_hash}", tenant.tenant_id)
-    await redis.setex(f"webuser:creds:{tenant.tenant_id}", 86400, f"{new_key}|{new_secret}")
+    await redis.set(
+        f"webuser:creds:{tenant.tenant_id}", f"{new_key}|{new_secret}", ex=86400
+    )
     return RedirectResponse("/dashboard", status_code=303)
 
 
@@ -935,6 +991,7 @@ async def dashboard_test_email(
     request: Request,
     test_to: str = Form(...),
     settings: Settings = Depends(get_settings),
+    _: None = Depends(require_same_origin),
 ):
     user = await _require_user(request)
     tenant = await TenantStore(request.app.state.redis).get(user.tenant_id)
@@ -1060,7 +1117,7 @@ async function sendEmail() {
 
 @router.get("/demo", response_class=HTMLResponse)
 async def demo(settings: Settings = Depends(get_settings)) -> HTMLResponse:
-    if not settings.debug:
+    if not settings.demo_enabled:
         raise HTTPException(status_code=404)
     return _landing_page(f'<div class="bg-slate-50">{_demo_page()}</div>')
 
@@ -1097,7 +1154,7 @@ async def demo_send(
     service: OTPService = Depends(get_otp_service),
     settings: Settings = Depends(get_settings),
 ):
-    if not settings.debug:
+    if not settings.demo_enabled:
         raise HTTPException(status_code=404)
     tenant = await _demo_tenant(request, payload.tenant_id)
     response = await service.send_otp(
@@ -1123,7 +1180,7 @@ async def demo_verify(
     service: OTPService = Depends(get_otp_service),
     settings: Settings = Depends(get_settings),
 ):
-    if not settings.debug:
+    if not settings.demo_enabled:
         raise HTTPException(status_code=404)
     tenant = await _demo_tenant(request, payload.tenant_id)
     return await service.verify(tenant, payload.request_id, payload.code)
@@ -1146,7 +1203,7 @@ async def demo_email(
     service: EmailService = Depends(get_email_service),
     settings: Settings = Depends(get_settings),
 ):
-    if not settings.debug:
+    if not settings.demo_enabled:
         raise HTTPException(status_code=404)
     tenant = await _demo_tenant(request, payload.tenant_id)
     req = EmailSendRequest(

@@ -1,14 +1,31 @@
-"""Test de bout en bout de l'API déployée sur https://mail.aiforge.world."""
-import hashlib, hmac, json, socket, sys, time, urllib.request
+"""Test de bout en bout de l'API déployée sur https://mail.aiforge.world.
+
+Les credentials se lisent dans l'environnement (jamais en clair dans le repo) :
+
+    export OTP_API_KEY=... OTP_HMAC_SECRET=... OTP_ADMIN_KEY=...
+    python examples/live_test.py
+"""
+import hashlib
+import hmac
+import json
+import os
+import socket
+import sys
+import time
+import urllib.request
+import uuid
 
 # Forcer IPv4 : un vieil enregistrement AAAA pointe encore vers le parking IONOS
 _orig = socket.getaddrinfo
 socket.getaddrinfo = lambda *a, **k: [r for r in _orig(*a, **k) if r[0] == socket.AF_INET]
 
-BASE = "https://mail.aiforge.world"
-API_KEY = "781c39840964ba32f993903743ce8607c481083c0404937c30745c4a7bb8e58d"
-HMAC_SECRET = "240368fe64f1a97b54b06782e5402ec69a28df1d23fd3733d02865a4397b9fe5"
-ADMIN_KEY = "5241a213f8079b83b1e3a9b3992985d999cd226ee3cb53393d95fe07b964b6ac"
+BASE = os.environ.get("OTP_BASE_URL", "https://mail.aiforge.world")
+API_KEY = os.environ.get("OTP_API_KEY", "")
+HMAC_SECRET = os.environ.get("OTP_HMAC_SECRET", "")
+ADMIN_KEY = os.environ.get("OTP_ADMIN_KEY", "")
+
+if not API_KEY or not HMAC_SECRET:
+    sys.exit("Définir OTP_API_KEY et OTP_HMAC_SECRET dans l'environnement.")
 
 
 def call(method, path, body=None, admin=False):
@@ -32,17 +49,17 @@ def call(method, path, body=None, admin=False):
 
 print("== /health ==", *call("GET", "/health"))
 print("\n== OTP send (FR, safe country) ==")
-s, r = call("POST", "/v1/otp/send", {"user_id": "user_test_1", "email": "test@example.com",
+s, r = call("POST", "/v1/otp/send", {"user_id": str(uuid.uuid4()), "email": "test@example.com",
                                      "country_code": "FR", "purpose": "login_2fa", "language": "fr"})
 print(s, r)
 rid = r.get("request_id")
 
 print("\n== OTP send (CN -> sms_fallback) ==")
-print(*call("POST", "/v1/otp/send", {"user_id": "user_test_2", "email": "t@ex.com",
+print(*call("POST", "/v1/otp/send", {"user_id": str(uuid.uuid4()), "email": "t@ex.com",
                                      "country_code": "CN", "purpose": "login_2fa", "language": "en"}))
 
 print("\n== OTP send (purpose refusé) ==")
-print(*call("POST", "/v1/otp/send", {"user_id": "u3", "email": "t@ex.com",
+print(*call("POST", "/v1/otp/send", {"user_id": str(uuid.uuid4()), "email": "t@ex.com",
                                      "country_code": "FR", "purpose": "transaction_confirmation"}))
 
 print("\n== OTP verify (mauvais code) ==")

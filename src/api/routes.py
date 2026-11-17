@@ -76,11 +76,13 @@ async def confirm_otp(
     """
     from fastapi.responses import HTMLResponse
 
-    # Tenant "default" — le lien magique n'est utilisable que via un email déjà envoyé
+    # Le tenant est encodé dans le lien ("t") — fallback "default" pour
+    # les anciens liens. Le lien n'est utilisable que via un email déjà envoyé.
     from src.core.tenants import TenantStore
 
-    tenant = await TenantStore(request.app.state.redis).get("default")
-    if not tenant:
+    tenant_id = request.query_params.get("t", "default")
+    tenant = await TenantStore(request.app.state.redis).get(tenant_id)
+    if not tenant or not tenant.is_active:
         raise HTTPException(status_code=404)
 
     result = await service.verify(tenant, request_id, code)
@@ -115,4 +117,4 @@ async def send_email(
     service: EmailService = Depends(get_email_service),
     client_ip: str = Depends(get_client_ip),
 ) -> EmailSendResponse:
-    return await service.send(tenant, payload)
+    return await service.send(tenant, payload, client_ip=client_ip)

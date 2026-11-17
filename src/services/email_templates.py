@@ -58,19 +58,31 @@ def email_layout(brand: str, content_html: str, preheader: str = "") -> str:
 </html>"""
 
 
-def otp_html(code: str, brand: str, language: str = "fr", magic_url: str | None = None) -> str:
+def otp_html(
+    code: str,
+    brand: str,
+    language: str = "fr",
+    magic_url: str | None = None,
+    ttl_minutes: int = 5,
+) -> str:
     """Email OTP : code en grand, avertissement anti-partage, bouton magique optionnel."""
     c = _esc(code)
     if language == "en":
         title = "Your verification code"
         intro = "Use this code to complete your sign-in:"
-        validity = "This code expires in <strong>5 minutes</strong>."
+        validity = (
+            f"This code expires in <strong>{ttl_minutes} "
+            f"{'minute' if ttl_minutes == 1 else 'minutes'}</strong>."
+        )
         warning = "Never share this code — even with our support team."
         preheader = f"Your {brand} verification code is {c}"
     else:
         title = "Votre code de vérification"
         intro = "Utilisez ce code pour finaliser votre connexion :"
-        validity = "Ce code expire dans <strong>5 minutes</strong>."
+        validity = (
+            f"Ce code expire dans <strong>{ttl_minutes} "
+            f"{'minute' if ttl_minutes == 1 else 'minutes'}</strong>."
+        )
         warning = "Ne partagez jamais ce code, même avec notre support."
         preheader = f"Votre code {brand} est {c}"
 

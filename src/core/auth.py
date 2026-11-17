@@ -14,6 +14,7 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.security import APIKeyHeader
 
 from src.config import Settings, get_settings
+from src.core.security import hash_code
 from src.core.tenants import Tenant, TenantStore
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -57,6 +58,14 @@ async def resolve_tenant(request: Request) -> Tenant:
     if not _verify_hmac(body, timestamp, signature, tenant.hmac_secret):
         raise HTTPException(status_code=403, detail="Invalid signature")
 
+    # Anti-rejeu : une signature n'est utilisable qu'une seule fois dans la
+    # fenêtre ±5 min. Un client légitime génère un nouveau timestamp à chaque
+    # requête, donc sa signature change toujours.
+    nonce_key = f"{tenant.key_prefix()}nonce:{hash_code(signature)}"
+    fresh = await request.app.state.redis.set(nonce_key, "1", nx=True, ex=310)
+    if not fresh:
+        raise HTTPException(status_code=403, detail="Replay detected")
+
     return tenant
 
 
@@ -72,7 +81,11 @@ async def verify_admin(
     settings: Settings = Depends(get_settings),
 ) -> None:
     """Authentification des routes d'administration des tenants."""
-    if not admin_key or not hmac.compare_digest(admin_key, settings.admin_api_key):
+    # compare_digest sur bytes : accepte toute entrée (les str non-ASCII
+    # lèvent TypeError sinon -> 500 / DoS trivial via header forgé).
+    if not admin_key or not hmac.compare_digest(
+        admin_key.encode("utf-8", "ignore"), settings.admin_api_key.encode()
+    ):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 

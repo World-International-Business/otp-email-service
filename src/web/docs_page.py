@@ -1,9 +1,8 @@
 """Page de documentation intégrée au site (/documentation)."""
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
-from src.config import Settings, get_settings
 from src.web.i18n import I18nRoute
 from src.web.routes import _landing_page
 
@@ -21,9 +20,7 @@ def _code_block(code: str) -> str:
 
 
 @router.get("/documentation", response_class=HTMLResponse)
-async def documentation(
-    request: Request, settings: Settings = Depends(get_settings)
-) -> HTMLResponse:
+async def documentation(request: Request) -> HTMLResponse:
     base = str(request.base_url).rstrip("/")
 
     python_code = f"""# pip install requests
@@ -207,4 +204,4 @@ curl_close($ch);""".replace("<", "&lt;").replace(">", "&gt;")
 </div>
 </div>
 """
-    return _landing_page(content, debug=settings.debug)
+    return _landing_page(content)

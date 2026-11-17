@@ -22,8 +22,9 @@ class OTPSendRequest(BaseModel):
     country_code: str = Field(
         ...,
         min_length=2,
-        max_length=3,
-        description="Code pays ISO (ex: FR, US, CI)",
+        max_length=2,
+        pattern=r"^[A-Za-z]{2}$",
+        description="Code pays ISO 3166-1 alpha-2 (ex: FR, US, CI)",
     )
     purpose: str = Field(
         ...,
@@ -43,7 +44,6 @@ class OTPSendResponse(BaseModel):
     debug_code: str | None = Field(
         default=None,
         description="Code OTP en clair — DEBUG uniquement, jamais en production",
-        exclude=True,
     )
 
 

@@ -41,9 +41,11 @@ services:
       start_period: 10s
     networks:
       - otp-network
-      # Réseau partagé avec le reverse proxy Dokploy/Traefik (créé automatiquement
-      # si absent ; sinon Dokploy expose le service via son propre domaine)
-      - dokploy-network
+      # Réseau partagé avec le reverse proxy Dokploy/Traefik.
+      # Décommenter UNIQUEMENT en déploiement Dokploy (le réseau externe doit
+      # exister : `docker network create dokploy-network`). Laissé commenté,
+      # `docker compose up` fonctionne en local sans dépendance externe.
+      # - dokploy-network
 
 volumes:
   redis_data:
@@ -51,5 +53,5 @@ volumes:
 networks:
   otp-network:
     driver: bridge
-  dokploy-network:
-    external: true
+  # dokploy-network:
+  #   external: true

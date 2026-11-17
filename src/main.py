@@ -9,7 +9,7 @@ from pythonjsonlogger.jsonlogger import JsonFormatter
 
 from src.api.admin_routes import admin_router
 from src.api.dependencies import get_email_provider, get_redis_client, get_settings
-from src.api.middleware import JSONLogMiddleware
+from src.api.middleware import JSONLogMiddleware, SecurityHeadersMiddleware
 from src.api.routes import email_router, router
 from src.core.tenants import seed_default_tenant
 from src.services.email_service import EmailService
@@ -83,6 +83,7 @@ async def health():
 
 
 app.add_middleware(JSONLogMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 app.include_router(web_router)
 app.include_router(admin_web_router)
 app.include_router(docs_router)

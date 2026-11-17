@@ -101,11 +101,16 @@ class TenantStore:
         return tenants
 
     async def update(self, tenant_id: str, updates: dict[str, Any]) -> Tenant | None:
+        """Applique `updates` tel quel — un `None` explicite efface le champ.
+
+        Les appelants qui veulent « champ vide = inchangé » doivent exclure
+        les clés du dict plutôt que passer None.
+        """
         tenant = await self.get(tenant_id)
         if tenant is None:
             return None
         data = tenant.model_dump()
-        data.update({k: v for k, v in updates.items() if v is not None})
+        data.update(updates)
         updated = Tenant.model_validate(data)
         await self.redis.set(self._tenant_key(tenant_id), updated.model_dump_json())
         return updated
@@ -118,17 +123,32 @@ class TenantStore:
 async def seed_default_tenant(redis, settings) -> Tenant:
     """Crée le tenant par défaut depuis les variables d'env (rétrocompatibilité)."""
     store = TenantStore(redis)
+    api_key_hash = hash_api_key(settings.api_key)
+    hmac_secret = (
+        settings.hmac_secret.decode("utf-8")
+        if isinstance(settings.hmac_secret, bytes)
+        else settings.hmac_secret
+    )
+
     existing = await store.get("default")
     if existing:
+        # Si les credentials d'env ont changé, on met à jour le tenant
+        # (rotation API_KEY/HMAC_SECRET sans perdre la config du tenant).
+        if existing.api_key_hash != api_key_hash:
+            await redis.delete(store._bykey(existing.api_key_hash))
+            existing.api_key_hash = api_key_hash
+            existing.hmac_secret = hmac_secret
+            await redis.set(store._bykey(api_key_hash), existing.tenant_id)
+            await redis.set(
+                store._tenant_key(existing.tenant_id), existing.model_dump_json()
+            )
         return existing
 
     tenant = Tenant(
         tenant_id="default",
         name="Default tenant (env config)",
-        api_key_hash=hash_api_key(settings.api_key),
-        hmac_secret=settings.hmac_secret.decode("utf-8")
-        if isinstance(settings.hmac_secret, bytes)
-        else settings.hmac_secret,
+        api_key_hash=api_key_hash,
+        hmac_secret=hmac_secret,
         brand_name=settings.from_name,
         from_email=settings.from_email,
         from_name=settings.from_name,

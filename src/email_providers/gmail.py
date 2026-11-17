@@ -1,5 +1,6 @@
 """Implémentation SMTP Gmail du provider d'email — supporte le sender par tenant."""
 
+import asyncio
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -37,10 +38,27 @@ class GmailSMTPProvider(EmailProvider):
         msg.attach(MIMEText(html_body, "html", "utf-8"))
 
         try:
-            with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
-                server.starttls()
-                server.login(smtp_user, smtp_password)
-                server.sendmail(from_email, [to_email], msg.as_string())
+            # smtplib est synchrone : on l'exécute hors de l'event loop
+            await asyncio.to_thread(
+                self._send_smtp,
+                smtp_host, smtp_port, smtp_user, smtp_password,
+                from_email, to_email, msg.as_string(),
+            )
             return True
         except Exception:
             return False
+
+    @staticmethod
+    def _send_smtp(
+        smtp_host: str,
+        smtp_port: int,
+        smtp_user: str | None,
+        smtp_password: str | None,
+        from_email: str,
+        to_email: str,
+        raw_message: str,
+    ) -> None:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_password)
+            server.sendmail(from_email, [to_email], raw_message)

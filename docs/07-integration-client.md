@@ -149,7 +149,7 @@ Future<Map<String, dynamic>> callApi(String path, Map<String, dynamic> payload) 
 |-------|-------------|-------------|
 | `user_id` | oui | **UUID valide** (générer avec `uuid()` côté app) |
 | `email` | oui | Email valide |
-| `country_code` | oui | Code ISO 2-3 lettres : `FR`, `CI`, `US`… |
+| `country_code` | oui | Code ISO 3166-1 alpha-2 : `FR`, `CI`, `US`… |
 | `purpose` | oui | Doit être dans la liste autorisée du tenant |
 | `language` | non | `fr` (défaut) ou `en` |
 

@@ -27,12 +27,15 @@ class OTPStore:
         payload = {
             "code_hash": code_hash,
             "user_id_hash": hash_code(user_id),
-            "attempts": 0,
-            "verified": False,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
-        await self.redis.setex(self._key(request_id), self.ttl, json.dumps(payload))
+        await self.redis.set(
+            self._key(request_id), json.dumps(payload), ex=self.ttl
+        )
         return code, request_id, code_hash
+
+    def _attempts_key(self, request_id: str) -> str:
+        return f"{self._key(request_id)}:attempts"
 
     async def get(self, request_id: str) -> dict | None:
         raw = await self.redis.get(self._key(request_id))
@@ -40,25 +43,8 @@ class OTPStore:
             return None
         return json.loads(raw)
 
-    async def increment_attempts(self, request_id: str, data: dict) -> dict:
-        data["attempts"] += 1
-        await self.redis.setex(
-            self._key(request_id),
-            self.ttl,
-            json.dumps(data),
-        )
-        return data
-
-    async def mark_verified(self, request_id: str, data: dict) -> None:
-        data["verified"] = True
-        await self.redis.setex(
-            self._key(request_id),
-            self.ttl,
-            json.dumps(data),
-        )
-
     async def delete(self, request_id: str) -> None:
-        await self.redis.delete(self._key(request_id))
+        await self.redis.delete(self._key(request_id), self._attempts_key(request_id))
 
 
 async def verify_otp(
@@ -67,25 +53,36 @@ async def verify_otp(
     request_id: str,
     code: str,
 ) -> tuple[bool, int]:
-    """Vérifie un OTP et retourne (succès, tentatives restantes)."""
+    """Vérifie un OTP et retourne (succès, tentatives restantes).
+
+    Le compteur de tentatives est incrémenté via INCR (atomique) dans une
+    clé séparée alignée sur le TTL de l'OTP : contrairement à une
+    réécriture du payload, les essais ne prolongent pas la validité du
+    code et les requêtes parallèles ne peuvent pas dépasser le maximum.
+    """
     store = OTPStore(redis, tenant)
     data = await store.get(request_id)
 
     if data is None:
         return False, 0
 
-    if data["verified"]:
-        return False, 0
+    attempts_key = store._attempts_key(request_id)
+    attempts = int(await redis.incr(attempts_key) or 0)
+    if attempts == 1:
+        # Aligne l'expiration du compteur sur celle de l'OTP
+        ttl = await redis.ttl(store._key(request_id))
+        if ttl > 0:
+            await redis.expire(attempts_key, ttl)
 
-    attempts = data["attempts"]
-    if attempts >= tenant.max_verify_attempts:
+    if attempts > tenant.max_verify_attempts:
         return False, 0
 
     if compare_codes(code, data["code_hash"]):
-        await store.mark_verified(request_id, data)
-        await store.delete(request_id)
-        return True, 0
+        # DEL atomique : seule la première requête gagnante consomme le code
+        if await redis.delete(store._key(request_id)):
+            await redis.delete(attempts_key)
+            return True, 0
+        return False, 0
 
-    updated = await store.increment_attempts(request_id, data)
-    remaining = max(0, tenant.max_verify_attempts - updated["attempts"])
+    remaining = max(0, tenant.max_verify_attempts - attempts)
     return False, remaining

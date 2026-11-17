@@ -111,7 +111,9 @@ async def update_tenant(
     tenant_id: str, payload: TenantUpdateRequest, request: Request
 ) -> TenantInfoResponse:
     store = TenantStore(request.app.state.redis)
-    updates = payload.model_dump(exclude_none=True)
+    # exclude_unset : seuls les champs fournis sont modifiés ;
+    # un null explicite efface le champ (retour au fallback global).
+    updates = payload.model_dump(exclude_unset=True)
     if "from_email" in updates and updates["from_email"]:
         updates["from_email"] = str(updates["from_email"])
     if "risky_countries" in updates and updates["risky_countries"]:

@@ -32,5 +32,7 @@ class ConsoleEmailProvider(EmailProvider):
                 "from": f"{from_name} <{from_email}>",
             },
         )
-        logger.debug("email_text_body", extra={"body": text_body})
+        # INFO et non DEBUG : le provider console sert justement à lire
+        # l'email (code OTP) dans les logs en mode local/démo.
+        logger.info("email_text_body", extra={"body": text_body})
         return True

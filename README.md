@@ -99,6 +99,7 @@ Réponse : `api_key` + `hmac_secret` à donner au client **une seule fois**.
 |---|---|---|
 | Redis | `USE_FAKEREDIS=true` (en mémoire) | `redis://...` réel |
 | Email | `EMAIL_PROVIDER=console` (logs) | `EMAIL_PROVIDER=gmail` |
+| Démo `/demo` | `DEMO_ENABLED=true` (endpoints non authentifiés) | **`DEMO_ENABLED=false` obligatoire** |
 | `.env` | Valeurs dans `run-local.bat` | Fichier `.env` (copier `.env.example`) |
 
 ## Déploiement
@@ -141,8 +142,8 @@ src/
 ├── api/routes.py            # /v1/otp/send, /verify
 ├── core/                    # auth HMAC, modèles, crypto OTP
 ├── services/                # logique métier + rate limiter
-├── email_providers/         # gmail (implémenté), brevo/resend (stubs), console
-└── web/routes.py            # pages /, /demo (DEBUG uniquement)
+├── email_providers/         # gmail (SMTP), brevo/resend (API REST), console (dev)
+└── web/routes.py            # pages /, /demo (DEMO_ENABLED uniquement)
 ```
 
 Docs complètes dans `docs/` : architecture, code, déploiement, intégration Django.

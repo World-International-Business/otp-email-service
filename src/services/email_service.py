@@ -2,6 +2,7 @@
 
 import logging
 import secrets
+from html import escape
 
 from fastapi import HTTPException
 from redis.asyncio import Redis
@@ -13,6 +14,7 @@ from src.core.tenants import Tenant
 from src.email_providers.base import EmailProvider, SenderIdentity
 from src.services.email_templates import generic_html
 from src.services.events import incr_daily_stat, log_event, mask_email
+from src.services.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +43,24 @@ class EmailService:
         )
 
     async def send(
-        self, tenant: Tenant, request: EmailSendRequest
+        self, tenant: Tenant, request: EmailSendRequest, client_ip: str = "unknown"
     ) -> EmailSendResponse:
         """Envoie un email selon son type. Lève HTTPException en cas d'échec."""
+        to_email = str(request.to_email)
+        limiter = RateLimiter(self.redis, tenant)
+        allowed, retry_after = await limiter.try_email(to_email)
+        if not allowed:
+            await log_event(
+                self.redis, tenant, "email_rate_limited",
+                email=mask_email(to_email), retry_after=retry_after,
+                client_ip=client_ip,
+            )
+            raise HTTPException(
+                status_code=429,
+                detail="Too many emails to this recipient",
+                headers={"Retry-After": str(retry_after)},
+            )
+
         subject, text_body, html_body = self._render(request, tenant)
 
         message_id = f"msg_{secrets.token_urlsafe(16)}"
@@ -57,6 +74,7 @@ class EmailService:
         )
 
         if not success:
+            await limiter.release_email(to_email)
             logger.error(
                 "email_send_failed",
                 extra={
@@ -77,8 +95,9 @@ class EmailService:
         await incr_daily_stat(self.redis, tenant, "emails_sent")
         await log_event(
             self.redis, tenant, "email_sent",
-            email=mask_email(str(request.to_email)),
+            email=mask_email(to_email),
             email_type=request.type.value, message_id=message_id,
+            client_ip=client_ip,
         )
 
         logger.info(
@@ -124,7 +143,7 @@ class EmailService:
             )
         html = request.html_body or self._wrap_html(
             request.subject,
-            request.text_body.replace("\n", "<br>"),
+            escape(request.text_body).replace("\n", "<br>"),
             tenant.brand_name,
         )
         return request.subject, request.text_body, html
@@ -148,7 +167,7 @@ class EmailService:
                 f"Welcome to {brand}. Your account is ready to use.\n\n"
                 f"The {brand} Team"
             )
-        html = self._wrap_html(subject, text.replace("\n", "<br>"), brand)
+        html = self._wrap_html(subject, escape(text).replace("\n", "<br>"), brand)
         return subject, text, html
 
     def _notification(
@@ -162,7 +181,7 @@ class EmailService:
             text = f"{title}\n\n{message}\n\nL'équipe {brand}"
         else:
             text = f"{title}\n\n{message}\n\nThe {brand} Team"
-        html = self._wrap_html(title, message.replace("\n", "<br>"), brand)
+        html = self._wrap_html(title, escape(message).replace("\n", "<br>"), brand)
         return subject, text, html
 
     def _transaction(
@@ -188,7 +207,7 @@ class EmailService:
                 "Never share your security codes.\n"
                 f"The {brand} Team"
             )
-        html = self._wrap_html(subject, text.replace("\n", "<br>"), brand)
+        html = self._wrap_html(subject, escape(text).replace("\n", "<br>"), brand)
         return subject, text, html
 
     def _wrap_html(self, title: str, content_html: str, brand: str) -> str:

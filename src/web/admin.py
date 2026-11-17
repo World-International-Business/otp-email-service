@@ -12,11 +12,13 @@ Pages :
 
 import hmac
 import html
+import re
 import secrets
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from src.api.dependencies import get_client_ip, require_same_origin
 from src.config import Settings, get_settings
 from src.core.tenants import (
     Tenant,
@@ -44,6 +46,7 @@ _EVENT_LABELS = {
     "otp_send_failed": ("Échec envoi OTP", "bg-rose-100 text-rose-700"),
     "email_sent": ("Email envoyé", "bg-blue-100 text-blue-700"),
     "email_failed": ("Échec email", "bg-rose-100 text-rose-700"),
+    "email_rate_limited": ("Rate limit", "bg-amber-100 text-amber-700"),
 }
 
 
@@ -80,7 +83,9 @@ async def _require_admin(request: Request, settings: Settings) -> None:
     if not token:
         raise HTTPException(status_code=303, headers={"Location": "/admin/login"})
     stored = await request.app.state.redis.get(f"adminsession:{token}")
-    if not stored or not hmac.compare_digest(stored, settings.admin_api_key):
+    # La session stocke le HASH de la clé (jamais la clé en clair dans Redis)
+    expected = hash_api_key(settings.admin_api_key)
+    if not stored or not hmac.compare_digest(stored.encode(), expected.encode()):
         raise HTTPException(status_code=303, headers={"Location": "/admin/login"})
 
 
@@ -122,18 +127,32 @@ async def admin_login(
     request: Request,
     admin_key: str = Form(...),
     settings: Settings = Depends(get_settings),
+    _: None = Depends(require_same_origin),
 ):
-    if not hmac.compare_digest(admin_key, settings.admin_api_key):
+    # Anti brute-force : 5 tentatives / IP / 10 min
+    redis = request.app.state.redis
+    rl_key = f"rl:adminlogin:{get_client_ip(request)}"
+    attempts = await redis.incr(rl_key)
+    if attempts == 1:
+        await redis.expire(rl_key, 600)
+    if attempts > settings.web_login_max_attempts:
+        raise HTTPException(status_code=429, detail="Too many attempts, retry later")
+
+    if not hmac.compare_digest(
+        admin_key.encode("utf-8", "ignore"), settings.admin_api_key.encode()
+    ):
         return RedirectResponse("/admin/login?error=1", status_code=303)
 
     token = secrets.token_urlsafe(32)
-    await request.app.state.redis.setex(
-        f"adminsession:{token}", ADMIN_SESSION_TTL, settings.admin_api_key
+    await redis.set(
+        f"adminsession:{token}", hash_api_key(settings.admin_api_key),
+        ex=ADMIN_SESSION_TTL,
     )
     resp = RedirectResponse("/admin", status_code=303)
     resp.set_cookie(
         ADMIN_COOKIE, token, max_age=ADMIN_SESSION_TTL,
-        httponly=True, samesite="lax",
+        httponly=True, samesite="lax", path="/admin",
+        secure=str(settings.public_base_url).startswith("https://"),
     )
     return resp
 
@@ -144,7 +163,7 @@ async def admin_logout(request: Request):
     if token:
         await request.app.state.redis.delete(f"adminsession:{token}")
     resp = RedirectResponse("/admin/login", status_code=303)
-    resp.delete_cookie(ADMIN_COOKIE)
+    resp.delete_cookie(ADMIN_COOKIE, path="/admin")
     return resp
 
 
@@ -302,7 +321,7 @@ def _tenant_form(action: str, t: Tenant | None, include_account: bool) -> str:
   <div><label class="text-xs font-semibold text-slate-600">Email du client</label>
   <input name="user_email" type="email" class="input mt-1" placeholder="client@exemple.com"></div>
   <div><label class="text-xs font-semibold text-slate-600">Mot de passe du client</label>
-  <input name="user_password" type="text" class="input mt-1" minlength="8" placeholder="8 caractères min"></div>"""
+  <input name="user_password" type="password" class="input mt-1" minlength="8" placeholder="8 caractères min"></div>"""
 
     unlimited_hint = "" if t else """
   <p class="md:col-span-2 text-xs text-indigo-600 bg-indigo-50 rounded-lg p-3">
@@ -411,11 +430,21 @@ async def admin_create_tenant(
     otp_ttl_seconds: int = Form(600),
     user_email: str = Form(""),
     user_password: str = Form(""),
+    _: None = Depends(require_same_origin),
 ) -> HTMLResponse:
     await _require_admin(request, settings)
     redis = request.app.state.redis
     store = TenantStore(redis)
     tenant_id = tenant_id.strip().lower()
+    if not re.fullmatch(r"[a-z0-9_-]{2,64}", tenant_id):
+        raise HTTPException(
+            status_code=422,
+            detail="tenant_id invalide (2-64 caractères : a-z, 0-9, -, _)",
+        )
+    if from_email.strip() and (
+        "@" not in from_email or "." not in from_email.rsplit("@", 1)[-1]
+    ):
+        raise HTTPException(status_code=422, detail="Email expéditeur invalide")
 
     if await store.get(tenant_id):
         raise HTTPException(status_code=409, detail=f"Tenant '{tenant_id}' existe déjà")
@@ -457,8 +486,8 @@ async def admin_create_tenant(
             )
         else:
             await users.create(user_email.strip(), user_password, tenant_id, name.strip())
-            await redis.setex(
-                f"webuser:creds:{tenant_id}", 86400, f"{api_key}|{hmac_secret}"
+            await redis.set(
+                f"webuser:creds:{tenant_id}", f"{api_key}|{hmac_secret}", ex=86400
             )
             account_msg = (
                 '<p class="mt-3 text-sm text-emerald-700 bg-emerald-50 rounded-lg p-3">'
@@ -555,7 +584,7 @@ async def admin_edit_tenant(
     <div><label class="text-xs font-semibold text-slate-600">Email du client</label>
     <input name="user_email" type="email" class="input mt-1" required placeholder="client@exemple.com"></div>
     <div><label class="text-xs font-semibold text-slate-600">Mot de passe</label>
-    <input name="user_password" type="text" class="input mt-1" required minlength="8" placeholder="8 caractères min"></div>
+    <input name="user_password" type="password" class="input mt-1" required minlength="8" placeholder="8 caractères min"></div>
     <div class="flex items-end"><button class="btn-primary text-sm">Créer le compte</button></div>
   </form>
 </div>"""
@@ -588,8 +617,13 @@ async def admin_update_tenant(
     cooldown_seconds: int = Form(1),
     max_verify_attempts: int = Form(1000000),
     otp_ttl_seconds: int = Form(600),
+    _: None = Depends(require_same_origin),
 ):
     await _require_admin(request, settings)
+    if from_email.strip() and (
+        "@" not in from_email or "." not in from_email.rsplit("@", 1)[-1]
+    ):
+        raise HTTPException(status_code=422, detail="Email expéditeur invalide")
     updates = {
         "name": name.strip(),
         "brand_name": brand_name.strip() or "SendBID",
@@ -612,7 +646,7 @@ async def admin_update_tenant(
     if smtp_password.strip():
         updates["smtp_password"] = smtp_password.strip()
 
-    # Les champs optionnels vides restent inchangés (store.update ignore None)
+    # Les champs optionnels vides repassent à None (= fallback config globale)
     tenant = await TenantStore(request.app.state.redis).update(tenant_id, updates)
     if tenant is None:
         raise HTTPException(status_code=404, detail="Tenant introuvable")
@@ -626,6 +660,7 @@ async def admin_create_account(
     settings: Settings = Depends(get_settings),
     user_email: str = Form(...),
     user_password: str = Form(...),
+    _: None = Depends(require_same_origin),
 ):
     """Crée un compte dashboard (webuser) lié à un tenant existant."""
     await _require_admin(request, settings)
@@ -650,6 +685,7 @@ async def admin_toggle_tenant(
     tenant_id: str,
     request: Request,
     settings: Settings = Depends(get_settings),
+    _: None = Depends(require_same_origin),
 ):
     await _require_admin(request, settings)
     store = TenantStore(request.app.state.redis)

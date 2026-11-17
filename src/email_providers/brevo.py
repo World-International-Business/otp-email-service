@@ -1,17 +1,24 @@
-"""Provider Brevo (Sendinblue) — prêt à être implémenté."""
+"""Provider Brevo (Sendinblue) — API REST v3."""
+
+import logging
+
+import httpx
 
 from src.config import Settings
 from src.email_providers.base import EmailProvider, SenderIdentity
 
+logger = logging.getLogger(__name__)
+
+_API_URL = "https://api.brevo.com/v3/smtp/email"
+_TIMEOUT = 10.0
+
 
 class BrevoProvider(EmailProvider):
-    """Stub pour futur envoi via l'API Brevo (REST).
-
-    Pour l'activer : implémenter l'appel à https://api.brevo.com/v3/smtp/email
-    avec httpx et la clé BREVO_API_KEY.
-    """
+    """Envoi via https://api.brevo.com/v3/smtp/email (BREVO_API_KEY requis)."""
 
     def __init__(self, settings: Settings):
+        if not settings.brevo_api_key:
+            raise ValueError("BREVO_API_KEY requis avec EMAIL_PROVIDER=brevo")
         self.settings = settings
 
     async def send_email(
@@ -22,4 +29,34 @@ class BrevoProvider(EmailProvider):
         html_body: str,
         sender: SenderIdentity | None = None,
     ) -> bool:
-        raise NotImplementedError("Brevo provider is not implemented yet")
+        sender = sender or {}
+        payload = {
+            "sender": {
+                "email": str(sender.get("from_email") or self.settings.from_email),
+                "name": sender.get("from_name") or self.settings.from_name,
+            },
+            "to": [{"email": to_email}],
+            "subject": subject,
+            "textContent": text_body,
+            "htmlContent": html_body,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                resp = await client.post(
+                    _API_URL,
+                    json=payload,
+                    headers={
+                        "api-key": self.settings.brevo_api_key,
+                        "accept": "application/json",
+                    },
+                )
+        except httpx.HTTPError as exc:
+            logger.error("brevo_send_error", extra={"error": str(exc)})
+            return False
+        if not resp.is_success:
+            logger.error(
+                "brevo_send_rejected",
+                extra={"status": resp.status_code},
+            )
+            return False
+        return True

@@ -2,7 +2,7 @@
 
 from functools import lru_cache
 
-from pydantic import Field, field_validator
+from pydantic import EmailStr, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,14 +22,14 @@ class Settings(BaseSettings):
 
     api_key: str = Field(..., min_length=32)
     hmac_secret: bytes = Field(..., min_length=16)
-    admin_api_key: str = Field(
-        default="admin_key_change_me_in_production_64chars_minimum_required_xx",
-        min_length=32,
-    )
+    admin_api_key: str = Field(..., min_length=32)
 
     redis_url: str = "redis://localhost:6379/0"
     public_base_url: str = ""  # ex: https://mail.aiforge.world — pour les magic links
     use_fakeredis: bool = False
+
+    # Console de démo /demo — endpoints non authentifiés, local uniquement
+    demo_enabled: bool = False
 
     # Inscription web publique
     web_signup_enabled: bool = True
@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     web_login_max_attempts: int = 5        # par IP / 10 min
 
     email_provider: str = "gmail"
-    from_email: str
+    from_email: EmailStr
     from_name: str = "SendBID"
 
     smtp_host: str = "smtp.gmail.com"

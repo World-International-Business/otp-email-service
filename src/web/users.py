@@ -4,20 +4,26 @@ Un utilisateur web = un compte de la plateforme qui possède un tenant.
 Sessions : token stocké en Redis, cookie HttpOnly.
 """
 
+import ast
 import hashlib
+import hmac
+import json
 import secrets
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 from redis.asyncio import Redis
 
 SESSION_TTL = 7 * 24 * 3600  # 7 jours
+_PBKDF2_ITERATIONS = 600_000  # recommandation OWASP
+_LEGACY_ITERATIONS = 100_000  # format initial : hex nu, sans préfixe
 
 
-def _hash_password(password: str, salt: str) -> str:
-    return hashlib.pbkdf2_hmac(
-        "sha256", password.encode(), salt.encode(), 100_000
+def _hash_password(password: str, salt: str, iterations: int = _PBKDF2_ITERATIONS) -> str:
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", password.encode(), salt.encode(), iterations
     ).hex()
+    return f"pbkdf2${iterations}${digest}"
 
 
 @dataclass
@@ -56,7 +62,7 @@ class WebUserStore:
             created_at=time.time(),
         )
         pipe = self.redis.pipeline()
-        pipe.set(self._key(user_id), repr(user.__dict__))
+        pipe.set(self._key(user_id), json.dumps(asdict(user)))
         pipe.set(self._email_key(email), user_id)
         await pipe.execute()
         return user
@@ -71,16 +77,38 @@ class WebUserStore:
         raw = await self.redis.get(self._key(user_id))
         if not raw:
             return None
-        data = eval(raw)  # stockage interne Redis — contrôlé par nous
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            # Compatibilité avec l'ancien format repr() — migration douce
+            data = ast.literal_eval(raw)
         return WebUser(**data)
 
     async def authenticate(self, email: str, password: str) -> WebUser | None:
         user = await self.get_by_email(email)
         if not user:
             return None
-        if _hash_password(password, user.password_salt) == user.password_hash:
-            return user
-        return None
+        stored = user.password_hash
+        if stored.startswith("pbkdf2$"):
+            try:
+                iterations = int(stored.split("$", 2)[1])
+            except (IndexError, ValueError):
+                return None
+        else:
+            # Legacy : hash hex nu = 100k itérations (format initial)
+            iterations = _LEGACY_ITERATIONS
+        candidate = _hash_password(password, user.password_salt, iterations)
+        # Comparaison des digests : le format stocké peut être préfixé ou non
+        if not hmac.compare_digest(
+            candidate.rsplit("$", 1)[-1], stored.rsplit("$", 1)[-1]
+        ):
+            return None
+        if iterations < _PBKDF2_ITERATIONS:
+            # Migration douce : le hash est réécrit au nouveau facteur de
+            # travail lors de la prochaine connexion réussie.
+            user.password_hash = _hash_password(password, user.password_salt)
+            await self.redis.set(self._key(user.user_id), json.dumps(asdict(user)))
+        return user
 
 
 class SessionStore:
@@ -92,7 +120,7 @@ class SessionStore:
 
     async def create(self, user_id: str) -> str:
         token = secrets.token_urlsafe(32)
-        await self.redis.setex(self._key(token), SESSION_TTL, user_id)
+        await self.redis.set(self._key(token), user_id, ex=SESSION_TTL)
         return token
 
     async def get_user_id(self, token: str) -> str | None:

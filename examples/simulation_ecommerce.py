@@ -1,5 +1,7 @@
 """Simulation e-commerce complète — envoi OTP + emails transactionnels.
 
+Prérequis : service lancé avec DEMO_ENABLED=true (scripts/run-local.*)
+
 Usage : python examples/simulation_ecommerce.py
 """
 
@@ -38,6 +40,8 @@ def title(t):
 
 
 CLIENT_EMAIL = "client@boutique-ecommerce.com"
+# 2e adresse : le quota par destinataire est de 3 emails / 10 min
+CLIENT_EMAIL_2 = "client2@boutique-ecommerce.com"
 
 # --- 1. Inscription client -> email de bienvenue --------------------
 title("1. INSCRIPTION — email de bienvenue")
@@ -90,7 +94,7 @@ print(f"HTTP {code} ->", json.dumps(res, indent=2))
 # --- 5. Notification expédition ------------------------------------
 title("5. EXPÉDITION — notification de livraison")
 code, res = post("/v1/email/send", {
-    "to_email": CLIENT_EMAIL,
+    "to_email": CLIENT_EMAIL_2,
     "type": "notification",
     "language": "fr",
     "data": {
@@ -103,7 +107,7 @@ print(f"HTTP {code} ->", json.dumps(res, indent=2))
 # --- 6. Email libre (promo) ----------------------------------------
 title("6. MARKETING — email libre (custom)")
 code, res = post("/v1/email/send", {
-    "to_email": CLIENT_EMAIL,
+    "to_email": CLIENT_EMAIL_2,
     "type": "custom",
     "language": "fr",
     "subject": "-20 % ce week-end sur votre boutique !",

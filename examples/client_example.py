@@ -10,7 +10,7 @@ import httpx
 
 API_KEY = "test_api_key_64_chars_long_change_in_production_test_api_key_change"
 HMAC_SECRET = b"test_hmac_secret_change_in_production"
-BASE_URL = "http://localhost:8000"
+BASE_URL = "http://localhost:8001"
 
 
 def sign_body(body: bytes) -> dict[str, str]:

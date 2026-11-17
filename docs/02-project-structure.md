@@ -51,8 +51,8 @@ otp-email-service/
 │   │   ├── __init__.py
 │   │   ├── base.py                 # Interface abstraite EmailProvider
 │   │   ├── gmail.py                # Implémentation SMTP Gmail
-│   │   ├── brevo.py                # Classe prête (non implémentée)
-│   │   └── resend.py               # Classe prête (non implémentée)
+│   │   ├── brevo.py                # API REST Brevo v3 (BREVO_API_KEY)
+│   │   └── resend.py               # API REST Resend (RESEND_API_KEY)
 │   │
 │   ├── services/
 │   │   ├── __init__.py
