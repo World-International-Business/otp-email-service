@@ -122,6 +122,9 @@ class TenantCreateRequest(BaseModel):
     rollout_percentage: int = Field(default=100, ge=0, le=100)
     allowed_purposes: list[str] = Field(default_factory=lambda: ["login_2fa"])
     plan: str = "free"
+    brand_color: str = "#6366f1"
+    email_logo_url: str | None = None
+    email_footer: str | None = None
     max_sends_per_user_per_10min: int = 3
     max_sends_per_ip_per_10min: int = 3
     cooldown_seconds: int = 60
@@ -149,6 +152,9 @@ class TenantUpdateRequest(BaseModel):
     rollout_percentage: int | None = Field(default=None, ge=0, le=100)
     allowed_purposes: list[str] | None = None
     plan: str | None = None
+    brand_color: str | None = None
+    email_logo_url: str | None = None
+    email_footer: str | None = None
     max_sends_per_user_per_10min: int | None = None
     max_sends_per_ip_per_10min: int | None = None
     cooldown_seconds: int | None = None
@@ -165,4 +171,7 @@ class TenantInfoResponse(BaseModel):
     rollout_percentage: int
     allowed_purposes: list[str]
     plan: str = "free"
+    brand_color: str = "#6366f1"
+    email_logo_url: str | None = None
+    email_footer: str | None = None
     is_active: bool
