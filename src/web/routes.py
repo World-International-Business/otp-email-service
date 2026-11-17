@@ -2,6 +2,7 @@
 
 import hmac
 import html
+import json
 import logging
 import uuid
 from urllib.parse import quote
@@ -26,7 +27,7 @@ from src.core.tenants import (
     hash_api_key,
 )
 from src.services.email_service import EmailService
-from src.services.events import get_events
+from src.services.events import get_events, mask_email
 from src.services.otp_service import OTPService
 from src.web.i18n import (
     DEFAULT_LANG,
@@ -263,7 +264,6 @@ def _dashboard_page(user, tenant, content: str, active: str = "dashboard", debug
     </div>
     <nav class="flex-1 px-3 py-5 space-y-1">{nav}
       <a href="/documentation" class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-white/5 hover:text-white transition">{icons['docs']}Documentation</a>
-      <a href="/docs" class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-white/5 hover:text-white transition">{icons['docs']}Swagger</a>
     </nav>
     <div class="px-5 py-5 border-t border-white/10">
       <div class="mb-4">__LANG_SWITCH_SIDEBAR__</div>
@@ -647,16 +647,161 @@ async def register(
             '<a href="/login" class="text-indigo-600">Se connecter</a>',
         )
 
+    # Vérification de l'adresse email AVANT création du compte : on envoie
+    # un OTP via le tenant "default" (config .env), puis on stocke la
+    # demande en attente dans Redis (15 min). Le compte n'est créé qu'une
+    # fois le code saisi correctement — les adresses fictives échouent ici.
+    default_tenant = await TenantStore(redis).get("default")
+    if not default_tenant:
+        raise HTTPException(status_code=500, detail="Service indisponible")
+    service: OTPService = request.app.state.otp_service
+    try:
+        otp_resp = await service.send_otp(
+            tenant=_reg_sender_tenant(default_tenant),
+            user_id=email.strip().lower(),
+            email=email.strip(),
+            country_code="FR",
+            purpose="login_2fa",
+            language=Language.fr,
+            client_ip=get_client_ip(request),
+            include_debug_code=True,
+        )
+    except HTTPException as exc:
+        return _auth_form(
+            "Créer un compte", "/register",
+            f'<p class="text-sm text-red-600">{_e(exc.detail)}</p>',
+            '<a href="/register" class="text-indigo-600">Réessayer</a>',
+        )
+    if otp_resp.channel.value != "email":
+        return _auth_form(
+            "Créer un compte", "/register",
+            '<p class="text-sm text-red-600">Impossible d\'envoyer l\'email de vérification pour le moment.</p>',
+            '<a href="/register" class="text-indigo-600">Réessayer</a>',
+        )
+
+    reg_token = uuid.uuid4().hex
+    await redis.set(
+        f"reg:{reg_token}",
+        json.dumps({
+            "app_name": app_name.strip(), "brand_name": brand_name.strip(),
+            "email": email.strip(), "password": password,
+            "request_id": otp_resp.request_id,
+            "debug_code": otp_resp.debug_code,
+        }),
+        ex=900,
+    )
+    return RedirectResponse(f"/register/verify?t={reg_token}", status_code=303)
+
+
+def _reg_sender_tenant(tenant: Tenant) -> Tenant:
+    """Tenant 'default' rebrandé « MailHub » pour l'email de vérification
+    d'inscription — l'inscription concerne la plateforme, pas le tenant."""
+    return tenant.model_copy(update={"brand_name": "MailHub", "from_name": "MailHub"})
+
+
+def _verify_email_page(
+    t: str,
+    masked: str,
+    error: str = "",
+    attempts: int | None = None,
+    debug_code: str | None = None,
+) -> HTMLResponse:
+    err = f'<p class="text-sm text-red-600">{_e(error)}</p>' if error else ""
+    att = (
+        f'<p class="text-xs text-slate-500 mt-1">Tentatives restantes : {attempts}</p>'
+        if attempts is not None else ""
+    )
+    dbg = ""
+    if debug_code:
+        dbg = (
+            '<p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 '
+            f'rounded-lg p-2.5">Mode debug — code : <b>{_e(debug_code)}</b></p>'
+        )
+    fields = f"""
+      <input type="hidden" name="t" value="{_e(t)}">
+      {err}
+      <div><label class="text-xs font-semibold text-slate-600">Code à 6 chiffres envoyé à {_e(masked)}</label>
+      <input name="code" class="input mt-1 text-center text-2xl tracking-[.4em]" maxlength="6"
+             inputmode="numeric" autocomplete="one-time-code" placeholder="••••••" required autofocus></div>
+      {att}
+      {dbg}
+    """
+    link = (
+        '<form method="post" action="/register/resend" class="inline">'
+        f'<input type="hidden" name="t" value="{_e(t)}">'
+        '<button type="submit" class="text-indigo-600 font-semibold bg-transparent border-0 '
+        'p-0 cursor-pointer text-xs">Renvoyer le code</button></form>'
+        ' · <a href="/register" class="text-indigo-600 font-semibold">Recommencer</a>'
+    )
+    return _auth_form("Vérifier mon email", "/register/verify", fields, link)
+
+
+@router.get("/register/verify", response_class=HTMLResponse)
+async def register_verify_page(request: Request, t: str = "") -> HTMLResponse:
+    if await _current_user(request):
+        return RedirectResponse("/dashboard", status_code=303)
+    redis = request.app.state.redis
+    raw = await redis.get(f"reg:{t}") if t else None
+    if not raw:
+        return RedirectResponse("/register", status_code=303)
+    pending = json.loads(raw)
+    return _verify_email_page(
+        t, mask_email(pending["email"]), debug_code=pending.get("debug_code")
+    )
+
+
+@router.post("/register/verify")
+async def register_verify(
+    request: Request,
+    t: str = Form(...),
+    code: str = Form(...),
+    settings: Settings = Depends(get_settings),
+    _: None = Depends(require_same_origin),
+):
+    redis = request.app.state.redis
+    raw = await redis.get(f"reg:{t}")
+    if not raw:
+        return RedirectResponse("/register", status_code=303)
+    pending = json.loads(raw)
+    masked = mask_email(pending["email"])
+
+    default_tenant = await TenantStore(redis).get("default")
+    if not default_tenant:
+        raise HTTPException(status_code=500, detail="Service indisponible")
+    service: OTPService = request.app.state.otp_service
+    result = await service.verify(
+        default_tenant, pending["request_id"], code.strip()
+    )
+    if not result.verified:
+        return _verify_email_page(
+            t, masked,
+            error="Code invalide ou expiré." if result.attempts_remaining == 0
+                  else "Code invalide.",
+            attempts=result.attempts_remaining or None,
+            debug_code=pending.get("debug_code"),
+        )
+
+    # Email vérifiée : dernier contrôle avant provisioning
+    users = WebUserStore(redis)
+    if await users.get_by_email(pending["email"]):
+        await redis.delete(f"reg:{t}")
+        return _auth_form(
+            "Créer un compte", "/register",
+            '<p class="text-sm text-red-600">Cet email est déjà utilisé.</p>',
+            '<a href="/login" class="text-indigo-600">Se connecter</a>',
+        )
+    await redis.delete(f"reg:{t}")
+
     # Auto-provisioning : créer le tenant + credentials
     tenant_id = f"t_{uuid.uuid4().hex[:10]}"
     api_key = generate_api_key()
     hmac_secret = generate_hmac_secret()
     tenant = Tenant(
         tenant_id=tenant_id,
-        name=app_name,
+        name=pending["app_name"],
         api_key_hash=hash_api_key(api_key),
         hmac_secret=hmac_secret,
-        brand_name=brand_name,
+        brand_name=pending["brand_name"],
         allowed_purposes=["login_2fa", "order_confirmation", "password_reset"],
         is_active=True,
     )
@@ -667,7 +812,9 @@ async def register(
     await redis.set(f"webuser:creds:{tenant_id}", f"{api_key}|{hmac_secret}", ex=86400)
 
     try:
-        user = await users.create(email, password, tenant_id, app_name)
+        user = await users.create(
+            pending["email"], pending["password"], tenant_id, pending["app_name"]
+        )
     except Exception:
         # Rollback : ne pas laisser un tenant orphelin sans compte associé
         pipe = redis.pipeline()
@@ -684,6 +831,50 @@ async def register(
         secure=str(settings.public_base_url).startswith("https://"),
     )
     return resp
+
+
+@router.post("/register/resend")
+async def register_resend(
+    request: Request,
+    t: str = Form(...),
+    _: None = Depends(require_same_origin),
+):
+    redis = request.app.state.redis
+    raw = await redis.get(f"reg:{t}")
+    if not raw:
+        return RedirectResponse("/register", status_code=303)
+    pending = json.loads(raw)
+
+    default_tenant = await TenantStore(redis).get("default")
+    if not default_tenant:
+        raise HTTPException(status_code=500, detail="Service indisponible")
+    service: OTPService = request.app.state.otp_service
+    try:
+        otp_resp = await service.send_otp(
+            tenant=_reg_sender_tenant(default_tenant),
+            user_id=pending["email"].lower(),
+            email=pending["email"],
+            country_code="FR",
+            purpose="login_2fa",
+            language=Language.fr,
+            client_ip=get_client_ip(request),
+            include_debug_code=True,
+        )
+    except HTTPException as exc:
+        return _verify_email_page(
+            t, mask_email(pending["email"]), error=str(exc.detail),
+            debug_code=pending.get("debug_code"),
+        )
+    if otp_resp.channel.value != "email":
+        return _verify_email_page(
+            t, mask_email(pending["email"]),
+            error="Impossible d'envoyer l'email pour le moment.",
+            debug_code=pending.get("debug_code"),
+        )
+    pending["request_id"] = otp_resp.request_id
+    pending["debug_code"] = otp_resp.debug_code
+    await redis.set(f"reg:{t}", json.dumps(pending), ex=900)
+    return RedirectResponse(f"/register/verify?t={t}", status_code=303)
 
 
 @router.get("/login", response_class=HTMLResponse)
