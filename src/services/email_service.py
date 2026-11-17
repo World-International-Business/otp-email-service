@@ -152,7 +152,7 @@ class EmailService:
         html = request.html_body or self._wrap_html(
             request.subject,
             escape(request.text_body).replace("\n", "<br>"),
-            tenant.brand_name,
+            tenant,
         )
         return request.subject, request.text_body, html
 
@@ -175,7 +175,7 @@ class EmailService:
                 f"Welcome to {brand}. Your account is ready to use.\n\n"
                 f"The {brand} Team"
             )
-        html = self._wrap_html(subject, escape(text).replace("\n", "<br>"), brand)
+        html = self._wrap_html(subject, escape(text).replace("\n", "<br>"), tenant)
         return subject, text, html
 
     def _notification(
@@ -189,7 +189,7 @@ class EmailService:
             text = f"{title}\n\n{message}\n\nL'équipe {brand}"
         else:
             text = f"{title}\n\n{message}\n\nThe {brand} Team"
-        html = self._wrap_html(title, escape(message).replace("\n", "<br>"), brand)
+        html = self._wrap_html(title, escape(message).replace("\n", "<br>"), tenant)
         return subject, text, html
 
     def _transaction(
@@ -215,8 +215,17 @@ class EmailService:
                 "Never share your security codes.\n"
                 f"The {brand} Team"
             )
-        html = self._wrap_html(subject, escape(text).replace("\n", "<br>"), brand)
+        html = self._wrap_html(subject, escape(text).replace("\n", "<br>"), tenant)
         return subject, text, html
 
-    def _wrap_html(self, title: str, content_html: str, brand: str) -> str:
-        return generic_html(title, content_html, brand)
+    def _wrap_html(
+        self, title: str, content_html: str, tenant_or_brand
+    ) -> str:
+        if isinstance(tenant_or_brand, Tenant):
+            t = tenant_or_brand
+            return generic_html(
+                title, content_html, t.brand_name,
+                color=t.brand_color, logo_url=t.email_logo_url,
+                footer=t.email_footer,
+            )
+        return generic_html(title, content_html, tenant_or_brand)

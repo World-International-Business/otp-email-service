@@ -11,9 +11,39 @@ def _esc(value: object) -> str:
     return escape(str(value), quote=True)
 
 
-def email_layout(brand: str, content_html: str, preheader: str = "") -> str:
-    """Enveloppe commune : header dégradé + carte + footer."""
+def _sanitize_color(color: str) -> str:
+    """Accepte uniquement #rgb/#rrggbb, sinon fallback indigo."""
+    c = (color or "").strip()
+    if len(c) in (4, 7) and c.startswith("#") and all(
+        ch in "0123456789abcdefABCDEF" for ch in c[1:]
+    ):
+        return c
+    return "#6366f1"
+
+
+def email_layout(
+    brand: str,
+    content_html: str,
+    preheader: str = "",
+    color: str = "#6366f1",
+    logo_url: str | None = None,
+    footer: str | None = None,
+) -> str:
+    """Enveloppe commune : header marque + carte + footer (personnalisable)."""
     b = _esc(brand)
+    accent = _sanitize_color(color)
+    logo = (
+        f'<img src="{_esc(logo_url)}" alt="{b}" '
+        'style="max-height:36px; max-width:180px; display:block;">'
+        if logo_url
+        else (
+            f'<span style="color:#fff; font-size:20px; font-weight:800;'
+            f' letter-spacing:.3px;">{b}</span>'
+        )
+    )
+    footer_text = _esc(footer) if footer else (
+        f"Message automatique de {b} — merci de ne pas répondre."
+    )
     return f"""<!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -31,9 +61,9 @@ def email_layout(brand: str, content_html: str, preheader: str = "") -> str:
              style="max-width:520px; width:100%;">
 
         <!-- Header marque -->
-        <tr><td style="background:linear-gradient(135deg,#6366f1,#8b5cf6);
+        <tr><td style="background:{accent};
               border-radius:16px 16px 0 0; padding:26px 32px;">
-          <span style="color:#fff; font-size:20px; font-weight:800; letter-spacing:.3px;">{b}</span>
+          {logo}
         </td></tr>
 
         <!-- Corps -->
@@ -46,7 +76,7 @@ def email_layout(brand: str, content_html: str, preheader: str = "") -> str:
         <tr><td style="background:#f8f9fd; border:1px solid #e5e7f0; border-top:none;
               border-radius:0 0 16px 16px; padding:20px 32px; text-align:center;">
           <p style="margin:0; color:#9aa0b4; font-size:12px; line-height:1.6;">
-            Message automatique de {b} — merci de ne pas répondre.<br>
+            {footer_text}<br>
             Propulsé par MailHub
           </p>
         </td></tr>
@@ -64,6 +94,9 @@ def otp_html(
     language: str = "fr",
     magic_url: str | None = None,
     ttl_minutes: int = 5,
+    color: str = "#6366f1",
+    logo_url: str | None = None,
+    footer: str | None = None,
 ) -> str:
     """Email OTP : code en grand, avertissement anti-partage, bouton magique optionnel."""
     c = _esc(code)
@@ -89,7 +122,8 @@ def otp_html(
     digits = "".join(
         f'<td align="center" style="width:44px; height:56px; background:#eef2ff;'
         f' border:1.5px solid #c7d2fe; border-radius:10px; font-size:30px;'
-        f' font-weight:800; color:#4338ca; font-family:Consolas,monospace;">{_esc(d)}</td>'
+        f' font-weight:800; color:{_sanitize_color(color)};'
+        f' font-family:Consolas,monospace;">{_esc(d)}</td>'
         f'<td style="width:8px;"></td>'
         for d in c
     )
@@ -99,7 +133,7 @@ def otp_html(
         button = f"""
       <div style="text-align:center; margin:0 0 24px;">
         <a href="{_esc(magic_url)}" style="display:inline-block;
-           background:linear-gradient(135deg,#6366f1,#8b5cf6);
+           background:{_sanitize_color(color)};
            color:#fff; font-weight:700; font-size:15px; padding:13px 34px; border-radius:10px;
            text-decoration:none;">{btn_label}</a>
       </div>"""
@@ -113,14 +147,21 @@ def otp_html(
       <p style="margin:0 0 6px; color:#6b7280; font-size:13px;">{validity}</p>
       <p style="margin:0; color:#dc2626; font-size:13px; font-weight:700;">{warning}</p>
     """
-    return email_layout(brand, content, preheader)
+    return email_layout(brand, content, preheader, color, logo_url, footer)
 
 
-def generic_html(title: str, content_html: str, brand: str) -> str:
+def generic_html(
+    title: str,
+    content_html: str,
+    brand: str,
+    color: str = "#6366f1",
+    logo_url: str | None = None,
+    footer: str | None = None,
+) -> str:
     """Wrapper pour welcome / notification / transaction / custom."""
     t = _esc(title)
     content = f"""
       <h1 style="margin:0 0 16px; font-size:22px; font-weight:800; color:#111827;">{t}</h1>
       <div style="color:#4b5563; font-size:15px; line-height:1.7;">{content_html}</div>
     """
-    return email_layout(brand, content, t)
+    return email_layout(brand, content, t, color, logo_url, footer)

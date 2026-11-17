@@ -31,6 +31,9 @@ class Tenant(BaseModel):
     rollout_percentage: int = Field(default=100, ge=0, le=100)
     allowed_purposes: list[str] = Field(default_factory=lambda: ["login_2fa"])
     plan: str = "free"
+    brand_color: str = "#6366f1"
+    email_logo_url: str | None = None
+    email_footer: str | None = None
     max_sends_per_user_per_10min: int = 3
     max_sends_per_ip_per_10min: int = 3
     cooldown_seconds: int = 60
