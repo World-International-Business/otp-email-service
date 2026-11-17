@@ -276,10 +276,12 @@ def _dashboard_page(user, tenant, content: str, active: str = "dashboard", debug
           <p class="text-[11px] text-slate-500 truncate">{_e(tenant.brand_name)}</p>
         </div>
       </div>
-      <a href="/logout" class="mt-4 inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition">
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
-        Se déconnecter
-      </a>
+      <form method="post" action="/logout" class="mt-4">
+        <button type="submit" class="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition bg-transparent border-0 p-0 cursor-pointer">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+          Se déconnecter
+        </button>
+      </form>
     </div>
   </aside>
   <main class="sb-offset flex-1 min-w-0 pt-20 px-4 pb-8 sm:px-6 md:pt-8 md:px-8 lg:p-10">{content}</main>
@@ -664,7 +666,16 @@ async def register(
     # une fois dans le dashboard (puis régénérables)
     await redis.set(f"webuser:creds:{tenant_id}", f"{api_key}|{hmac_secret}", ex=86400)
 
-    user = await users.create(email, password, tenant_id, app_name)
+    try:
+        user = await users.create(email, password, tenant_id, app_name)
+    except Exception:
+        # Rollback : ne pas laisser un tenant orphelin sans compte associé
+        pipe = redis.pipeline()
+        pipe.delete(f"tenant:{tenant_id}", f"tenant:bykey:{hash_api_key(api_key)}",
+                    f"webuser:creds:{tenant_id}")
+        pipe.srem("tenant:index", tenant_id)
+        await pipe.execute()
+        raise
     token = await SessionStore(redis).create(user.user_id)
 
     resp = RedirectResponse("/dashboard", status_code=303)
@@ -714,6 +725,8 @@ async def login(
             '<p class="text-sm text-red-600">Email ou mot de passe incorrect.</p>',
             '<a href="/register" class="text-indigo-600">Créer un compte</a>',
         )
+    # Succès : reset du compteur anti brute-force pour cette IP
+    await redis.delete(rl_key)
     token = await SessionStore(request.app.state.redis).create(user.user_id)
     resp = RedirectResponse("/dashboard", status_code=303)
     resp.set_cookie(
@@ -723,14 +736,21 @@ async def login(
     return resp
 
 
-@router.get("/logout")
-async def logout(request: Request):
+@router.post("/logout")
+async def logout(request: Request, _: None = Depends(require_same_origin)):
     token = request.cookies.get("session_id")
     if token:
         await SessionStore(request.app.state.redis).destroy(token)
     resp = RedirectResponse("/", status_code=303)
     resp.delete_cookie("session_id")
     return resp
+
+
+@router.get("/logout")
+async def logout_get():
+    # La déconnexion exige un POST (anti-CSRF : un lien/image tiers ne doit
+    # pas pouvoir déconnecter l'utilisateur). Un GET redirige simplement.
+    return RedirectResponse("/", status_code=303)
 
 
 # =====================================================================
@@ -902,10 +922,10 @@ async def dashboard(
     <div><label class="text-xs font-semibold text-slate-600">Nom expéditeur</label>
     <input name="from_name" class="input mt-1" value="{_e(tenant.from_name or '')}" placeholder="{_e(tenant.brand_name)}"></div>
     <div><label class="text-xs font-semibold text-slate-600">SMTP Host</label>
-    <input name="smtp_host" class="input mt-1" value="{_e(_cfg(tenant,'smtp_host') or 'smtp.gmail.com')}">
-    <p class="text-[11px] text-slate-400 mt-1">Gmail : smtp.gmail.com · IONOS : smtp.ionos.fr (ou .com selon région) · OVH : ssl0.ovh.net · Zoho : smtp.zoho.com</p></div>
+    <input name="smtp_host" class="input mt-1" value="{_e(_cfg(tenant,'smtp_host') or '')}" placeholder="{_e(settings.smtp_host)}">
+    <p class="text-[11px] text-slate-400 mt-1">Vide = config globale (.env) · Gmail : smtp.gmail.com · IONOS : smtp.ionos.fr (ou .com selon région) · OVH : ssl0.ovh.net · Zoho : smtp.zoho.com</p></div>
     <div><label class="text-xs font-semibold text-slate-600">SMTP Port</label>
-    <input name="smtp_port" type="number" min="1" max="65535" class="input mt-1" value="{_e(str(_cfg(tenant,'smtp_port') or 587))}">
+    <input name="smtp_port" type="number" min="1" max="65535" class="input mt-1" value="{_e(str(_cfg(tenant,'smtp_port') or ''))}" placeholder="{settings.smtp_port}">
     <p class="text-[11px] text-slate-400 mt-1">587 = STARTTLS (Gmail, IONOS) · 465 = SSL (OVH, Zoho, cPanel) — détection automatique.</p></div>
     <div><label class="text-xs font-semibold text-slate-600">SMTP User</label>
     <input name="smtp_user" class="input mt-1" value="{_e(tenant.smtp_user or '')}" placeholder="votre.email@gmail.com"></div>

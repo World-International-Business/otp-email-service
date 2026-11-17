@@ -114,6 +114,12 @@ class OTPService:
         code, request_id, _code_hash = await store.create(user_id)
 
         magic_url = None
+        if magic_link and not self.settings.public_base_url:
+            logger.warning(
+                "magic_link_ignored",
+                tenant_id=tenant.tenant_id,
+                reason="PUBLIC_BASE_URL non configuré",
+            )
         if magic_link and self.settings.public_base_url:
             base = self.settings.public_base_url.rstrip("/")
             from urllib.parse import urlencode
