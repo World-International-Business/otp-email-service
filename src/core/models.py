@@ -121,6 +121,7 @@ class TenantCreateRequest(BaseModel):
     risky_countries: list[str] = Field(default_factory=list)
     rollout_percentage: int = Field(default=100, ge=0, le=100)
     allowed_purposes: list[str] = Field(default_factory=lambda: ["login_2fa"])
+    plan: str = "free"
     max_sends_per_user_per_10min: int = 3
     max_sends_per_ip_per_10min: int = 3
     cooldown_seconds: int = 60
@@ -147,6 +148,7 @@ class TenantUpdateRequest(BaseModel):
     risky_countries: list[str] | None = None
     rollout_percentage: int | None = Field(default=None, ge=0, le=100)
     allowed_purposes: list[str] | None = None
+    plan: str | None = None
     max_sends_per_user_per_10min: int | None = None
     max_sends_per_ip_per_10min: int | None = None
     cooldown_seconds: int | None = None
@@ -162,4 +164,5 @@ class TenantInfoResponse(BaseModel):
     from_email: str | None
     rollout_percentage: int
     allowed_purposes: list[str]
+    plan: str = "free"
     is_active: bool

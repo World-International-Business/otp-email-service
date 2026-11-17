@@ -20,11 +20,13 @@ from src.api.dependencies import (
 from src.config import Settings, get_settings
 from src.core.models import EmailSendRequest, EmailType, Language
 from src.core.tenants import (
+    PLANS,
     Tenant,
     TenantStore,
     generate_api_key,
     generate_hmac_secret,
     hash_api_key,
+    plan_quota_updates,
 )
 from src.services.email_service import EmailService
 from src.services.events import get_events, mask_email
@@ -990,8 +992,10 @@ async def dashboard(
         </div>"""
     else:
         creds_html = """
-        <p class="mt-4 text-sm text-amber-600 bg-amber-50 rounded-lg p-3">
-          Vos clés ont été affichées lors de l'inscription. Contactez l'admin pour les régénérer.
+        <p class="mt-4 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+          Vos clés sont masquées pour sécurité (affichées 24 h après génération).
+          Pour obtenir une nouvelle clé API + secret, cliquez sur <b>« Régénérer mes clés »</b>
+          ci-dessous — elles s'afficheront immédiatement ici.
         </p>"""
 
     stats_keys = [
@@ -1077,6 +1081,39 @@ async def dashboard(
 
     base_url = _e(str(request.base_url).rstrip("/"))
 
+    cur_plan = tenant.plan if tenant and tenant.plan in PLANS else "free"
+    plan_cards = "".join(
+        f'<div class="border rounded-xl p-4 flex flex-col '
+        f'{"border-indigo-500 ring-1 ring-indigo-500" if pid == cur_plan else "border-slate-200"}">'
+        f'<div class="flex items-center justify-between">'
+        f"<p class=\"font-bold\">{_e(p['label'])}</p>"
+        + ('<span class="badge bg-indigo-100 text-indigo-700">ACTUEL</span>' if pid == cur_plan else "")
+        + "</div>"
+        f"<p class=\"text-2xl font-black mt-1\">{_e(p['price'])}</p>"
+        f"<p class=\"text-xs text-slate-500 mt-1\">{_e(p['desc'])}</p>"
+        f'<ul class="text-[11px] text-slate-500 mt-3 space-y-1">'
+        f"<li>{p['max_sends_per_user_per_10min']} envois/user/10min</li>"
+        f"<li>{p['max_sends_per_ip_per_10min']} envois/IP/10min</li>"
+        f"<li>Cooldown {p['cooldown_seconds']}s · {p['max_verify_attempts']} essais · OTP {p['otp_ttl_seconds']//60} min</li>"
+        f"</ul>"
+        f'<form method="post" action="/dashboard/plan" class="mt-4 mt-auto">'
+        f'<input type="hidden" name="plan" value="{_e(pid)}">'
+        + (
+            '<button disabled class="w-full text-xs font-bold text-slate-400 border border-slate-200 rounded-lg px-4 py-2 cursor-default">Plan actuel</button>'
+            if pid == cur_plan
+            else '<button class="w-full text-xs font-bold text-indigo-600 border border-indigo-200 rounded-lg px-4 py-2 hover:bg-indigo-50">Choisir ce plan</button>'
+        )
+        + "</form></div>"
+        for pid, p in PLANS.items()
+    )
+    plan_card_html = f"""
+<div class="card p-4 sm:p-6 mb-6">
+  <h2 class="font-bold mb-1">Votre abonnement</h2>
+  <p class="text-sm text-slate-500 mb-4">Plan actuel : <b>{_e(PLANS[cur_plan]['label'])}</b> —
+  changer de plan applique immédiatement les quotas du plan à votre tenant.</p>
+  <div class="grid sm:grid-cols-3 gap-3">{plan_cards}</div>
+</div>"""
+
     content = f"""
 <h1 class="text-2xl font-extrabold mb-1">Dashboard</h1>
 <p class="text-sm text-slate-500 mb-8">Bienvenue {_e(user.app_name)} — voici votre espace API.</p>
@@ -1099,6 +1136,8 @@ async def dashboard(
     </button>
   </form>
 </div>
+
+{plan_card_html}
 
 <div class="card p-4 sm:p-6 mb-6">
   <h2 class="font-bold mb-1">Configuration de votre expéditeur email</h2>
@@ -1247,6 +1286,21 @@ async def dashboard_regenerate(
     return RedirectResponse("/dashboard", status_code=303)
 
 
+@router.post("/dashboard/plan")
+async def dashboard_plan(
+    request: Request,
+    plan: str = Form(...),
+    _: None = Depends(require_same_origin),
+):
+    user = await _require_user(request)
+    if plan not in PLANS:
+        raise HTTPException(status_code=422, detail="Plan invalide")
+    await TenantStore(request.app.state.redis).update(
+        user.tenant_id, {"plan": plan, **plan_quota_updates(plan)}
+    )
+    return RedirectResponse("/dashboard", status_code=303)
+
+
 @router.post("/dashboard/test-email")
 async def dashboard_test_email(
     request: Request,
@@ -1285,7 +1339,7 @@ async def dashboard_test_email(
 # Démo interactive (accessible sans compte en DEBUG)
 # =====================================================================
 
-def _demo_page() -> str:
+def _demo_page(default_tenant: str = "default") -> str:
     return """
 <div class="max-w-4xl mx-auto py-10 px-6">
   <h1 class="text-2xl font-extrabold mb-1">Console de test</h1>
@@ -1295,7 +1349,7 @@ def _demo_page() -> str:
     <h2 class="font-bold mb-4">1. Envoyer un OTP</h2>
     <div class="grid md:grid-cols-2 gap-4">
       <div><label class="text-xs font-semibold text-slate-600">Tenant <span class="font-normal text-slate-400">(id, nom ou marque)</span></label>
-      <input id="otpTenant" class="input mt-1" value="default"></div>
+      <input id="otpTenant" class="input mt-1" value="__TENANT__"></div>
       <div><label class="text-xs font-semibold text-slate-600">Email</label>
       <input id="email" type="email" class="input mt-1" value="test@example.com"></div>
       <div><label class="text-xs font-semibold text-slate-600">Code pays</label>
@@ -1324,7 +1378,7 @@ def _demo_page() -> str:
     <h2 class="font-bold mb-4">3. Email transactionnel</h2>
     <div class="grid md:grid-cols-2 gap-4">
       <div><label class="text-xs font-semibold text-slate-600">Tenant</label>
-      <input id="emailTenant" class="input mt-1" value="default"></div>
+      <input id="emailTenant" class="input mt-1" value="__TENANT__"></div>
       <div><label class="text-xs font-semibold text-slate-600">Destinataire</label>
       <input id="emailTo" type="email" class="input mt-1" value="test@example.com"></div>
       <div><label class="text-xs font-semibold text-slate-600">Type</label>
@@ -1380,16 +1434,20 @@ async function sendEmail() {
   show("emailResult", await res.json(), res.ok);
 }
 </script>
-"""
+""".replace("__TENANT__", _e(default_tenant))
 
 
 @router.get("/demo", response_class=HTMLResponse)
 async def demo(request: Request, settings: Settings = Depends(get_settings)) -> HTMLResponse:
     if not settings.demo_enabled:
         raise HTTPException(status_code=404)
-    logged_in = bool(await _current_user(request))
+    user = await _current_user(request)
+    # Connecté : pré-remplir le champ Tenant avec SON tenant pour que les
+    # envois de test alimentent ses stats du dashboard (pas "default").
+    default_tenant = user.tenant_id if user else "default"
     return _landing_page(
-        f'<div class="bg-slate-50">{_demo_page()}</div>', logged_in=logged_in
+        f'<div class="bg-slate-50">{_demo_page(default_tenant)}</div>',
+        logged_in=bool(user),
     )
 
 
