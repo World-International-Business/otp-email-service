@@ -10,11 +10,13 @@ from src.core.models import (
     TenantUpdateRequest,
 )
 from src.core.tenants import (
+    PLANS,
     Tenant,
     TenantStore,
     generate_api_key,
     generate_hmac_secret,
     hash_api_key,
+    plan_quota_updates,
 )
 
 admin_router = APIRouter(prefix="/v1/admin", dependencies=[require_admin])
@@ -28,6 +30,7 @@ def _info(t: Tenant) -> TenantInfoResponse:
         from_email=t.from_email,
         rollout_percentage=t.rollout_percentage,
         allowed_purposes=t.allowed_purposes,
+        plan=t.plan,
         is_active=t.is_active,
     )
 
@@ -43,6 +46,10 @@ async def create_tenant(
     store = TenantStore(request.app.state.redis)
     if await store.get(payload.tenant_id):
         raise HTTPException(status_code=409, detail="tenant_id already exists")
+    if payload.plan not in PLANS:
+        raise HTTPException(
+            status_code=422, detail=f"Unknown plan '{payload.plan}'"
+        )
 
     api_key = generate_api_key()
     hmac_secret = generate_hmac_secret()
@@ -63,6 +70,7 @@ async def create_tenant(
         risky_countries=[c.upper() for c in payload.risky_countries],
         rollout_percentage=payload.rollout_percentage,
         allowed_purposes=payload.allowed_purposes,
+        plan=payload.plan,
         max_sends_per_user_per_10min=payload.max_sends_per_user_per_10min,
         max_sends_per_ip_per_10min=payload.max_sends_per_ip_per_10min,
         cooldown_seconds=payload.cooldown_seconds,
@@ -70,6 +78,10 @@ async def create_tenant(
         otp_ttl_seconds=payload.otp_ttl_seconds,
         is_active=True,
     )
+    if payload.plan != "free":
+        # Un plan non gratuit applique ses quotas par défaut (affinables via PATCH)
+        for field, value in plan_quota_updates(payload.plan).items():
+            setattr(tenant, field, value)
     await store.create(tenant)
 
     return TenantCreateResponse(
@@ -119,6 +131,13 @@ async def update_tenant(
         updates["from_email"] = str(updates["from_email"])
     if "risky_countries" in updates and updates["risky_countries"]:
         updates["risky_countries"] = [c.upper() for c in updates["risky_countries"]]
+    if "plan" in updates:
+        if updates["plan"] not in PLANS:
+            raise HTTPException(
+                status_code=422, detail=f"Unknown plan '{updates['plan']}'"
+            )
+        # Changer de plan applique les quotas du plan au tenant
+        updates.update(plan_quota_updates(updates["plan"]))
 
     tenant = await store.update(tenant_id, updates)
     if tenant is None:

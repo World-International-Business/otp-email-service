@@ -21,6 +21,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from src.api.dependencies import get_client_ip, require_same_origin
 from src.config import Settings, get_settings
 from src.core.tenants import (
+    PLANS,
     Tenant,
     TenantStore,
     generate_api_key,
@@ -217,7 +218,8 @@ async def admin_dashboard(
         rows += f"""<tr class="hover:bg-slate-50 transition align-top">
   <td class="py-4 pl-5 pr-4">
     <p class="font-bold">{_e(t.name)}</p>
-    <p class="text-xs text-slate-400"><code>{_e(t.tenant_id)}</code> · {_e(t.brand_name)}</p>
+    <p class="text-xs text-slate-400"><code>{_e(t.tenant_id)}</code> · {_e(t.brand_name)}
+    · <span class="badge bg-indigo-50 text-indigo-700">{_e(PLANS.get(t.plan, PLANS["free"])["label"])}</span></p>
   </td>
   <td class="py-4 pr-4">{status_badge}</td>
   <td class="py-4 pr-4 text-sm">
@@ -320,6 +322,12 @@ def _tenant_form(action: str, t: Tenant | None, include_account: bool) -> str:
     risks = _e(",".join(t.risky_countries) if t else "")
     purposes = _e(",".join(t.allowed_purposes) if t else "login_2fa")
     smtp_pass = ""  # jamais prérempli
+    cur_plan = t.plan if t else "free"
+    plan_options = "".join(
+        f'<option value="{_e(pid)}"{" selected" if cur_plan == pid else ""}>'
+        f"{_e(p['label'])} — {_e(p['price'])}</option>"
+        for pid, p in PLANS.items()
+    )
 
     id_field = ""
     if t is None:
@@ -373,8 +381,11 @@ def _tenant_form(action: str, t: Tenant | None, include_account: bool) -> str:
   <input name="rollout_percentage" type="number" min="0" max="100" class="input mt-1"
          value="{g('rollout_percentage', 100)}"></div>
 
-  <h3 class="font-bold text-sm text-slate-700 md:col-span-2 mt-2">Quotas</h3>
+  <h3 class="font-bold text-sm text-slate-700 md:col-span-2 mt-2">Plan & quotas</h3>
   {unlimited_hint}
+  <div><label class="text-xs font-semibold text-slate-600">Plan d'abonnement</label>
+  <select name="plan" class="input mt-1">{plan_options}</select>
+  <p class="text-[11px] text-slate-400 mt-1">Tag affiché au client — les champs quota ci-dessous font foi.</p></div>
   <div><label class="text-xs font-semibold text-slate-600">Envois max / user / 10 min</label>
   <input name="max_sends_per_user_per_10min" type="number" min="1" class="input mt-1"
          value="{g('max_sends_per_user_per_10min', 1000000)}"></div>
@@ -445,6 +456,7 @@ async def admin_create_tenant(
     allowed_purposes: str = Form("login_2fa"),
     risky_countries: str = Form(""),
     rollout_percentage: int = Form(100),
+    plan: str = Form("free"),
     max_sends_per_user_per_10min: int = Form(1000000),
     max_sends_per_ip_per_10min: int = Form(1000000),
     cooldown_seconds: int = Form(1),
@@ -488,6 +500,7 @@ async def admin_create_tenant(
         risky_countries=[c.upper() for c in _csv(risky_countries)],
         rollout_percentage=max(0, min(100, rollout_percentage)),
         allowed_purposes=_csv(allowed_purposes) or ["login_2fa"],
+        plan=plan if plan in PLANS else "free",
         max_sends_per_user_per_10min=max(1, max_sends_per_user_per_10min),
         max_sends_per_ip_per_10min=max(1, max_sends_per_ip_per_10min),
         cooldown_seconds=max(1, cooldown_seconds),
@@ -634,6 +647,7 @@ async def admin_update_tenant(
     allowed_purposes: str = Form("login_2fa"),
     risky_countries: str = Form(""),
     rollout_percentage: int = Form(100),
+    plan: str = Form("free"),
     max_sends_per_user_per_10min: int = Form(1000000),
     max_sends_per_ip_per_10min: int = Form(1000000),
     cooldown_seconds: int = Form(1),
@@ -642,6 +656,8 @@ async def admin_update_tenant(
     _: None = Depends(require_same_origin),
 ):
     await _require_admin(request, settings)
+    if plan not in PLANS:
+        raise HTTPException(status_code=422, detail="Plan invalide")
     if from_email.strip() and (
         "@" not in from_email or "." not in from_email.rsplit("@", 1)[-1]
     ):
@@ -657,6 +673,7 @@ async def admin_update_tenant(
         "risky_countries": [c.upper() for c in _csv(risky_countries)],
         "rollout_percentage": max(0, min(100, rollout_percentage)),
         "allowed_purposes": _csv(allowed_purposes) or ["login_2fa"],
+        "plan": plan,
         "max_sends_per_user_per_10min": max(1, max_sends_per_user_per_10min),
         "max_sends_per_ip_per_10min": max(1, max_sends_per_ip_per_10min),
         "cooldown_seconds": max(1, cooldown_seconds),

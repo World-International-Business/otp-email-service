@@ -30,6 +30,7 @@ class Tenant(BaseModel):
     risky_countries: list[str] = Field(default_factory=list)
     rollout_percentage: int = Field(default=100, ge=0, le=100)
     allowed_purposes: list[str] = Field(default_factory=lambda: ["login_2fa"])
+    plan: str = "free"
     max_sends_per_user_per_10min: int = 3
     max_sends_per_ip_per_10min: int = 3
     cooldown_seconds: int = 60
@@ -51,6 +52,61 @@ def generate_hmac_secret() -> str:
 
 def hash_api_key(api_key: str) -> str:
     return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------
+# Plans d'abonnement (déclaratifs) — les quotas du plan sont appliqués
+# aux champs du tenant lors du changement de plan ; l'admin peut ensuite
+# ajuster chaque quota individuellement.
+# ---------------------------------------------------------------------
+
+PLANS: dict[str, dict] = {
+    "free": {
+        "label": "Starter",
+        "price": "0€",
+        "desc": "Pour tester et prototyper",
+        "max_sends_per_user_per_10min": 3,
+        "max_sends_per_ip_per_10min": 3,
+        "cooldown_seconds": 60,
+        "max_verify_attempts": 5,
+        "otp_ttl_seconds": 300,
+    },
+    "pro": {
+        "label": "Pro",
+        "price": "Sur mesure",
+        "desc": "Pour les apps en production",
+        "max_sends_per_user_per_10min": 20,
+        "max_sends_per_ip_per_10min": 60,
+        "cooldown_seconds": 10,
+        "max_verify_attempts": 10,
+        "otp_ttl_seconds": 300,
+    },
+    "enterprise": {
+        "label": "Enterprise",
+        "price": "Sur mesure",
+        "desc": "Volume élevé & conformité",
+        "max_sends_per_user_per_10min": 100,
+        "max_sends_per_ip_per_10min": 300,
+        "cooldown_seconds": 1,
+        "max_verify_attempts": 10,
+        "otp_ttl_seconds": 600,
+    },
+}
+
+# Champs du tenant pilotés par le plan
+PLAN_QUOTA_FIELDS = (
+    "max_sends_per_user_per_10min",
+    "max_sends_per_ip_per_10min",
+    "cooldown_seconds",
+    "max_verify_attempts",
+    "otp_ttl_seconds",
+)
+
+
+def plan_quota_updates(plan: str) -> dict:
+    """Quotas du plan sous forme de dict pour TenantStore.update()."""
+    p = PLANS.get(plan) or PLANS["free"]
+    return {f: p[f] for f in PLAN_QUOTA_FIELDS}
 
 
 class TenantStore:
