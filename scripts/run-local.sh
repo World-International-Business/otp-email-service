@@ -15,6 +15,10 @@ if [ -f .env ]; then
     unset USE_FAKEREDIS DEBUG DEMO_ENABLED EMAIL_PROVIDER FROM_EMAIL FROM_NAME \
           SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASSWORD BREVO_API_KEY \
           RESEND_API_KEY REDIS_URL PUBLIC_BASE_URL
+
+    # Redis persistant : démarrer le conteneur mailhub-redis si présent
+    docker start mailhub-redis >/dev/null 2>&1 || true
+
     echo "============================================================"
     echo "  OTP Email Service — config chargée depuis .env"
     echo "  Interface : http://localhost:8001/"

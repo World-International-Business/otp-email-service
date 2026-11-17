@@ -135,7 +135,13 @@ tailwind.config = {{ theme: {{ extend: {{ fontFamily: {{ sans: ['Inter','sans-se
 </head>"""
 
 
-def _footer() -> str:
+def _footer(logged_in: bool = False) -> str:
+    account = (
+        '<a href="/dashboard" class="hover:text-white transition">Mon espace</a>'
+        if logged_in else
+        '<a href="/register" class="hover:text-white transition">Créer un compte</a>\n'
+        '        <a href="/login" class="hover:text-white transition">Connexion</a>'
+    )
     return f"""
 <footer class="bg-slate-950 text-slate-400">
   <div class="max-w-6xl mx-auto px-6 py-10 md:py-14 grid md:grid-cols-3 gap-8 md:gap-10">
@@ -148,8 +154,7 @@ def _footer() -> str:
       <p class="text-white font-semibold text-sm mb-3">Produit</p>
       <div class="flex flex-col gap-2 text-sm">
         <a href="/documentation" class="hover:text-white transition">Documentation</a>
-        <a href="/register" class="hover:text-white transition">Créer un compte</a>
-        <a href="/login" class="hover:text-white transition">Connexion</a>
+        {account}
       </div>
     </div>
     <div>
@@ -168,7 +173,17 @@ def _footer() -> str:
 </footer>"""
 
 
-def _landing_page(content: str) -> HTMLResponse:
+def _landing_page(content: str, logged_in: bool = False) -> HTMLResponse:
+    if logged_in:
+        auth_desktop = ('      __LANG_SWITCH_LIGHT__\n'
+                        '      <a href="/dashboard" class="btn-primary text-sm px-4 py-2.5">Mon espace →</a>')
+        auth_mobile = '      <a href="/dashboard" class="btn-primary text-center text-sm my-3">Mon espace →</a>'
+    else:
+        auth_desktop = ('      <a href="/login" class="navlink">Connexion</a>\n'
+                        '      __LANG_SWITCH_LIGHT__\n'
+                        '      <a href="/register" class="btn-primary text-sm px-4 py-2.5">Commencer</a>')
+        auth_mobile = ('      <a href="/login" class="navlink py-3">Connexion</a>\n'
+                       '      <a href="/register" class="btn-primary text-center text-sm my-3">Commencer</a>')
     return HTMLResponse(f"""{_head("Accueil")}
 <body class="bg-slate-50 text-slate-800">
 <nav class="bg-white/90 backdrop-blur border-b border-slate-200 sticky top-0 z-20">
@@ -181,9 +196,7 @@ def _landing_page(content: str) -> HTMLResponse:
       <a href="/#services" class="navlink">Services</a>
       <a href="/#pricing" class="navlink">Tarifs</a>
       <a href="/documentation" class="navlink">Documentation</a>
-      <a href="/login" class="navlink">Connexion</a>
-      __LANG_SWITCH_LIGHT__
-      <a href="/register" class="btn-primary text-sm px-4 py-2.5">Commencer</a>
+{auth_desktop}
     </div>
     <div class="flex md:hidden items-center gap-1">
       __LANG_SWITCH_LIGHT__
@@ -199,13 +212,12 @@ def _landing_page(content: str) -> HTMLResponse:
       <a href="/#services" onclick="document.getElementById('mobileMenu').classList.add('hidden')" class="navlink py-3">Services</a>
       <a href="/#pricing" onclick="document.getElementById('mobileMenu').classList.add('hidden')" class="navlink py-3">Tarifs</a>
       <a href="/documentation" class="navlink py-3">Documentation</a>
-      <a href="/login" class="navlink py-3">Connexion</a>
-      <a href="/register" class="btn-primary text-center text-sm my-3">Commencer</a>
+{auth_mobile}
     </div>
   </div>
 </nav>
 {content}
-{_footer()}
+{_footer(logged_in)}
 </body></html>""")
 
 
@@ -328,7 +340,9 @@ ICON = {
 
 
 @router.get("/", response_class=HTMLResponse)
-async def home(settings: Settings = Depends(get_settings)) -> HTMLResponse:
+async def home(request: Request, settings: Settings = Depends(get_settings)) -> HTMLResponse:
+    if await _current_user(request):
+        return RedirectResponse("/dashboard", status_code=303)
     endpoints = [
         ("POST", "/v1/otp/send", "Envoyer un code OTP par email (ou fallback SMS)", "m-post"),
         ("POST", "/v1/otp/verify", "Vérifier un code OTP — usage unique, 5 tentatives", "m-post"),
@@ -561,7 +575,9 @@ def _auth_form(title: str, action: str, fields: str, link: str) -> HTMLResponse:
 
 
 @router.get("/register", response_class=HTMLResponse)
-async def register_page(settings: Settings = Depends(get_settings)) -> HTMLResponse:
+async def register_page(request: Request, settings: Settings = Depends(get_settings)) -> HTMLResponse:
+    if await _current_user(request):
+        return RedirectResponse("/dashboard", status_code=303)
     if not settings.web_signup_enabled:
         raise HTTPException(status_code=404)
     invite_field = ""
@@ -660,7 +676,9 @@ async def register(
 
 
 @router.get("/login", response_class=HTMLResponse)
-async def login_page() -> HTMLResponse:
+async def login_page(request: Request) -> HTMLResponse:
+    if await _current_user(request):
+        return RedirectResponse("/dashboard", status_code=303)
     fields = """
       <div><label class="text-xs font-semibold text-slate-600">Email</label>
       <input name="email" type="email" class="input mt-1" required></div>
@@ -1155,10 +1173,13 @@ async function sendEmail() {
 
 
 @router.get("/demo", response_class=HTMLResponse)
-async def demo(settings: Settings = Depends(get_settings)) -> HTMLResponse:
+async def demo(request: Request, settings: Settings = Depends(get_settings)) -> HTMLResponse:
     if not settings.demo_enabled:
         raise HTTPException(status_code=404)
-    return _landing_page(f'<div class="bg-slate-50">{_demo_page()}</div>')
+    logged_in = bool(await _current_user(request))
+    return _landing_page(
+        f'<div class="bg-slate-50">{_demo_page()}</div>', logged_in=logged_in
+    )
 
 
 # =====================================================================
