@@ -18,8 +18,9 @@ Les variables d'environnement **priment** sur `.env`.
 
 | Variable | Défaut | Rôle |
 |----------|--------|------|
-| `EMAIL_PROVIDER` | `gmail` | `gmail` / `brevo` / `resend` / `console` |
-| `SMTP_HOST` / `SMTP_PORT` | `smtp.gmail.com` / `587` | Serveur SMTP (provider `gmail`) |
+| `EMAIL_PROVIDER` | `gmail` | `gmail` (= `smtp`, générique) / `brevo` / `resend` / `console` |
+| `SMTP_HOST` / `SMTP_PORT` | `smtp.gmail.com` / `587` | Serveur SMTP — `465` = SSL auto (adresses pro : OVH, Zoho…) |
+| `SMTP_USE_SSL` | auto | Forcer SSL implicite (`true`) ou STARTTLS (`false`) |
 | `SMTP_USER` / `SMTP_PASSWORD` | — | Compte expéditeur — **app password**, pas le mot de passe normal |
 | `FROM_NAME` | `SendBID` | Nom d'expéditeur affiché |
 | `BREVO_API_KEY` / `RESEND_API_KEY` | — | Requis si le provider correspondant est choisi |

@@ -4,6 +4,7 @@ import hmac
 import html
 import logging
 import uuid
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -719,12 +720,27 @@ async def logout(request: Request):
 # =====================================================================
 
 @router.get("/dashboard", response_class=HTMLResponse)
-async def dashboard(request: Request, settings: Settings = Depends(get_settings)) -> HTMLResponse:
+async def dashboard(
+    request: Request,
+    test: str = "",
+    settings: Settings = Depends(get_settings),
+) -> HTMLResponse:
     user = await _require_user(request)
     redis = request.app.state.redis
     tenant = await TenantStore(redis).get(user.tenant_id)
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant introuvable")
+
+    banner = ""
+    if test == "ok":
+        banner = """<div class="mb-4 text-sm font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+          ✅ Email de test envoyé — vérifiez la boîte de réception (et les spams).</div>"""
+    elif test:
+        banner = f"""<div class="mb-4 text-sm font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
+          ❌ Échec de l'envoi test : {_e(test)}<br>
+          <span class="font-normal text-red-600">Vérifiez SMTP Host / Port / User / Password. Rappel : smtp.gmail.com n'accepte
+          que les comptes Google — pour une adresse pro, utilisez le serveur SMTP de son hébergeur
+          (ex. IONOS : smtp.ionos.fr).</span></div>"""
 
     # Credentials (affichés si encore en cache — sinon régénérables)
     creds = await redis.get(f"webuser:creds:{tenant.tenant_id}")
@@ -868,7 +884,11 @@ async def dashboard(request: Request, settings: Settings = Depends(get_settings)
     <div><label class="text-xs font-semibold text-slate-600">Nom expéditeur</label>
     <input name="from_name" class="input mt-1" value="{_e(tenant.from_name or '')}" placeholder="{_e(tenant.brand_name)}"></div>
     <div><label class="text-xs font-semibold text-slate-600">SMTP Host</label>
-    <input name="smtp_host" class="input mt-1" value="{_e(_cfg(tenant,'smtp_host') or 'smtp.gmail.com')}"></div>
+    <input name="smtp_host" class="input mt-1" value="{_e(_cfg(tenant,'smtp_host') or 'smtp.gmail.com')}">
+    <p class="text-[11px] text-slate-400 mt-1">Gmail : smtp.gmail.com · IONOS : smtp.ionos.com · OVH : ssl0.ovh.net · Zoho : smtp.zoho.com</p></div>
+    <div><label class="text-xs font-semibold text-slate-600">SMTP Port</label>
+    <input name="smtp_port" type="number" min="1" max="65535" class="input mt-1" value="{_e(str(_cfg(tenant,'smtp_port') or 587))}">
+    <p class="text-[11px] text-slate-400 mt-1">587 = STARTTLS (Gmail, IONOS) · 465 = SSL (OVH, Zoho, cPanel) — détection automatique.</p></div>
     <div><label class="text-xs font-semibold text-slate-600">SMTP User</label>
     <input name="smtp_user" class="input mt-1" value="{_e(tenant.smtp_user or '')}" placeholder="votre.email@gmail.com"></div>
     <div><label class="text-xs font-semibold text-slate-600">SMTP Password (app password)</label>
@@ -925,7 +945,7 @@ print(r.json())   # {{"verified":true,"attempts_remaining":0}}</pre>
   </div>
 </div>
 """
-    return _dashboard_page(user, tenant, content, debug=settings.demo_enabled)
+    return _dashboard_page(user, tenant, banner + content, debug=settings.demo_enabled)
 
 
 def _cfg(tenant: Tenant, key: str):
@@ -939,6 +959,7 @@ async def dashboard_config(
     from_email: str = Form(""),
     from_name: str = Form(""),
     smtp_host: str = Form(""),
+    smtp_port: str = Form(""),
     smtp_user: str = Form(""),
     smtp_password: str = Form(""),
     _: None = Depends(require_same_origin),
@@ -948,12 +969,21 @@ async def dashboard_config(
         "@" not in from_email or "." not in from_email.rsplit("@", 1)[-1]
     ):
         raise HTTPException(status_code=422, detail="Email expéditeur invalide")
+    port: int | None = None
+    if smtp_port.strip():
+        try:
+            port = int(smtp_port.strip())
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Port SMTP invalide") from None
+        if not 1 <= port <= 65535:
+            raise HTTPException(status_code=422, detail="Port SMTP invalide")
     store = TenantStore(request.app.state.redis)
     updates = {
         "brand_name": brand_name.strip() or "SendBID",
         "from_email": from_email.strip() or None,
         "from_name": from_name.strip() or None,
         "smtp_host": smtp_host.strip() or None,
+        "smtp_port": port,
         "smtp_user": smtp_user.strip() or None,
     }
     if smtp_password.strip():
@@ -1011,8 +1041,15 @@ async def dashboard_test_email(
             "Si vous le recevez, votre configuration SMTP fonctionne."
         ),
     )
-    await service.send(tenant, req)
-    return RedirectResponse("/dashboard", status_code=303)
+    try:
+        await service.send(tenant, req)
+    except HTTPException as exc:
+        return RedirectResponse(
+            f"/dashboard?test={quote(str(exc.detail)[:120])}", status_code=303
+        )
+    except Exception:
+        return RedirectResponse("/dashboard?test=erreur%20d%27envoi", status_code=303)
+    return RedirectResponse("/dashboard?test=ok", status_code=303)
 
 
 # =====================================================================
@@ -1028,7 +1065,7 @@ def _demo_page() -> str:
   <div class="card p-4 sm:p-6 mb-6">
     <h2 class="font-bold mb-4">1. Envoyer un OTP</h2>
     <div class="grid md:grid-cols-2 gap-4">
-      <div><label class="text-xs font-semibold text-slate-600">Tenant</label>
+      <div><label class="text-xs font-semibold text-slate-600">Tenant <span class="font-normal text-slate-400">(id, nom ou marque)</span></label>
       <input id="otpTenant" class="input mt-1" value="default"></div>
       <div><label class="text-xs font-semibold text-slate-600">Email</label>
       <input id="email" type="email" class="input mt-1" value="test@example.com"></div>
@@ -1143,7 +1180,15 @@ class DemoVerifyRequest(BaseModel):
 
 
 async def _demo_tenant(request: Request, tenant_id: str) -> Tenant:
-    tenant = await TenantStore(request.app.state.redis).get(tenant_id)
+    store = TenantStore(request.app.state.redis)
+    tenant = await store.get(tenant_id)
+    if tenant is None:
+        # Fallback : accepter aussi le nom ou la marque du tenant (insensible à la casse)
+        needle = tenant_id.strip().lower()
+        for t in await store.list():
+            if needle in (t.name.lower(), t.brand_name.lower()):
+                tenant = t
+                break
     if tenant is None or not tenant.is_active:
         raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' not found")
     return tenant

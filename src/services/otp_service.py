@@ -10,7 +10,7 @@ from src.core.models import Channel, Language, OTPSendResponse, OTPVerifyRespons
 from src.core.otp import OTPStore, verify_otp
 from src.core.security import hash_code, is_in_rollout
 from src.core.tenants import Tenant
-from src.email_providers.base import EmailProvider, SenderIdentity
+from src.email_providers.base import EmailProvider, EmailSendError, SenderIdentity
 from src.services.email_templates import otp_html
 from src.services.events import incr_daily_stat, log_event, mask_email
 from src.services.rate_limiter import RateLimiter
@@ -43,6 +43,7 @@ class OTPService:
             smtp_port=tenant.smtp_port or self.settings.smtp_port,
             smtp_user=tenant.smtp_user or self.settings.smtp_user,
             smtp_password=tenant.smtp_password or self.settings.smtp_password,
+            smtp_use_ssl=tenant.smtp_use_ssl,
         )
 
     def _choose_channel(self, tenant: Tenant, user_id: str, country_code: str) -> Channel:
@@ -122,9 +123,13 @@ class OTPService:
             magic_url = f"{base}/v1/otp/confirm?{qs}"
 
         subject, text_body, html_body = self._render_email(code, language, tenant, magic_url)
-        success = await self.email_provider.send_email(
-            email, subject, text_body, html_body, sender=self._sender(tenant)
-        )
+        reason = ""
+        try:
+            success = await self.email_provider.send_email(
+                email, subject, text_body, html_body, sender=self._sender(tenant)
+            )
+        except EmailSendError as exc:
+            success, reason = False, str(exc)[:150]
 
         if not success:
             await store.delete(request_id)
@@ -133,7 +138,8 @@ class OTPService:
                 self.redis, tenant, "otp_send_failed",
                 email=mask_email(email), purpose=purpose,
             )
-            raise HTTPException(status_code=502, detail="Failed to send email")
+            detail = f"Failed to send email: {reason}" if reason else "Failed to send email"
+            raise HTTPException(status_code=502, detail=detail)
 
         await log_event(
             self.redis, tenant, "otp_sent",

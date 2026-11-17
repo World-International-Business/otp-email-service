@@ -113,12 +113,55 @@ quasi instantanés (~5 ms) signifient que le provider console est actif.
    dans la boîte de l'expéditeur indique un refus définitif
 5. Limite Gmail : **~500 emails/jour** — au-delà, envois bloqués
 
+## Adresses professionnelles (domaine personnalisé)
+
+Le provider `gmail` est en réalité un **SMTP générique** — il fonctionne
+avec n'importe quel serveur, y compris les boîtes pro sur domaine
+personnalisé. `EMAIL_PROVIDER=smtp` est un alias équivalent.
+
+### Configuration d'une adresse pro
+
+```
+SMTP_HOST     = le serveur SMTP de l'hébergeur
+SMTP_PORT     = 587 (STARTTLS) ou 465 (SSL — détecté automatiquement)
+SMTP_USER     = l'adresse pro complète (ex. contact@mondomaine.com)
+SMTP_PASSWORD = le mot de passe de la boîte (ou app password si Workspace)
+FROM_EMAIL    = la même adresse pro
+```
+
+| Hébergeur | SMTP_HOST | Port |
+|-----------|-----------|------|
+| Google Workspace | `smtp.gmail.com` | 587 |
+| IONOS | `smtp.ionos.com` | 587 |
+| OVH | `ssl0.ovh.net` | 465 |
+| Zoho | `smtp.zoho.com` | 465 |
+| cPanel / hébergeur mutualisé | `mail.mondomaine.com` | 465 ou 587 |
+| Auto-hébergé | voir `mailserver/` | 587 |
+
+La connexion **SSL implicite est détectée automatiquement quand le port
+est 465** ; `SMTP_USE_SSL=true/false` permet de forcer si besoin. Chaque
+tenant peut aussi régler host/port/user/password dans `/dashboard/config`
+ou via l'API admin.
+
+### Délivrabilité avec un domaine pro
+
+Pour que les emails signés `contact@mondomaine.com` n'atterrissent pas en
+spam, ajouter dans le DNS du domaine :
+
+- **SPF** : `v=spf1 include:spf.mxhébergeur ~all` (autorise le serveur)
+- **DKIM** : clé fournie par l'hébergeur mail
+- **DMARC** : `v=DMARC1; p=quarantine` minimum
+
+⚠️ Envoyer en `contact@mondomaine.com` **via smtp.gmail.com d'un compte
+perso** ne fonctionne pas : Google réécrit le `From` sur l'adresse du
+compte (sauf alias « Envoyer en tant que » vérifié dans Gmail).
+
 ## Autres providers
 
 | Provider | Variables | Notes |
 |----------|-----------|-------|
 | `console` | — | Simulation : emails dans les logs serveur (dev uniquement) |
-| `gmail` | `SMTP_*` | Compte Gmail + mot de passe d'application. Limite ~500/jour |
+| `gmail` / `smtp` | `SMTP_*` | SMTP générique : Gmail perso, Workspace, adresses pro (OVH, Zoho, IONOS, cPanel, auto-hébergé). SSL auto sur 465 |
 | `brevo` | `BREVO_API_KEY` | API REST, 300 emails/jour gratuit, expéditeur à vérifier |
 | `resend` | `RESEND_API_KEY` | API REST, tier gratuit limité à l'adresse du compte sans domaine vérifié |
 

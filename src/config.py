@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     smtp_port: int = 587
     smtp_user: str | None = None
     smtp_password: str | None = None
+    # None = auto : SSL implicite si port 465, STARTTLS sinon
+    smtp_use_ssl: bool | None = None
 
     brevo_api_key: str | None = None
     resend_api_key: str | None = None
