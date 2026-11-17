@@ -221,6 +221,15 @@ src/
 └── web/routes.py            # pages /, /demo (DEMO_ENABLED uniquement)
 ```
 
-Docs complètes dans `docs/` : architecture, code, déploiement, intégration Django,
-**`docs/08-emails-reels.md`** (guide complet envoi réel : Gmail app password,
-Brevo/Resend, dépannage livraison).
+Docs complètes dans `docs/` :
+
+| Doc | Contenu |
+|-----|---------|
+| `01-architecture.md` | Flux OTP, schéma Redis, décisions, matrice sécurité |
+| `02-project-structure.md` | Arborescence réelle du projet |
+| `03-code.md` | Visite guidée du code — cycle de vie, où modifier quoi |
+| `04-tests.md` | Tests, lint, diagnostic SMTP, scénarios E2E |
+| `05-deployment.md` | Variables d'env, Docker/Dokploy/VPS, rotation secrets, checklist prod |
+| `06-django-integration.md` | Client Django copier-coller + fallback Twilio |
+| `07-integration-client.md` | Intégration API : HMAC par langage, erreurs, expéditeur tenant |
+| `08-emails-reels.md` | Gmail app password, providers, dépannage livraison |

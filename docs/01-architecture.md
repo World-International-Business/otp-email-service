@@ -76,7 +76,8 @@ Le microservice **otp-email-service** est un service Python/FastAPI autonome, ap
 2. Authentification service-à-service
    ├── Vérifier API key
    ├── Vérifier timestamp |now - ts| <= 300 s
-   └── Recalculer HMAC-SHA256(body + timestamp, secret) et comparer
+   ├── Recalculer HMAC-SHA256(body + timestamp, secret) et comparer
+   └── Anti-rejeu : nonce Redis par signature (une signature = un usage)
 
 3. Validation métier
    ├── purpose == "login_2fa" ? sinon 403 "purpose not allowed"
@@ -103,10 +104,13 @@ Le microservice **otp-email-service** est un service Python/FastAPI autonome, ap
        EXPIRE 300
 
 7. Envoi email (provider abstrait)
-   ├── Provider choisi par EMAIL_PROVIDER (gmail|brevo|resend)
-   ├── Template FR ou EN selon language
+   ├── Provider choisi par EMAIL_PROVIDER (gmail|brevo|resend|console)
+   ├── Expéditeur : champs smtp_*/from_* du tenant, sinon config globale
+   ├── Template FR ou EN selon language (brand_name + ttl dynamiques)
    ├── Contenu HTML + texte brut
    └── Ne jamais inclure le code en clair dans les logs
+       (exception : provider console, dev local uniquement — le corps
+       est volontairement logué en INFO pour permettre le test sans SMTP)
 
 8. Réponse
    { "channel": "email", "request_id": "req_...", "expires_in": 300 }
@@ -144,23 +148,28 @@ Le microservice **otp-email-service** est un service Python/FastAPI autonome, ap
 
 ### Clés OTP
 
-| Clé | Type | TTL | Contenu (hash / JSON) | Description |
-|-----|------|-----|------------------------|-------------|
-| `otp:{request_id}` | Hash | 300 s | `code_hash`, `user_id_hash`, `attempts`, `verified`, `created_at` | Code hashé, métadonnées, état de vérification. |
-| `otp:send:count:user:{user_id_hash}` | String | 600 s | entier | Nombre d'envois pour un user sur 10 min. |
-| `otp:send:count:ip:{ip_hash}` | String | 600 s | entier | Nombre d'envois pour une IP sur 10 min. |
-| `otp:send:cooldown:user:{user_id_hash}` | String | 60 s | timestamp | Dernier envoi ; bloque les renvois trop rapides. |
-| `otp:verify:attempts:{request_id}` | String | 300 s | entier | Tentatives de vérification échouées. |
+Toutes les clés sont préfixées par tenant : `t:{tenant_id}:…` (isolation
+multi-tenant ; tenant `default` inclus).
 
-### Exemple de contenu `otp:{request_id}`
+| Clé | Type | TTL | Contenu | Description |
+|-----|------|-----|---------|-------------|
+| `t:{tenant}:otp:{request_id}` | String (JSON) | `otp_ttl_seconds` (300 s défaut) | `code_hash`, `user_id_hash`, `created_at` | Code hashé + métadonnées. Supprimée après vérification réussie (usage unique). |
+| `t:{tenant}:otp:{request_id}:attempts` | String | aligné sur l'OTP | entier | Tentatives de vérification (INCR atomique — n'allonge pas la validité). |
+| `t:{tenant}:send:count:user:{user_id_hash}` | String | 600 s | entier | Envois OTP par user / 10 min. |
+| `t:{tenant}:send:count:ip:{ip_hash}` | String | 600 s | entier | Envois OTP par IP / 10 min. |
+| `t:{tenant}:send:cooldown:{user_id_hash}` | String | `cooldown_seconds` (60 s défaut) | timestamp ISO | Bloque les renvois trop rapides (réservation `SET NX` atomique). |
+| `t:{tenant}:nonce:{signature_hash}` | String | 310 s | `1` | Anti-rejeu HMAC : une signature ne peut servir qu'une fois. |
+| `tenant:{tenant_id}` | String (JSON) | — | config tenant | Quotas, branding, SMTP, purposes… |
+| `tenant:bykey:{sha256(api_key)}` | String | — | `tenant_id` | Résolution API key → tenant (clé jamais stockée en clair). |
+| `session:{token}` / `adminsession:{token}` | String | 24 h / 12 h | `user_id` / `sha256(admin_key)` | Sessions web dashboard et admin. |
+
+### Exemple de contenu `t:default:otp:{request_id}`
 
 ```json
 {
   "code_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   "user_id_hash": "a8f5f167f44f4964e6c998dee827110c9a0c5e1e7a5b6e5f9d7c7e8f9a0b1c2d3",
-  "attempts": 0,
-  "verified": false,
-  "created_at": "2026-10-07T12:34:56Z"
+  "created_at": "2026-10-07T12:34:56.789012+00:00"
 }
 ```
 
@@ -245,7 +254,7 @@ Exemple de ce que verra un consommateur dans Swagger :
 
 ### 3. README professionnel à la racine
 
-Le README inclura :
+Le README inclut :
 - Objectif du service et cas d'usage autorisés
 - Stack technique et architecture rapide
 - Installation locale (Docker Compose)
@@ -257,17 +266,19 @@ Le README inclura :
 
 ### 4. Guide d'intégration Django
 
-Un document dédié (`06-django-integration.md`) fournira le **code exact à copier-coller** dans le backend existant, incluant :
+`06-django-integration.md` fournit le **code exact à copier-coller** dans le backend existant, incluant :
 - Le client HTTP sécurisé (HMAC + timestamp)
 - La logique de fallback Twilio
 - La gestion des erreurs
 
-### 5. Collection Postman / exemples curl
+### 5. Collection Postman / exemples
 
-Un dossier `examples/` contiendra :
-- `curl_send.sh` et `curl_verify.sh`
-- Une collection Postman exportée (`otp-email-service.postman_collection.json`)
-- Un script Python `client_example.py` montrant le calcul HMAC
+Le dossier `examples/` contient :
+- `send_otp.py` / `verify_otp.py` : envoi + vérification en une commande
+- `client_example.py` : client Python complet montrant le calcul HMAC
+- `simulation_ecommerce.py` : scénario multi-tenant de bout en bout
+- `live_test.py` : test contre un environnement déployé (secrets via env)
+- `otp-email-service.postman_collection.json` : signature HMAC pré-calculée
 
 ### 6. Healthcheck documenté
 
@@ -302,6 +313,20 @@ Les pays à risque restent en SMS quel que soit le rollout.
 
 ---
 
+## Surfaces ajoutées depuis cette spec
+
+Depuis l'architecture initiale, le service a été étendu avec :
+
+- **Multi-tenant complet** : clés API par client, quotas/branding/SMTP par
+  tenant, isolation des données Redis (préfixe `t:{tenant_id}:`)
+- **API admin** (`/v1/admin/tenants`) + **panel web** (`/admin`) de
+  gestion des tenants
+- **Dashboard client** (`/dashboard`) : stats, logs, config SMTP, compte
+- **Page démo** (`/demo`, derrière `DEMO_ENABLED`) et endpoints d'envoi
+  transactionnel (`/v1/email/send`)
+- **Anti-rejeu HMAC**, sessions web, CSRF sur les formulaires, headers de
+  sécurité — voir `docs/03-code.md` et `docs/07-integration-client.md`
+
 ## Étape suivante
 
-Livrable 2 : **Arborescence du projet** (`02-project-structure.md`).
+`02-project-structure.md` : arborescence réelle du projet.
