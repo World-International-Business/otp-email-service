@@ -31,6 +31,9 @@ def _info(t: Tenant) -> TenantInfoResponse:
         rollout_percentage=t.rollout_percentage,
         allowed_purposes=t.allowed_purposes,
         plan=t.plan,
+        brand_color=t.brand_color,
+        email_logo_url=t.email_logo_url,
+        email_footer=t.email_footer,
         is_active=t.is_active,
     )
 
@@ -71,6 +74,9 @@ async def create_tenant(
         rollout_percentage=payload.rollout_percentage,
         allowed_purposes=payload.allowed_purposes,
         plan=payload.plan,
+        brand_color=payload.brand_color,
+        email_logo_url=payload.email_logo_url,
+        email_footer=payload.email_footer,
         max_sends_per_user_per_10min=payload.max_sends_per_user_per_10min,
         max_sends_per_ip_per_10min=payload.max_sends_per_ip_per_10min,
         cooldown_seconds=payload.cooldown_seconds,

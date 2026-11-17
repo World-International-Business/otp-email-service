@@ -48,7 +48,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         headers = response.headers
         headers.setdefault("X-Content-Type-Options", "nosniff")
-        headers.setdefault("X-Frame-Options", "DENY")
+        headers.setdefault("X-Frame-Options", "SAMEORIGIN")
         headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         settings = getattr(request.app.state, "settings", None)
         if settings and str(settings.public_base_url).startswith("https://"):

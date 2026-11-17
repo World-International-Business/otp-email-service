@@ -1100,7 +1100,7 @@ async def dashboard(
         f"<li>{p['max_sends_per_ip_per_10min']} envois/IP/10min</li>"
         f"<li>Cooldown {p['cooldown_seconds']}s · {p['max_verify_attempts']} essais · OTP {p['otp_ttl_seconds']//60} min</li>"
         f"</ul>"
-        f'<form method="post" action="/dashboard/plan" class="mt-4 mt-auto">'
+        f'<form method="post" action="/dashboard/plan" class="mt-auto pt-4">'
         f'<input type="hidden" name="plan" value="{_e(pid)}">'
         + (
             '<button disabled class="w-full text-xs font-bold text-slate-400 border border-slate-200 rounded-lg px-4 py-2 cursor-default">Plan actuel</button>'
@@ -1606,18 +1606,19 @@ async def demo_send(
     request: Request,
     service: OTPService = Depends(get_otp_service),
     settings: Settings = Depends(get_settings),
+    _: None = Depends(require_same_origin),
 ):
     if not settings.demo_enabled:
         raise HTTPException(status_code=404)
     tenant = await _demo_tenant(request, payload.tenant_id)
     response = await service.send_otp(
         tenant=tenant,
-        user_id=str(uuid.uuid4()),
+        user_id=str(payload.email),
         email=str(payload.email),
         country_code=payload.country_code,
         purpose=payload.purpose,
         language=payload.language,
-        client_ip="127.0.0.1",
+        client_ip=get_client_ip(request),
         include_debug_code=True,
     )
     data = response.model_dump()
@@ -1632,6 +1633,7 @@ async def demo_verify(
     request: Request,
     service: OTPService = Depends(get_otp_service),
     settings: Settings = Depends(get_settings),
+    _: None = Depends(require_same_origin),
 ):
     if not settings.demo_enabled:
         raise HTTPException(status_code=404)
@@ -1655,6 +1657,7 @@ async def demo_email(
     request: Request,
     service: EmailService = Depends(get_email_service),
     settings: Settings = Depends(get_settings),
+    _: None = Depends(require_same_origin),
 ):
     if not settings.demo_enabled:
         raise HTTPException(status_code=404)
@@ -1667,4 +1670,4 @@ async def demo_email(
         subject=payload.subject,
         text_body=payload.text_body,
     )
-    return await service.send(tenant, req)
+    return await service.send(tenant, req, client_ip=get_client_ip(request))
