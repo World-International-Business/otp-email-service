@@ -70,6 +70,27 @@ class Settings(BaseSettings):
             return value.encode("utf-8")
         return value
 
+    @field_validator("smtp_use_ssl", mode="before")
+    @classmethod
+    def _coerce_smtp_use_ssl(cls, value: object) -> object:
+        # Chaîne vide (SMTP_USE_SSL= dans un .env) = auto (None)
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator(
+        "debug", "use_fakeredis", "demo_enabled", "web_signup_enabled",
+        mode="before",
+    )
+    @classmethod
+    def _empty_str_bool(cls, value: object, info) -> object:
+        # DEBUG= ou DEMO_ENABLED= vide dans un .env → valeur par défaut,
+        # sinon pydantic lève une ValidationError au démarrage.
+        if isinstance(value, str) and not value.strip():
+            field = cls.model_fields[info.field_name]
+            return field.default
+        return value
+
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
