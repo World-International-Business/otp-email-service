@@ -1,235 +1,241 @@
-# OTP Email Service
+# MailHub — OTP Email Service
 
-Microservice OTP par email pour **SendBID / PayBID** (WIB Company). Réduit les coûts SMS Twilio : les codes 2FA de login partent par email, avec fallback SMS par pays.
+Microservice **multi-tenant** d'envoi de codes OTP et d'emails transactionnels
+(FastAPI + Redis). Chaque client (tenant) a sa clé API, son secret HMAC, son
+expéditeur SMTP et ses quotas. Réduit les coûts SMS : le 2FA part par email,
+avec routage `sms_fallback` configurable par pays.
 
-## Lancer en 30 secondes (Windows)
+## Lancer en local (Windows)
 
-Double-clique sur **`scripts\run-local.bat`** — c'est tout.
+Double-cliquer **`scripts\run-local.bat`** — c'est tout. Le script :
 
-Ou en ligne de commande :
-
-```bat
-scripts\run-local.bat
-```
-
-Puis ouvre dans le navigateur :
-
-| URL | Description |
-|-----|-------------|
-| `http://localhost:8001/` | Page d'accueil |
-| `http://localhost:8001/demo` | **Démo interactive** — teste envoi + vérification sans écrire de code |
-| `http://localhost:8001/admin` | **Espace admin** — gestion des tenants (login = `ADMIN_API_KEY`) |
-| `http://localhost:8001/docs` | Swagger UI |
-| `http://localhost:8001/redoc` | ReDoc |
-| `http://localhost:8001/health` | Healthcheck |
+1. Purge les variables d'environnement héritées du shell (qui écraseraient `.env`)
+2. Démarre le conteneur Redis persistant `mailhub-redis` si présent (Docker requis pour la persistance)
+3. Charge `.env` s'il existe — sinon mode démo rapide (fakeredis + provider console)
 
 Linux/macOS : `bash scripts/run-local.sh`
 
-## Tester sans navigateur
+| URL | Description |
+|-----|-------------|
+| `http://localhost:8001/` | Page d'accueil (redirige vers `/dashboard` si connecté) |
+| `http://localhost:8001/demo` | Démo interactive — envoi + vérification OTP, email transactionnel |
+| `http://localhost:8001/dashboard` | Espace client — config SMTP, branding, test d'envoi |
+| `http://localhost:8001/admin` | Espace admin — gestion des tenants (login = `ADMIN_API_KEY`) |
+| `http://localhost:8001/documentation` | **Guide d'intégration complet** (HMAC, endpoints, exemples par langage) |
+| `http://localhost:8001/docs` / `/redoc` | Swagger UI / ReDoc |
+| `http://localhost:8001/health` | Healthcheck `{status, redis, version}` |
 
-```bash
-# Envoyer un OTP (l'email s'affiche dans les logs du serveur en mode console)
-python examples/send_otp.py test@example.com FR fr
-
-# Pays à risque → sms_fallback
-python examples/send_otp.py test@example.com CN fr
-
-# Vérifier le code (visible dans les logs)
-python examples/verify_otp.py req_xxxxxxxx 123456
-```
-
-## Envoyer de vrais emails en local
-
-Par défaut (`run-local` sans `.env`), les emails sont **simulés** : `sent: true`
-mais ils partent uniquement dans les logs du serveur (provider `console`).
-Pour recevoir de vrais emails dans une boîte mail :
-
-### 1. Créer `.env`
+## Configuration — `.env`
 
 ```bash
 cp .env.example .env   # Windows : copy .env.example .env
 ```
 
-### 2. Configurer le compte expéditeur Gmail
+| Variable | Rôle | Défaut |
+|----------|------|--------|
+| `PORT` / `APP_PORT` | Port HTTP | 8001 local / 8000 docker |
+| `DEBUG` | `true` → `debug_code` renvoie le code OTP dans la réponse (jamais en prod) | `false` |
+| `DEMO_ENABLED` | Active `/demo` (endpoints non authentifiés) — **`false` en prod** | `false` |
+| `API_KEY`, `HMAC_SECRET`, `ADMIN_API_KEY` | Secrets service — générer avec `secrets.token_hex(32)` | — |
+| `USE_FAKEREDIS` | `true` = Redis en mémoire (**tout perdu au restart**) · `false` = vrai Redis | `false` |
+| `REDIS_URL` | Connexion Redis | `redis://localhost:6379/0` |
+| `EMAIL_PROVIDER` | `gmail` / `smtp` (alias générique) / `brevo` / `resend` / `console` | `console` |
+| `SMTP_HOST` `SMTP_PORT` | Serveur SMTP — `587` STARTTLS · `465` SSL auto | `smtp.gmail.com` `587` |
+| `SMTP_USER` `SMTP_PASSWORD` | Compte qui **envoie** réellement | — |
+| `SMTP_USE_SSL` | Forcer le chiffrement — vide = auto par port | auto |
+| `FROM_EMAIL` `FROM_NAME` | Expéditeur affiché | — |
+| `RISKY_COUNTRIES` | Pays → `sms_fallback` | `CN,RU,BY,IR,KP` |
+| `ROLLOUT_PERCENTAGE` | % d'utilisateurs routés email (déterministe par `user_id`) | `100` |
+| `MAX_SENDS_PER_USER_PER_10MIN` / `_IP_` / `COOLDOWN_SECONDS` / `MAX_VERIFY_ATTEMPTS` / `OTP_TTL_SECONDS` | Quotas globaux (surchargeables par tenant) | `3 / 3 / 60 / 5 / 300` |
 
-`SMTP_USER`/`SMTP_PASSWORD` = le compte qui **envoie** ; les destinataires
-peuvent être n'importe quelle adresse. `SMTP_PASSWORD` n'est **pas** le mot
-de passe Google normal — il faut un **mot de passe d'application** :
+### Persistance des données
 
-1. Activer la **validation en 2 étapes** sur le compte Gmail (obligatoire)
-2. `myaccount.google.com` → **Sécurité** → **Mots de passe des applications**
-   (ou taper « mots de passe des applications » dans la recherche du compte)
-3. Générer → copier les **16 caractères** (affiché une seule fois, avec ou
-   sans espaces — les deux fonctionnent)
-4. Coller dans `.env` :
+`USE_FAKEREDIS=false` + `REDIS_URL` → comptes, tenants, config SMTP et sessions
+**survivent aux redémarrages**. En local, le conteneur Docker `mailhub-redis`
+(AOF + volume `mailhub-redis-data`) est créé via :
+
+```bash
+docker run -d --name mailhub-redis --restart unless-stopped \
+  -p 6379:6379 -v mailhub-redis-data:/data redis:7-alpine \
+  redis-server --appendonly yes
+```
+
+`run-local` le redémarre automatiquement. Sans Docker, `USE_FAKEREDIS=true`
+reste possible mais **rien ne persiste** (comptes à recréer à chaque run).
+
+## Envoyer de vrais emails
+
+### Option A — compte Gmail
+
+`SMTP_PASSWORD` n'est **pas** le mot de passe Google — il faut un
+**mot de passe d'application** (2FA requise) :
+
+1. `myaccount.google.com` → Sécurité → **Mots de passe des applications**
+2. Générer → copier les 16 caractères
+3. `.env` :
 
 ```ini
 EMAIL_PROVIDER=gmail
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
 SMTP_USER=mon.adresse@gmail.com
 SMTP_PASSWORD=abcdefghijklmnop
 FROM_EMAIL=mon.adresse@gmail.com
 FROM_NAME=MonApp
-DEBUG=false            # le code OTP n'apparaît plus dans /demo — boîte mail uniquement
-DEMO_ENABLED=true      # garde /demo accessible en local
-USE_FAKEREDIS=true
 ```
 
-### 3. Tester les credentials AVANT de lancer le serveur
+### Option B — adresse professionnelle (n'importe quel hébergeur)
+
+Même mécanisme — le provider `gmail`/`smtp` est un client SMTP générique.
+**Le host est celui de l'hébergeur de la boîte**, le user = l'adresse complète :
+
+| Hébergeur | `SMTP_HOST` | `SMTP_PORT` | Password |
+|-----------|-------------|-------------|----------|
+| Google Workspace | `smtp.gmail.com` | `587` | App password du compte |
+| IONOS | `smtp.ionos.fr` (FR) / `.com` | `587` ou `465` | Mot de passe de la boîte |
+| OVH | `ssl0.ovh.net` | `465` (SSL auto) | Mot de passe de la boîte |
+| Zoho | `smtp.zoho.com` | `465` | Mot de passe / app password |
+| cPanel / mutualisé | `mail.mondomaine.com` | `465` | Mot de passe de la boîte |
+| Serveur dédié | votre `mailserver/` | `587`/`465` | Credential de la boîte |
+
+Règle d'or : **`SMTP_USER` décide qui envoie vraiment** — `FROM_EMAIL` doit être
+une adresse autorisée par ce compte (Gmail réécrit un `From` étranger ; IONOS
+le rejette `550`). Pour la délivrabilité : enregistrements **SPF + DKIM**
+dans le DNS du domaine. Détails : `docs/08-emails-reels.md`.
+
+### Option C — Brevo / Resend (API REST)
+
+`EMAIL_PROVIDER=brevo` + `BREVO_API_KEY` (300/j gratuits, domaine vérifiable)
+ou `EMAIL_PROVIDER=resend` + `RESEND_API_KEY`.
+
+### Tester les credentials avant de lancer
 
 ```bash
-venv\Scripts\python scripts\test-smtp.py            # auto-test (envoie à soi-même)
-venv\Scripts\python scripts\test-smtp.py autre@x.com  # vers un autre destinataire
+venv\Scripts\python scripts\test-smtp.py                # auto-test (envoie à soi-même)
+venv\Scripts\python scripts\test-smtp.py autre@x.com    # autre destinataire
 ```
-
-Affiche le dialogue SMTP complet. `Gmail a ACCEPTÉ le message` = credentials OK.
-`AUTH REFUSÉE` = mauvais mot de passe d'application ou 2FA non activée.
-
-### 4. Relancer
-
-```bash
-scripts\run-local.bat   # affiche "config chargée depuis .env"
-```
-
-Les envois prennent ~2 s (vrai SMTP, normal). Le code OTP arrive dans la
-boîte du destinataire — **regarder aussi "Messages envoyés" du compte
-expéditeur et le dossier Spam du destinataire**.
-
-### Alternatives à Gmail
-
-- **Resend** : `EMAIL_PROVIDER=resend` + `RESEND_API_KEY` — tier gratuit
-  (envoi vers l'adresse du compte uniquement sans domaine vérifié)
-- **Brevo** : `EMAIL_PROVIDER=brevo` + `BREVO_API_KEY` — 300 emails/jour,
-  expéditeur à vérifier
-- **Par tenant** : chaque client peut connecter son propre compte email
-  (SMTP ou domaine) dans `/dashboard/config` — ses envois passent par
-  son compte au lieu du global
-
-### Dépannage envois
-
-| Symptôme | Cause | Solution |
-|----------|-------|----------|
-| `sent:true` instantané (~5 ms), rien reçu | Provider `console` actif | `.env` absent ou `EMAIL_PROVIDER` hérité du shell — relancer via `run-local` (purge les variables héritées) |
-| `502 Failed to send email` + `smtp_send_error ... Connection unexpectedly closed` | Mot de passe placeholder/invalide | Mot de passe d'application requis |
-| `smtp_send_error ... 535 Username and Password not accepted` | Mot de passe normal au lieu d'app password, ou 2FA absente | Activer la 2FA puis régénérer un app password |
-| `sent:true` ~2 s mais rien reçu | Gmail a accepté, livraison retardée/spam | Vérifier "Messages envoyés" de l'expéditeur + Spam du destinataire |
 
 ## Multi-tenant
 
-L'API est **multi-tenant** : chaque application cliente a sa propre clé API, son secret HMAC, son branding et ses règles. Données isolées par tenant dans Redis.
+Chaque application cliente = un **tenant** : clé API, secret HMAC, expéditeur,
+branding, quotas — isolés dans Redis et relus à chaque requête (modif en
+dashboard = effet immédiat, sans restart).
 
-**Espace admin web** : `/admin` — connexion avec la valeur de `ADMIN_API_KEY`. Permet de créer des tenants (clés affichées une fois, compte dashboard client optionnel), modifier quotas/SMTp/purposes, activer/désactiver, et consulter le journal des interactions par tenant.
-
-**Créer un tenant** (clé admin `X-Admin-Key`) :
+**Créer un tenant** (`X-Admin-Key` ou panneau `/admin` ou compte `/register`) :
 
 ```bash
 curl -X POST http://localhost:8001/v1/admin/tenants \
-  -H "Content-Type: application/json" \
-  -H "X-Admin-Key: $ADMIN_API_KEY" \
-  -d '{
-    "tenant_id": "boutique-awa",
-    "name": "Boutique Awa",
-    "brand_name": "BoutiqueAwa",
-    "allowed_purposes": ["login_2fa", "order_confirmation", "password_reset"],
-    "risky_countries": ["CN"]
-  }'
+  -H "Content-Type: application/json" -H "X-Admin-Key: $ADMIN_API_KEY" \
+  -d '{"tenant_id": "boutique-awa", "name": "Boutique Awa",
+       "allowed_purposes": ["login_2fa", "password_reset"]}'
 ```
 
-Réponse : `api_key` + `hmac_secret` à donner au client **une seule fois**.
+Réponse : `api_key` + `hmac_secret` affichés **une seule fois**.
 
-**Config par tenant** : `brand_name`, `from_email`, `from_name`, `smtp_user`, `smtp_password`, `risky_countries`, `rollout_percentage`, `allowed_purposes`, quotas.
+**Champs tenant** : `name`, `brand_name`, `from_email`, `from_name`,
+`smtp_host`, `smtp_port`, `smtp_user`, `smtp_password`, `smtp_use_ssl`,
+`risky_countries`, `rollout_percentage`, `allowed_purposes`,
+`max_sends_per_user_per_10min`, `max_sends_per_ip_per_10min`,
+`cooldown_seconds`, `max_verify_attempts`, `otp_ttl_seconds`, `is_active`.
+
+Le tenant `default` (auto-créé) utilise la config globale `.env` — pratique
+pour `/demo`. Un envoi utilise d'abord `smtp_*`/`from_*` du tenant, sinon le
+global.
 
 ## Endpoints API
 
-| Méthode | Endpoint | Description |
-|---------|----------|-------------|
-| `POST` | `/v1/otp/send` | Envoie un OTP — `{user_id, email, country_code, purpose, language}` |
-| `POST` | `/v1/otp/verify` | Vérifie un code — `{request_id, code}` |
-| `POST` | `/v1/email/send` | Email transactionnel — `{to_email, type, language, data}` |
-| `POST` | `/v1/admin/tenants` | **Admin** : créer un tenant (`X-Admin-Key`) |
-| `GET` | `/v1/admin/tenants` | **Admin** : lister les tenants |
-| `GET/PATCH/DELETE` | `/v1/admin/tenants/{id}` | **Admin** : gérer un tenant |
-| `GET` | `/health` | Healthcheck |
+| Méthode | Endpoint | Auth | Description |
+|---------|----------|------|-------------|
+| `POST` | `/v1/otp/send` | HMAC | OTP 6 chiffres — `{user_id (UUID), email, country_code, purpose, language?, magic_link?}` |
+| `POST` | `/v1/otp/verify` | HMAC | `{request_id, code (6 chiffres)}` → `{verified, attempts_remaining}` |
+| `GET` | `/v1/otp/confirm` | lien | Lien magique (`magic_link=true`) — consomme le code au clic |
+| `POST` | `/v1/email/send` | HMAC | Transactionnel — `{to_email, type, language?, data?, subject?, text_body?, html_body?}` |
+| `POST` | `/v1/admin/tenants` | `X-Admin-Key` | Créer un tenant |
+| `GET` | `/v1/admin/tenants` | `X-Admin-Key` | Lister les tenants |
+| `GET/PATCH/DELETE` | `/v1/admin/tenants/{id}` | `X-Admin-Key` | Gérer un tenant |
+| `GET` | `/health` | — | `{status, redis, version}` |
 
-### Types d'emails supportés (`type` dans `/v1/email/send`)
+**Signature** : `X-API-Key` + `X-Timestamp` (secondes, ±5 min) +
+`X-HMAC-Signature` = `hex(HMAC_SHA256(secret, body_brut + timestamp))`.
+Une signature n'est utilisable qu'une fois (nonce Redis, anti-rejeu).
 
-| Type | Contenu | Variables `data` |
-|------|---------|------------------|
-| `welcome` | Email de bienvenue | `{name}` |
-| `notification` | Notification générique | `{title, message}` |
-| `transaction` | Confirmation de transaction | `{amount, currency, status}` |
-| `custom` | Email 100 % libre | + `subject` et `text_body` obligatoires |
+Types d'emails : `welcome` `{name}` · `notification` `{title, message}` ·
+`transaction` `{amount, currency, status}` · `custom` (`subject`+`text_body`
+racine, `html_body` optionnel).
 
-**Authentification** (endpoints `/v1/otp/*`) : `X-API-Key` + `X-Timestamp` + `X-HMAC-Signature` (= `HMAC-SHA256(body + timestamp, secret)`). La collection Postman `examples/otp-email-service.postman_collection.json` calcule la signature automatiquement.
+➡️ **Guide d'intégration complet** : `http://localhost:8001/documentation`
+(en ligne) et `docs/07-integration-client.md` (référence exhaustive —
+exemples Python/Node/PHP/cURL/Dart, gestion des erreurs, pièges de signature).
 
 ## Règles métier
 
-- Seul `purpose: "login_2fa"` est accepté — `phone_verification` et `transaction_confirmation` sont refusés (restent sur Twilio)
-- `RISKY_COUNTRIES` → `channel: "sms_fallback"` (le backend déclenche Twilio)
-- `ROLLOUT_PERCENTAGE` → rollout déterministe par `user_id` (0→5→100 %)
-- Max 3 envois / user + IP / 10 min, cooldown 60 s, max 5 tentatives de vérification
+- `purpose` doit figurer dans `allowed_purposes` du tenant — sinon `403`
+- `risky_countries` → `channel: "sms_fallback"` (l'app cliente envoie le SMS)
+- `rollout_percentage` → routage déterministe par `user_id`
+- OTP : 6 chiffres, usage unique, TTL `otp_ttl_seconds`, max `max_verify_attempts` tentatives
+- `429` → header `Retry-After` (secondes) · `502` → `Failed to send email: <raison SMTP>`
+- Les codes OTP **n'apparaissent jamais dans l'UI** (sauf `debug_code` si `DEBUG=true`)
 
-## Mode de test vs production
+## Dépannage
 
-| | Test local | Production |
-|---|---|---|
-| Redis | `USE_FAKEREDIS=true` (en mémoire) | `redis://...` réel |
-| Email | `EMAIL_PROVIDER=console` (logs) ou réel via `.env` | `EMAIL_PROVIDER=gmail` (ou brevo/resend) |
-| Démo `/demo` | `DEMO_ENABLED=true` (endpoints non authentifiés) | **`DEMO_ENABLED=false` obligatoire** |
-| `.env` | `run-local` utilise `.env` s'il existe, sinon mode démo rapide | Fichier `.env` (copier `.env.example`) |
+| Symptôme | Cause | Solution |
+|----------|-------|----------|
+| `sent:true` ~5 ms, rien reçu | Provider `console` actif | `.env` absent ou var héritée du shell — relancer via `run-local` |
+| `535 Authentication credentials invalid` | Mauvais password **ou mauvais host** (ex. boîte IONOS sur `smtp.gmail.com` ou `smtp.ionos.com` au lieu de `.fr`) | Host = hébergeur de la boîte + password de la boîte |
+| `550 Sender address is not allowed` | `from_email` étranger au compte SMTP | `FROM_EMAIL` = adresse du `SMTP_USER` (ou alias vérifié) |
+| `Connection unexpectedly closed` | Mauvais port/mode TLS ou host | `587`→STARTTLS, `465`→SSL ; vérifier host |
+| Email part d'un autre expéditeur | Tenant `default` ou tenant sans `smtp_*` → config globale | Choisir le bon tenant / remplir sa config |
+| « Email ou mot de passe incorrect » après restart | Compte créé pendant un run fakeredis | Recréer une fois — vérif `USE_FAKEREDIS=false` + `mailhub-redis` up |
+| `429 Too many OTP requests` | Quota tenant | Attendre `Retry-After` ou ajuster les champs quota du tenant |
+| Emails acceptés mais non reçus | SPF/DKIM absents, spam, quota Gmail | « Messages envoyés » + Spam + DNS du domaine |
 
 ## Déploiement
 
-### Docker Compose (local / VM)
+### Docker Compose
 
 ```bash
-cp .env.example .env   # remplir les vraies valeurs (API_KEY, HMAC_SECRET, SMTP_*…)
+cp .env.example .env   # remplir les vraies valeurs
 docker network create dokploy-network 2>/dev/null || true
 docker compose up -d --build
 ```
 
-Redis n'est jamais exposé sur l'hôte — il n'est joignable que via le réseau interne `otp-network`.
+Redis (`otp-redis`, AOF + volume `redis_data`) n'est jamais exposé sur l'hôte —
+réseau interne uniquement.
 
 ### Dokploy
 
-1. **Repository** : connecter le repo GitHub dans Dokploy → *Compose*.
-2. **Compose file** : `docker-compose.yml` (détecté automatiquement).
-3. **Variables d'environnement** : coller le contenu de `.env` dans l'onglet *Environment* de Dokploy (ne jamais commiter `.env`).
-4. **Domaine** : Dokploy expose le service `app` via Traefik sur le réseau `dokploy-network` — configurer le domaine dans l'onglet *Domains*.
-5. **Deploy** : Dokploy build l'image, démarre Redis + l'app, et le healthcheck `/health` garantit le rollout.
-
-Secrets à générer avant déploiement :
+1. Connecter le repo → *Compose* (`docker-compose.yml` détecté)
+2. Coller le contenu de `.env` dans *Environment* (jamais commité)
+3. Configurer le domaine (*Domains* → Traefik, réseau `dokploy-network`)
+4. Deploy — le healthcheck `/health` pilote le rollout
 
 ```bash
-python -c "import secrets; print(secrets.token_hex(32))"  # API_KEY / ADMIN_API_KEY
-python -c "import secrets; print(secrets.token_hex(32))"  # HMAC_SECRET
+python -c "import secrets; print(secrets.token_hex(32))"  # API_KEY / ADMIN_API_KEY / HMAC_SECRET
 ```
-
-## Intégration Django
-
-Voir `docs/06-django-integration.md` — code client `OTPClient` à copier-coller + logique de fallback Twilio.
 
 ## Structure
 
 ```
 src/
 ├── main.py                  # FastAPI + lifespan
-├── config.py                # Config (variables d'env)
-├── api/routes.py            # /v1/otp/send, /verify
-├── core/                    # auth HMAC, modèles, crypto OTP
-├── services/                # logique métier + rate limiter
-├── email_providers/         # gmail (SMTP), brevo/resend (API REST), console (dev)
-└── web/routes.py            # pages /, /demo (DEMO_ENABLED uniquement)
+├── config.py                # Variables d'environnement
+├── api/                     # routes /v1/*, admin, dépendances, middleware
+├── core/                    # auth HMAC, modèles, OTP, tenants
+├── services/                # otp_service, email_service, templates, rate_limiter
+├── email_providers/         # gmail (SMTP générique + SSL), brevo, resend, console
+└── web/                     # pages publiques, auth, dashboard, admin, /documentation, i18n
+scripts/                     # run-local (win/unix), test-smtp
+examples/                    # client Python, simulation, collection Postman
+docs/                        # documentation complète (voir ci-dessous)
 ```
-
-Docs complètes dans `docs/` :
 
 | Doc | Contenu |
 |-----|---------|
-| `01-architecture.md` | Flux OTP, schéma Redis, décisions, matrice sécurité |
-| `02-project-structure.md` | Arborescence réelle du projet |
-| `03-code.md` | Visite guidée du code — cycle de vie, où modifier quoi |
-| `04-tests.md` | Tests, lint, diagnostic SMTP, scénarios E2E |
-| `05-deployment.md` | Variables d'env, Docker/Dokploy/VPS, rotation secrets, checklist prod |
-| `06-django-integration.md` | Client Django copier-coller + fallback Twilio |
-| `07-integration-client.md` | Intégration API : HMAC par langage, erreurs, expéditeur tenant |
-| `08-emails-reels.md` | Gmail app password, providers, dépannage livraison |
+| `docs/01-architecture.md` | Flux, schéma Redis, décisions, matrice sécurité |
+| `docs/02-project-structure.md` | Arborescence réelle |
+| `docs/03-code.md` | Visite guidée du code |
+| `docs/04-tests.md` | Tests, lint, diagnostic SMTP, E2E |
+| `docs/05-deployment.md` | Env vars, Docker/Dokploy/VPS, rotation secrets |
+| `docs/06-django-integration.md` | Client Django + fallback Twilio |
+| `docs/07-integration-client.md` | **Référence intégration exhaustive** — HMAC, endpoints, erreurs, langages |
+| `docs/08-emails-reels.md` | Gmail app password, SMTP pro, délivrabilité, dépannage |
