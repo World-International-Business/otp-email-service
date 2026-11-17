@@ -13,6 +13,9 @@ cd /d "%~dp0\.."
 if exist ".env" (
     REM Purger les variables heritees du shell qui ecraseraient .env
     for %%V in (USE_FAKEREDIS DEBUG DEMO_ENABLED EMAIL_PROVIDER FROM_EMAIL FROM_NAME SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASSWORD BREVO_API_KEY RESEND_API_KEY REDIS_URL PUBLIC_BASE_URL) do set "%%V="
+
+    REM Redis persistant : demarrer le conteneur mailhub-redis si present
+    docker start mailhub-redis >nul 2>&1
     echo ============================================================
     echo   OTP Email Service — config chargee depuis .env
     echo   Interface : http://localhost:8001/

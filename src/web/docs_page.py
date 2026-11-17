@@ -4,7 +4,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from src.web.i18n import I18nRoute
-from src.web.routes import _landing_page
+from src.web.routes import _current_user, _landing_page
 
 router = APIRouter(tags=["web"], include_in_schema=False, route_class=I18nRoute)
 
@@ -204,4 +204,4 @@ curl_close($ch);""".replace("<", "&lt;").replace(">", "&gt;")
 </div>
 </div>
 """
-    return _landing_page(content)
+    return _landing_page(content, logged_in=bool(await _current_user(request)))
