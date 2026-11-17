@@ -5,7 +5,7 @@ import logging
 import httpx
 
 from src.config import Settings
-from src.email_providers.base import EmailProvider, SenderIdentity
+from src.email_providers.base import EmailProvider, EmailSendError, SenderIdentity
 
 logger = logging.getLogger(__name__)
 
@@ -52,11 +52,12 @@ class BrevoProvider(EmailProvider):
                 )
         except httpx.HTTPError as exc:
             logger.error("brevo_send_error", extra={"error": str(exc)})
-            return False
+            raise EmailSendError(str(exc)) from exc
         if not resp.is_success:
+            detail = resp.text[:200]
             logger.error(
                 "brevo_send_rejected",
                 extra={"status": resp.status_code},
             )
-            return False
+            raise EmailSendError(f"Brevo {resp.status_code}: {detail}")
         return True

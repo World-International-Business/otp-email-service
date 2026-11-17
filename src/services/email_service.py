@@ -11,7 +11,7 @@ from src.config import Settings
 from src.core.models import EmailSendRequest, EmailSendResponse, EmailType, Language
 from src.core.security import hash_code
 from src.core.tenants import Tenant
-from src.email_providers.base import EmailProvider, SenderIdentity
+from src.email_providers.base import EmailProvider, EmailSendError, SenderIdentity
 from src.services.email_templates import generic_html
 from src.services.events import incr_daily_stat, log_event, mask_email
 from src.services.rate_limiter import RateLimiter
@@ -40,6 +40,7 @@ class EmailService:
             smtp_port=tenant.smtp_port or self.settings.smtp_port,
             smtp_user=tenant.smtp_user or self.settings.smtp_user,
             smtp_password=tenant.smtp_password or self.settings.smtp_password,
+            smtp_use_ssl=tenant.smtp_use_ssl,
         )
 
     async def send(
@@ -65,13 +66,17 @@ class EmailService:
 
         message_id = f"msg_{secrets.token_urlsafe(16)}"
 
-        success = await self.email_provider.send_email(
-            to_email=request.to_email,
-            subject=subject,
-            text_body=text_body,
-            html_body=html_body,
-            sender=self._sender(tenant),
-        )
+        reason = ""
+        try:
+            success = await self.email_provider.send_email(
+                to_email=request.to_email,
+                subject=subject,
+                text_body=text_body,
+                html_body=html_body,
+                sender=self._sender(tenant),
+            )
+        except EmailSendError as exc:
+            success, reason = False, str(exc)[:150]
 
         if not success:
             await limiter.release_email(to_email)
@@ -89,7 +94,8 @@ class EmailService:
                 email=mask_email(str(request.to_email)),
                 email_type=request.type.value,
             )
-            raise HTTPException(status_code=502, detail="Failed to send email")
+            detail = f"Failed to send email: {reason}" if reason else "Failed to send email"
+            raise HTTPException(status_code=502, detail=detail)
 
         await self.redis.incr(f"{tenant.key_prefix()}stats:emails_sent")
         await incr_daily_stat(self.redis, tenant, "emails_sent")

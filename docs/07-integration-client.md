@@ -249,8 +249,8 @@ les emails partent du compte configuré globalement (`SMTP_USER` /
 
 | Champ tenant | Rôle |
 |--------------|------|
-| `smtp_host` / `smtp_port` | Serveur SMTP (ex. `smtp.gmail.com:587`) |
-| `smtp_user` | Compte qui envoie (ex. `contact@votreapp.com`) |
+| `smtp_host` / `smtp_port` | Serveur SMTP — `587` = STARTTLS, `465` = SSL (auto-détecté). Ex. `smtp.gmail.com`, `ssl0.ovh.net`, `smtp.zoho.com` |
+| `smtp_user` | Compte qui envoie — adresse pro acceptée (ex. `contact@votreapp.com`) |
 | `smtp_password` | **Mot de passe d'application**, pas le mot de passe normal (Gmail : 2FA → Sécurité → Mots de passe des applications — voir `docs/08-emails-reels.md`) |
 | `from_email` / `from_name` | Expéditeur affiché au destinataire |
 

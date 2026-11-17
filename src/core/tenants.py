@@ -26,6 +26,7 @@ class Tenant(BaseModel):
     smtp_port: int | None = None
     smtp_user: str | None = None   # None = fallback global
     smtp_password: str | None = None
+    smtp_use_ssl: bool | None = None  # None = auto (SSL si port 465)
     risky_countries: list[str] = Field(default_factory=list)
     rollout_percentage: int = Field(default=100, ge=0, le=100)
     allowed_purposes: list[str] = Field(default_factory=lambda: ["login_2fa"])

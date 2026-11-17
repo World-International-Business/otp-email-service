@@ -9,6 +9,7 @@ Usage : venv\\Scripts\\python scripts\\test-smtp.py [destinataire]
 
 import os
 import smtplib
+import ssl
 import sys
 from email.mime.text import MIMEText
 
@@ -35,8 +36,14 @@ def main():
     password = get("SMTP_PASSWORD")
     from_email = get("FROM_EMAIL") or user
     to = sys.argv[1] if len(sys.argv) > 1 else user  # auto-envoi par défaut
+    use_ssl_env = get("SMTP_USE_SSL").lower()
+    use_ssl = (
+        use_ssl_env in ("1", "true", "yes")
+        if use_ssl_env
+        else port == 465  # convention : 465 = SSL implicite
+    )
 
-    print(f"Serveur   : {host}:{port}")
+    print(f"Serveur   : {host}:{port} ({'SSL' if use_ssl else 'STARTTLS'})")
     print(f"Compte    : {user}")
     print(f"De        : {from_email}")
     print(f"Vers      : {to}")
@@ -52,9 +59,16 @@ def main():
 
     print("\n--- Dialogue SMTP ---")
     try:
-        with smtplib.SMTP(host, port, timeout=15) as server:
+        if use_ssl:
+            server = smtplib.SMTP_SSL(
+                host, port, timeout=15, context=ssl.create_default_context()
+            )
+        else:
+            server = smtplib.SMTP(host, port, timeout=15)
+        with server:
             server.set_debuglevel(1)
-            server.starttls()
+            if not use_ssl:
+                server.starttls()
             server.login(user, password)
             refused = server.sendmail(from_email, [to], msg.as_string())
             if refused:
@@ -68,10 +82,10 @@ def main():
         print(f"\nÉCHEC ENVOI : {type(e).__name__}: {e}")
         sys.exit(1)
 
-    print(f"\n>>> Gmail a ACCEPTÉ le message pour {to}")
+    print(f"\n>>> Le serveur SMTP a ACCEPTÉ le message pour {to}")
     print(">>> Vérifie 'Messages envoyés' du compte expéditeur :")
-    print("    - présent  => envoyé par Google, le problème est côté destinataire")
-    print("    - absent   => Google n'a pas réellement transmis le message")
+    print("    - présent  => envoyé par le serveur, le problème est côté destinataire")
+    print("    - absent   => le serveur n'a pas réellement transmis le message")
 
 
 if __name__ == "__main__":

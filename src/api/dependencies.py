@@ -32,7 +32,8 @@ def get_redis_client(settings: Settings):
 def get_email_provider(settings: Settings | None = None) -> EmailProvider:
     settings = settings or get_settings()
     provider = settings.email_provider.lower()
-    if provider == "gmail":
+    if provider in ("gmail", "smtp"):
+        # "smtp" = alias explicite du provider SMTP générique (adresses pro)
         return GmailSMTPProvider(settings)
     if provider == "brevo":
         from src.email_providers.brevo import BrevoProvider
