@@ -226,7 +226,46 @@ Réponse : `{ "sent": true, "message_id": "msg_...", "to_email": "..." }`
 
 ---
 
-## 8. Limites à connaître
+## 8. Expéditeur — quel compte envoie vos emails
+
+Chaque envoi (`/v1/otp/send`, `/v1/email/send`, `/demo`) passe par le même
+pipeline. Le **destinataire** est toujours l'adresse fournie dans la requête
+(`email` / `to_email`) — **n'importe quelle adresse valide fonctionne**.
+L'**expéditeur** se résout en cascade :
+
+| Ordre | Source | Quand |
+|-------|--------|-------|
+| 1 | Champs `smtp_*` / `from_*` **du tenant** | Configurés par le client dans `/dashboard/config` ou par l'admin via `/v1/admin/tenants` |
+| 2 | Variables d'environnement **globales** (`SMTP_*`, `FROM_*`) | Fallback si le tenant n'a pas de config propre |
+
+### Deux façons d'envoyer
+
+**A — Utiliser le compte de l'opérateur** (cas par défaut) : rien à faire,
+les emails partent du compte configuré globalement (`SMTP_USER` /
+`FROM_EMAIL`). Votre `brand_name` personnalise le nom affiché et le contenu.
+
+**B — Connecter votre propre compte email** : remplir dans
+`/dashboard/config` (ou faire saisir par l'admin dans le tenant) :
+
+| Champ tenant | Rôle |
+|--------------|------|
+| `smtp_host` / `smtp_port` | Serveur SMTP (ex. `smtp.gmail.com:587`) |
+| `smtp_user` | Compte qui envoie (ex. `contact@votreapp.com`) |
+| `smtp_password` | **Mot de passe d'application**, pas le mot de passe normal (Gmail : 2FA → Sécurité → Mots de passe des applications — voir `docs/08-emails-reels.md`) |
+| `from_email` / `from_name` | Expéditeur affiché au destinataire |
+
+⚠️ Les champs `smtp_*` ne s'appliquent qu'au provider **`gmail`/SMTP**.
+Avec `brevo` ou `resend`, seuls `from_email`/`from_name` du tenant sont
+pris en compte (l'envoi passe par la clé API de l'opérateur).
+
+⚠️ `sent: true` signifie « le serveur SMTP a accepté le message » — pas
+« livré ». En cas de non-réception : « Messages envoyés » du compte
+expéditeur, Spam du destinataire, limite ~500 emails/jour sur Gmail.
+Procédure complète : `docs/08-emails-reels.md`.
+
+---
+
+## 9. Limites à connaître
 
 | Limite | Valeur tenant « illimité » | Où |
 |--------|---------------------------|-----|
