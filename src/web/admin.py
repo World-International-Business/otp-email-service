@@ -302,7 +302,13 @@ async def admin_dashboard(
 def _tenant_form(action: str, t: Tenant | None, include_account: bool) -> str:
     """Formulaire de création/édition — valeurs préremplies si `t` fourni."""
     def g(k, d=""):
-        return _e(getattr(t, k, d) if t else d)
+        # getattr retourne la valeur même quand elle est None (champ non
+        # renseigné) — sans garde, le formulaire afficherait "None" et le
+        # save écrirait la chaîne "None" (voire int("None") -> 500).
+        if not t:
+            return _e(d)
+        v = getattr(t, k, None)
+        return _e(v if v is not None else d)
     risks = _e(",".join(t.risky_countries) if t else "")
     purposes = _e(",".join(t.allowed_purposes) if t else "login_2fa")
     smtp_pass = ""  # jamais prérempli
@@ -340,9 +346,9 @@ def _tenant_form(action: str, t: Tenant | None, include_account: bool) -> str:
   <div><label class="text-xs font-semibold text-slate-600">Nom expéditeur</label>
   <input name="from_name" class="input mt-1" value="{g('from_name')}"></div>
 
-  <h3 class="font-bold text-sm text-slate-700 md:col-span-2 mt-2">SMTP du client <span class="font-normal text-slate-400">(vide = config globale du serveur ; IONOS : smtp.ionos.com:587)</span></h3>
+  <h3 class="font-bold text-sm text-slate-700 md:col-span-2 mt-2">SMTP du client <span class="font-normal text-slate-400">(vide = config globale du serveur ; IONOS : smtp.ionos.fr:587)</span></h3>
   <div><label class="text-xs font-semibold text-slate-600">SMTP Host</label>
-  <input name="smtp_host" class="input mt-1" value="{g('smtp_host')}" placeholder="smtp.ionos.com"></div>
+  <input name="smtp_host" class="input mt-1" value="{g('smtp_host')}" placeholder="smtp.ionos.fr"></div>
   <div><label class="text-xs font-semibold text-slate-600">SMTP Port</label>
   <input name="smtp_port" type="number" class="input mt-1" value="{g('smtp_port')}" placeholder="587"></div>
   <div><label class="text-xs font-semibold text-slate-600">SMTP User</label>
@@ -391,7 +397,15 @@ def _csv(value: str) -> list[str]:
 
 def _int_or_none(value: str) -> int | None:
     value = (value or "").strip()
-    return int(value) if value else None
+    if not value:
+        return None
+    try:
+        port = int(value)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Port SMTP invalide") from None
+    if not 1 <= port <= 65535:
+        raise HTTPException(status_code=422, detail="Port SMTP invalide")
+    return port
 
 
 @router.get("/tenants/new", response_class=HTMLResponse)
@@ -630,6 +644,7 @@ async def admin_update_tenant(
         "from_email": _opt(from_email),
         "from_name": _opt(from_name),
         "smtp_host": _opt(smtp_host),
+        "smtp_port": _int_or_none(smtp_port),
         "smtp_user": _opt(smtp_user),
         "risky_countries": [c.upper() for c in _csv(risky_countries)],
         "rollout_percentage": max(0, min(100, rollout_percentage)),
@@ -640,9 +655,6 @@ async def admin_update_tenant(
         "max_verify_attempts": max(1, max_verify_attempts),
         "otp_ttl_seconds": max(30, otp_ttl_seconds),
     }
-    port = _int_or_none(smtp_port)
-    if port is not None:
-        updates["smtp_port"] = port
     if smtp_password.strip():
         updates["smtp_password"] = smtp_password.strip()
 
