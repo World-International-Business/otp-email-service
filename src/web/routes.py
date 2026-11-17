@@ -863,7 +863,8 @@ async def dashboard(request: Request, settings: Settings = Depends(get_settings)
     <div><label class="text-xs font-semibold text-slate-600">Marque affichée</label>
     <input name="brand_name" class="input mt-1" value="{_e(tenant.brand_name)}"></div>
     <div><label class="text-xs font-semibold text-slate-600">Adresse expéditrice</label>
-    <input name="from_email" type="email" class="input mt-1" value="{_e(tenant.from_email or '')}" placeholder="no-reply@votredomaine.com"></div>
+    <input name="from_email" type="email" class="input mt-1" value="{_e(tenant.from_email or '')}" placeholder="no-reply@votredomaine.com">
+    <p class="text-[11px] text-amber-600 mt-1">Avec Gmail, doit correspondre au SMTP User (ou à un alias « Envoyer en tant que » vérifié) — sinon Google réécrit l'expéditeur.</p></div>
     <div><label class="text-xs font-semibold text-slate-600">Nom expéditeur</label>
     <input name="from_name" class="input mt-1" value="{_e(tenant.from_name or '')}" placeholder="{_e(tenant.brand_name)}"></div>
     <div><label class="text-xs font-semibold text-slate-600">SMTP Host</label>
@@ -871,7 +872,8 @@ async def dashboard(request: Request, settings: Settings = Depends(get_settings)
     <div><label class="text-xs font-semibold text-slate-600">SMTP User</label>
     <input name="smtp_user" class="input mt-1" value="{_e(tenant.smtp_user or '')}" placeholder="votre.email@gmail.com"></div>
     <div><label class="text-xs font-semibold text-slate-600">SMTP Password (app password)</label>
-    <input name="smtp_password" type="password" class="input mt-1" placeholder="16 caractères"></div>
+    <input name="smtp_password" type="password" class="input mt-1" placeholder="16 caractères">
+    <p class="text-[11px] text-slate-400 mt-1">Laisser vide pour conserver le mot de passe actuel.</p></div>
     <div class="md:col-span-2 flex gap-3">
       <button class="btn-primary">Sauvegarder</button>
     </div>
