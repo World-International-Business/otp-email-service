@@ -58,15 +58,17 @@ def _admin_page(title: str, content: str) -> HTMLResponse:
     return HTMLResponse(f"""{_head(title)}
 <body class="bg-slate-100 text-slate-800 min-h-screen">
 <nav class="bg-slate-900 text-white sticky top-0 z-20">
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 min-h-14 py-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
     <a href="/admin" class="flex items-center gap-2.5 font-extrabold">{LOGO_SVG}
       MailHub <span class="badge bg-rose-500 text-white">ADMIN</span>
     </a>
-    <div class="flex items-center gap-4 text-sm">
+    <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
       <a href="/admin" class="text-slate-300 hover:text-white font-medium">Tenants</a>
       <a href="/admin/tenants/new" class="text-slate-300 hover:text-white font-medium">Nouveau tenant</a>
       <a href="/" class="text-slate-300 hover:text-white font-medium">Site</a>
-      <a href="/admin/logout" class="text-rose-300 hover:text-rose-200 font-medium">Déconnexion</a>
+      <form method="post" action="/admin/logout" class="inline">
+        <button type="submit" class="text-rose-300 hover:text-rose-200 font-medium bg-transparent border-0 p-0 cursor-pointer text-sm">Déconnexion</button>
+      </form>
     </div>
   </div>
 </nav>
@@ -157,14 +159,20 @@ async def admin_login(
     return resp
 
 
-@router.get("/logout")
-async def admin_logout(request: Request):
+@router.post("/logout")
+async def admin_logout(request: Request, _: None = Depends(require_same_origin)):
     token = request.cookies.get(ADMIN_COOKIE)
     if token:
         await request.app.state.redis.delete(f"adminsession:{token}")
     resp = RedirectResponse("/admin/login", status_code=303)
     resp.delete_cookie(ADMIN_COOKIE, path="/admin")
     return resp
+
+
+@router.get("/logout")
+async def admin_logout_get():
+    # Anti-CSRF : la déconnexion exige un POST.
+    return RedirectResponse("/admin", status_code=303)
 
 
 # ---------------------------------------------------------------------
