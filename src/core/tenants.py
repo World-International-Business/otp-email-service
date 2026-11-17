@@ -133,17 +133,35 @@ async def seed_default_tenant(redis, settings) -> Tenant:
 
     existing = await store.get("default")
     if existing:
-        # Si les credentials d'env ont changé, on met à jour le tenant
-        # (rotation API_KEY/HMAC_SECRET sans perdre la config du tenant).
+        # Le tenant "default" reflète la config .env : on re-synchronise à
+        # chaque démarrage les champs issus de l'env (sinon SMTP_USER,
+        # FROM_*, quotas et pays à risque restent figés à la première
+        # exécution). Les champs non issus de l'env — allowed_purposes,
+        # is_active, smtp_host/port/use_ssl — restent modifiables par
+        # l'admin et ne sont pas écrasés.
         if existing.api_key_hash != api_key_hash:
             await redis.delete(store._bykey(existing.api_key_hash))
-            existing.api_key_hash = api_key_hash
-            existing.hmac_secret = hmac_secret
             await redis.set(store._bykey(api_key_hash), existing.tenant_id)
-            await redis.set(
-                store._tenant_key(existing.tenant_id), existing.model_dump_json()
-            )
-        return existing
+        await store.update(
+            existing.tenant_id,
+            {
+                "api_key_hash": api_key_hash,
+                "hmac_secret": hmac_secret,
+                "brand_name": settings.from_name,
+                "from_email": settings.from_email,
+                "from_name": settings.from_name,
+                "smtp_user": settings.smtp_user,
+                "smtp_password": settings.smtp_password,
+                "risky_countries": sorted(settings.risky_countries_set),
+                "rollout_percentage": settings.rollout_percentage,
+                "max_sends_per_user_per_10min": settings.max_sends_per_user_per_10min,
+                "max_sends_per_ip_per_10min": settings.max_sends_per_ip_per_10min,
+                "cooldown_seconds": settings.cooldown_seconds,
+                "max_verify_attempts": settings.max_verify_attempts,
+                "otp_ttl_seconds": settings.otp_ttl_seconds,
+            },
+        )
+        return await store.get(existing.tenant_id)
 
     tenant = Tenant(
         tenant_id="default",

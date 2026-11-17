@@ -59,6 +59,7 @@ async def create_tenant(
         smtp_port=payload.smtp_port,
         smtp_user=payload.smtp_user,
         smtp_password=payload.smtp_password,
+        smtp_use_ssl=payload.smtp_use_ssl,
         risky_countries=[c.upper() for c in payload.risky_countries],
         rollout_percentage=payload.rollout_percentage,
         allowed_purposes=payload.allowed_purposes,

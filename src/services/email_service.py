@@ -48,6 +48,10 @@ class EmailService:
     ) -> EmailSendResponse:
         """Envoie un email selon son type. Lève HTTPException en cas d'échec."""
         to_email = str(request.to_email)
+        # Rendre AVANT de réserver un slot quota : un type=custom incomplet
+        # lève 422 ici — il ne doit pas consommer le quota du destinataire.
+        subject, text_body, html_body = self._render(request, tenant)
+
         limiter = RateLimiter(self.redis, tenant)
         allowed, retry_after = await limiter.try_email(to_email)
         if not allowed:
@@ -61,8 +65,6 @@ class EmailService:
                 detail="Too many emails to this recipient",
                 headers={"Retry-After": str(retry_after)},
             )
-
-        subject, text_body, html_body = self._render(request, tenant)
 
         message_id = f"msg_{secrets.token_urlsafe(16)}"
 

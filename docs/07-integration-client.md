@@ -1,281 +1,427 @@
-# 7. Intégration client — otp-email-service
+# 7. Intégration client — otp-email-service (référence complète)
 
-Document à remettre au client (ou à son développeur / agent IA) pour intégrer
-l'API dans une application mobile ou web.
+Document à remettre au développeur (ou à l'agent IA) qui intègre l'API dans
+une application web, mobile ou backend. Tout ce qu'il faut savoir, étape par
+étape, avec le détail exact des requêtes et des réponses.
 
 ---
 
 ## 0. Vue d'ensemble
 
-Cette API permet d'envoyer des **codes OTP par email** et des **emails
-transactionnels** (bienvenue, notification, transaction, custom).
+| Méthode | Endpoint | Rôle | Auth |
+|---------|----------|------|------|
+| `POST` | `/v1/otp/send` | Envoyer un code OTP à 6 chiffres par email | HMAC |
+| `POST` | `/v1/otp/verify` | Vérifier le code saisi par l'utilisateur | HMAC |
+| `GET` | `/v1/otp/confirm` | Lien magique de vérification (clic dans l'email) | aucune (le lien est le secret) |
+| `POST` | `/v1/email/send` | Envoyer un email transactionnel | HMAC |
+| `GET` | `/health` | Healthcheck (`status`, `redis`, `version`) | aucune |
+| `POST` | `/v1/admin/tenants` | Créer un tenant (clé + secret affichés une fois) | `X-Admin-Key` |
+| `GET` | `/v1/admin/tenants` | Lister les tenants | `X-Admin-Key` |
+| `GET/PATCH/DELETE` | `/v1/admin/tenants/{id}` | Gérer un tenant | `X-Admin-Key` |
 
-| Méthode | Endpoint | Rôle |
-|---------|----------|------|
-| `POST` | `/v1/otp/send` | Envoyer un code OTP à 6 chiffres par email |
-| `POST` | `/v1/otp/verify` | Vérifier le code saisi par l'utilisateur |
-| `POST` | `/v1/email/send` | Envoyer un email transactionnel |
-| `GET` | `/health` | Vérifier que le service est en ligne |
+**URL de base** : `https://<DOMAINE_DU_SERVICE>` (jamais `localhost` en
+production). En local : `http://localhost:8001`.
 
-**URL de base** : `https://<DOMAINE_DU_SERVICE>` (à remplacer par l'URL de
-production fournie par l'admin — jamais `localhost`).
+**Cycle de vie d'un OTP** :
+
+```
+App ──POST /v1/otp/send──► API ──► code 6 chiffres envoyé par email
+App ◄── {request_id} ────  API
+Utilisateur saisit le code dans l'app
+App ──POST /v1/otp/verify──► API ◄── {verified: true/false}
+```
+
+Le code est à **usage unique** (supprimé après vérification réussie ou épuisement
+des tentatives), valide `otp_ttl_seconds` secondes (défaut : 300 s / 5 min).
 
 ---
 
-## 1. ⚠️ RÈGLE DE SÉCURITÉ — À LIRE AVANT TOUT
+## 1. Obtenir ses credentials
 
-**Les clés ne doivent JAMAIS être embarquées dans l'application mobile.**
-N'importe qui peut extraire une clé d'un APK/IPA et envoyer des emails à vos
-frais.
+Deux façons d'obtenir `api_key` + `hmac_secret` :
 
-```
-App mobile ──► Backend / Cloud Function ──► otp-email-service
-              (la signature HMAC se fait ICI)
-```
+| Voie | Comment |
+|------|---------|
+| **Self-service** | Créer un compte sur `/register` → le dashboard affiche les credentials du tenant associé |
+| **Par l'admin** | `POST /v1/admin/tenants` avec `X-Admin-Key`, ou le panneau `/admin` — la réponse contient `api_key` et `hmac_secret`, **affichés une seule fois** |
 
-Si le projet n'a pas de backend, utiliser une **Cloud Function**
-(Firebase Cloud Functions, Supabase Edge Functions, Cloudflare Workers…)
-de ~30 lignes qui reçoit la requête de l'app et la signe avant de la
-transférer à l'API. C'est le seul endroit où vivent `api_key` et
-`hmac_secret`.
+⚠️ `hmac_secret` n'est **jamais** renvoyé par l'API après création. Le perdre =
+régénérer les credentials.
 
 ---
 
-## 2. Authentification : signature HMAC-SHA256
+## 2. ⚠️ RÈGLE DE SÉCURITÉ — À LIRE AVANT TOUT
 
-Chaque appel à `/v1/*` exige **3 headers** calculés à chaque requête :
+**Les clés ne vivent jamais dans l'application mobile ou le front-end.**
+N'importe qui peut extraire une clé d'un APK/IPA/bundle JS et envoyer des
+emails à vos frais.
+
+```
+App mobile / front ──► Backend / Cloud Function ──► otp-email-service
+                        (la signature HMAC se fait ICI,
+                         api_key + hmac_secret en variables d'env)
+```
+
+Sans backend, utiliser une **Cloud Function** (~30 lignes : Firebase,
+Supabase Edge, Cloudflare Workers…) qui reçoit la requête de l'app et la
+signe avant de la transférer.
+
+---
+
+## 3. Authentification — signature HMAC-SHA256
+
+Chaque appel à `/v1/otp/*` et `/v1/email/*` exige **3 headers** :
 
 | Header | Valeur |
 |--------|--------|
-| `X-API-Key` | La clé API du tenant (fournie une seule fois par l'admin) |
-| `X-Timestamp` | Timestamp Unix en **secondes** (heure du téléphone à ±5 min max) |
-| `X-HMAC-Signature` | `hex( HMAC_SHA256( corps_JSON_brut + timestamp , hmac_secret ) )` |
+| `X-API-Key` | La clé API du tenant |
+| `X-Timestamp` | Timestamp Unix en **secondes** (pas millisecondes) |
+| `X-HMAC-Signature` | `hex(HMAC_SHA256(secret, corps_JSON_brut + timestamp))` |
 
-Détail important : la signature porte sur **le corps brut (bytes) suivi du
-timestamp** — pas de séparateur entre les deux. Le corps envoyé doit être
-exactement celui signé (mêmes espaces, même ordre des champs).
+### Recette exacte
 
-### Codes d'erreur d'authentification
-
-| Code | Cause |
-|------|-------|
-| `401` | Headers manquants, clé inconnue ou tenant désactivé |
-| `403` | Signature invalide, timestamp hors fenêtre ±300 s, purpose interdit |
-| `429` | Rate limit (header `Retry-After` indique l'attente en secondes) |
-| `422` | Corps JSON invalide (champ manquant, email malformé…) |
-
----
-
-## 3. Exemples de signature par langage
-
-### Python (backend)
-
-```python
-import hashlib, hmac, json, time, requests
-
-BASE_URL    = "https://<DOMAINE>"
-API_KEY     = "<api_key>"
-HMAC_SECRET = "<hmac_secret>".encode()
-
-def call(path: str, payload: dict) -> dict:
-    body = json.dumps(payload).encode()
-    ts   = str(int(time.time()))
-    sig  = hmac.new(HMAC_SECRET, body + ts.encode(), hashlib.sha256).hexdigest()
-    r = requests.post(BASE_URL + path, data=body, headers={
-        "Content-Type": "application/json",
-        "X-API-Key": API_KEY, "X-Timestamp": ts, "X-HMAC-Signature": sig,
-    }, timeout=10)
-    r.raise_for_status()
-    return r.json()
+```text
+1. body     = les bytes EXACTS du JSON envoyé (avant tout réencodage)
+2. ts       = str(int(time.time()))                     # secondes
+3. message  = body + ts.encode()                        # concaténation, AUCUN séparateur
+4. sig      = hmac_sha256(secret, message).hexdigest()  # 64 caractères hex minuscules
+5. headers  = X-API-Key, X-Timestamp: ts, X-HMAC-Signature: sig,
+              Content-Type: application/json
 ```
 
-### Node.js / Supabase Edge Function
+### Ce que le serveur vérifie (dans l'ordre)
 
-```js
-const crypto = require("crypto");
+| Étape | Échec → |
+|-------|---------|
+| Les 3 headers présents | `401 "Not authenticated"` |
+| `X-API-Key` correspond à un tenant actif | `401 "Unauthorized"` |
+| `X-Timestamp` est un entier | `403 "Invalid timestamp"` |
+| `|ts_serveur − ts_client| ≤ 300 s` | `403 "Timestamp too old"` |
+| Signature correcte | `403 "Invalid signature"` |
+| Signature jamais utilisée (nonce Redis, TTL 310 s) | `403 "Replay detected"` |
 
-async function call(path, payload) {
-  const body = JSON.stringify(payload);
-  const ts   = Math.floor(Date.now() / 1000).toString();
-  const sig  = crypto.createHmac("sha256", HMAC_SECRET)
-                     .update(body + ts).digest("hex");
-  const r = await fetch(BASE_URL + path, {
-    method: "POST", body,
-    headers: {
-      "Content-Type": "application/json",
-      "X-API-Key": API_KEY, "X-Timestamp": ts, "X-HMAC-Signature": sig,
-    },
-  });
-  if (!r.ok) throw new Error(`API ${r.status}: ${await r.text()}`);
-  return r.json();
-}
-```
+### Pièges qui coûtent des heures
 
-### Dart / Flutter (si signature côté serveur impossible — déconseillé)
-
-```dart
-import 'dart:convert';
-import 'package:crypto/crypto.dart';
-import 'package:http/http.dart' as http;
-
-Future<Map<String, dynamic>> callApi(String path, Map<String, dynamic> payload) async {
-  final body = jsonEncode(payload);
-  final ts   = (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
-  final sig  = Hmac(sha256, utf8.encode(hmacSecret))
-      .convert(utf8.encode(body + ts)).toString();
-  final r = await http.post(Uri.parse('$baseUrl$path'), body: body, headers: {
-    'Content-Type': 'application/json',
-    'X-API-Key': apiKey, 'X-Timestamp': ts, 'X-HMAC-Signature': sig,
-  });
-  return jsonDecode(r.body);
-}
-```
+- **Signer les bytes exacts envoyés.** Si la librairie HTTP re-sérialise le
+  JSON (ordre des clés, espaces, Unicode), la signature ne correspond plus.
+  Signer la chaîne finale puis l'envoyer telle quelle.
+- **Timestamp en secondes**, pas millisecondes → sinon `Timestamp too old`.
+- **Horloge synchronisée** (NTP) : ±5 min de tolérance seulement.
+- **Une signature = un usage.** Même corps + même timestamp re-soumis dans les
+  5 min → `Replay detected`. Toujours régénérer ts + signature.
+- Le timestamp signé est la **chaîne** envoyée dans le header (`"1731234567"`),
+  pas un entier reformaté.
 
 ---
 
 ## 4. Envoyer un OTP — `POST /v1/otp/send`
 
+### Corps
+
 ```json
 {
-  "user_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "user_id": "550e8400-e29b-41d4-a716-446655440000",
   "email": "client@exemple.com",
   "country_code": "FR",
   "purpose": "login_2fa",
-  "language": "fr"
+  "language": "fr",
+  "magic_link": true
 }
 ```
 
-| Champ | Obligatoire | Contraintes |
-|-------|-------------|-------------|
-| `user_id` | oui | **UUID valide** (générer avec `uuid()` côté app) |
-| `email` | oui | Email valide |
-| `country_code` | oui | Code ISO 3166-1 alpha-2 : `FR`, `CI`, `US`… |
-| `purpose` | oui | Doit être dans la liste autorisée du tenant |
-| `language` | non | `fr` (défaut) ou `en` |
+| Champ | Type | Obligatoire | Contraintes |
+|-------|------|-------------|-------------|
+| `user_id` | string | oui | **UUID valide** (`550e8400-…`), sinon `422` |
+| `email` | string | oui | Adresse email valide — **n'importe quel destinataire** |
+| `country_code` | string | oui | ISO 3166-1 alpha-2 : `FR`, `CI`, `US`… (2 lettres) |
+| `purpose` | string | oui | Doit être dans `allowed_purposes` du tenant, sinon `403` |
+| `language` | string | non | `fr` ou `en` — **défaut `en`** |
+| `magic_link` | bool | non | `true` → l'email contient un bouton « vérifier en un clic » |
 
-### Réponse — cas normal
+### Réponse — envoi email
 
 ```json
-{ "channel": "email", "request_id": "req_XXXX", "expires_in": 300 }
+{ "channel": "email", "request_id": "req_XXXXXXXXXXXXXXXX", "expires_in": 300 }
 ```
 
-➡️ Stocker `request_id` : il sert à la vérification.
+➡️ **Stocker `request_id`** — indispensable pour `/v1/otp/verify`.
+`debug_code` apparaît en plus **uniquement si `DEBUG=true`** (jamais en prod).
 
-### Réponse — cas `sms_fallback`
+### Réponse — `sms_fallback`
 
 ```json
 { "channel": "sms_fallback", "request_id": "", "expires_in": 0 }
 ```
 
-➡️ L'API a refusé l'envoi email pour cet utilisateur (pays à risque ou
-rollout). **Le client doit alors envoyer le code par son propre canal SMS**
-(ex. Twilio) — l'API ne l'envoie pas elle-même.
+➡️ L'API a **refusé** l'envoi email (pays dans `risky_countries` du tenant ou
+hors rollout). Le client déclenche alors **son propre canal SMS** (ex. Twilio) —
+l'API ne l'envoie pas.
+
+### Erreurs spécifiques
+
+| Code | `detail` | Cause |
+|------|----------|-------|
+| `403` | purpose non autorisé | `purpose` absent de `allowed_purposes` du tenant |
+| `422` | erreurs de validation | `user_id` non-UUID, email malformé, `country_code` ≠ 2 lettres |
+| `429` | `Too many OTP requests` | Quota dépassé — lire le header **`Retry-After`** (secondes) |
+| `502` | `Failed to send email: <raison>` | Provider SMTP en échec (voir §8) |
 
 ---
 
 ## 5. Vérifier un OTP — `POST /v1/otp/verify`
 
 ```json
-{ "request_id": "req_XXXX", "code": "123456" }
+{ "request_id": "req_XXXXXXXXXXXXXXXX", "code": "123456" }
 ```
+
+| Champ | Contraintes |
+|-------|-------------|
+| `request_id` | Exactement celui retourné par `/send` — et **même tenant/clé API** |
+| `code` | Chaîne de **6 chiffres** (autre format → `422` sans même vérifier) |
+
+### Réponses
 
 ```json
-{ "verified": true, "attempts_remaining": 0 }
+{ "verified": true,  "attempts_remaining": 0 }   // succès — code consommé
+{ "verified": false, "attempts_remaining": 2 }   // mauvais code, réessayer
+{ "verified": false, "attempts_remaining": 0 }   // bloqué / expiré / déjà utilisé
 ```
 
-- `verified: false` + `attempts_remaining > 0` → mauvais code, réessayer.
-- `attempts_remaining: 0` → code bloqué ou expiré → renvoyer un OTP.
-- Le code est **à usage unique** : une fois vérifié, il est supprimé.
+Règles : max `max_verify_attempts` essais (défaut 5) · usage unique · un OTP
+n'est vérifiable que par le tenant qui l'a émis.
 
 ---
 
-## 6. Email transactionnel — `POST /v1/email/send`
+## 6. Lien magique — `GET /v1/otp/confirm`
+
+Généré dans l'email quand `magic_link: true`. **Non signé** : connaître le lien
+= connaître le code.
+
+```
+GET /v1/otp/confirm?request_id=req_...&code=123456&t=<tenant_id>
+```
+
+Retourne une page HTML « ✓ Code vérifié » ou « Lien invalide ou expiré ».
+Consomme le code exactement comme `/v1/otp/verify` — ensuite la requête
+`verify` renverra `verified: false` (normal : déjà utilisé).
+
+---
+
+## 7. Email transactionnel — `POST /v1/email/send`
 
 ```json
 {
   "to_email": "client@exemple.com",
-  "type": "welcome",
+  "type": "notification",
   "language": "fr",
-  "data": { "name": "Awa" }
+  "data": { "title": "Commande expédiée", "message": "Arrivée sous 48 h." }
 }
 ```
+
+| Champ | Obligatoire | Notes |
+|-------|-------------|-------|
+| `to_email` | oui | Destinataire — n'importe quelle adresse valide |
+| `type` | oui | `welcome` · `notification` · `transaction` · `custom` |
+| `language` | non | `fr` / `en`, défaut `en` |
+| `data` | non | Variables du template (voir ci-dessous) |
+| `subject` | **si `custom`** | Sujet libre |
+| `text_body` | **si `custom`** | Corps texte libre |
+| `html_body` | non (`custom`) | Corps HTML libre |
 
 | `type` | Variables `data` |
 |--------|------------------|
 | `welcome` | `{name}` |
 | `notification` | `{title, message}` |
 | `transaction` | `{amount, currency, status}` |
-| `custom` | `subject` + `text_body` obligatoires (hors `data`), `html_body` optionnel |
+| `custom` | `subject` + `text_body` en champs racine (obligatoires), `html_body` optionnel |
 
-Réponse : `{ "sent": true, "message_id": "msg_...", "to_email": "..." }`
+Réponse :
 
----
+```json
+{ "sent": true, "message_id": "msg_...", "to_email": "client@exemple.com" }
+```
 
-## 7. Checklist pour l'agent IA qui intègre
-
-1. Demander à l'admin : `BASE_URL`, `api_key`, `hmac_secret`, liste des
-   `allowed_purposes`.
-2. Les clés vivent **côté serveur uniquement** (variables d'env de la
-   Cloud Function / backend).
-3. `user_id` = UUID généré par requête (ou UUID stable de l'utilisateur).
-4. Gérer les 2 réponses de `/send` : `email` (attendre le code) et
-   `sms_fallback` (déclencher le canal SMS du projet, ou afficher une erreur).
-5. Gérer le `429` avec `Retry-After` : afficher « réessayez dans X s ».
-6. Tester d'abord contre `/health` puis un envoi réel.
-7. Endpoint testable sans signature en DEBUG : `/demo` (console web).
+⚠️ `sent: true` = « accepté par le serveur SMTP », **pas** « livré ».
+Échec provider → `502 "Failed to send email: <raison exacte>"` (`535 auth
+refusée`, `connexion fermée`, `550 expéditeur non autorisé`…).
 
 ---
 
 ## 8. Expéditeur — quel compte envoie vos emails
 
-Chaque envoi (`/v1/otp/send`, `/v1/email/send`, `/demo`) passe par le même
-pipeline. Le **destinataire** est toujours l'adresse fournie dans la requête
-(`email` / `to_email`) — **n'importe quelle adresse valide fonctionne**.
-L'**expéditeur** se résout en cascade :
+Le **destinataire** est toujours l'adresse de la requête. L'**expéditeur** se
+résout en cascade à chaque envoi :
 
-| Ordre | Source | Quand |
-|-------|--------|-------|
-| 1 | Champs `smtp_*` / `from_*` **du tenant** | Configurés par le client dans `/dashboard/config` ou par l'admin via `/v1/admin/tenants` |
-| 2 | Variables d'environnement **globales** (`SMTP_*`, `FROM_*`) | Fallback si le tenant n'a pas de config propre |
+| Priorité | Source | Quand |
+|----------|--------|-------|
+| 1 | Champs `smtp_*` / `from_*` **du tenant** | Configurés dans `/dashboard` ou via l'admin |
+| 2 | Variables **globales** `.env` (`SMTP_*`, `FROM_*`) | Fallback |
 
-### Deux façons d'envoyer
-
-**A — Utiliser le compte de l'opérateur** (cas par défaut) : rien à faire,
-les emails partent du compte configuré globalement (`SMTP_USER` /
-`FROM_EMAIL`). Votre `brand_name` personnalise le nom affiché et le contenu.
-
-**B — Connecter votre propre compte email** : remplir dans
-`/dashboard/config` (ou faire saisir par l'admin dans le tenant) :
+**Connecter sa propre boîte** (dans `/dashboard` ou via `PATCH
+/v1/admin/tenants/{id}`) :
 
 | Champ tenant | Rôle |
 |--------------|------|
-| `smtp_host` / `smtp_port` | Serveur SMTP — `587` = STARTTLS, `465` = SSL (auto-détecté). Ex. `smtp.gmail.com`, `ssl0.ovh.net`, `smtp.zoho.com` |
-| `smtp_user` | Compte qui envoie — adresse pro acceptée (ex. `contact@votreapp.com`) |
-| `smtp_password` | **Mot de passe d'application**, pas le mot de passe normal (Gmail : 2FA → Sécurité → Mots de passe des applications — voir `docs/08-emails-reels.md`) |
-| `from_email` / `from_name` | Expéditeur affiché au destinataire |
+| `smtp_host` | Serveur SMTP de **l'hébergeur de la boîte** — ex. `smtp.gmail.com`, `smtp.ionos.fr`, `ssl0.ovh.net`, `smtp.zoho.com` |
+| `smtp_port` | `587` = STARTTLS · `465` = SSL implicite (auto-détecté) |
+| `smtp_user` | Compte qui envoie — adresse pro acceptée |
+| `smtp_password` | Mot de passe de la boîte / app password. **Vide à l'update = conserve l'ancien** |
+| `smtp_use_ssl` | `true`/`false` pour forcer — vide = auto par port |
+| `from_email` / `from_name` / `brand_name` | Expéditeur affiché + branding |
 
-⚠️ Les champs `smtp_*` ne s'appliquent qu'au provider **`gmail`/SMTP**.
-Avec `brevo` ou `resend`, seuls `from_email`/`from_name` du tenant sont
-pris en compte (l'envoi passe par la clé API de l'opérateur).
+Règles critiques :
 
-⚠️ `sent: true` signifie « le serveur SMTP a accepté le message » — pas
-« livré ». En cas de non-réception : « Messages envoyés » du compte
-expéditeur, Spam du destinataire, limite ~500 emails/jour sur Gmail.
-Procédure complète : `docs/08-emails-reels.md`.
+- `smtp_user` décide **qui envoie vraiment**. Un `from_email` étranger au
+  compte SMTP → rejet (`550 Sender address is not allowed`) ou réécriture
+  (Gmail force le `From` sur le compte authentifié, sauf alias vérifié).
+- `smtp.gmail.com` n'accepte **que les comptes Google** (Gmail / Workspace +
+  app password). Une boîte IONOS/OVH/Zoho va sur **son** serveur.
+- `sent: true` ≠ livré : vérifier « Messages envoyés » de l'expéditeur, Spam
+  du destinataire, limites d'envoi (Gmail ≈ 500/j). Guide : `docs/08`.
 
 ---
 
-## 9. Limites à connaître
+## 9. Exemples complets par langage
 
-| Limite | Valeur tenant « illimité » | Où |
-|--------|---------------------------|-----|
-| Cooldown entre envois | `cooldown_seconds` (min 1) | config tenant |
-| Envois / user / 10 min | `max_sends_per_user_per_10min` | config tenant |
-| Envois / IP / 10 min | `max_sends_per_ip_per_10min` | config tenant |
-| Tentatives de vérification | `max_verify_attempts` | config tenant |
-| Validité du code | `otp_ttl_seconds` | config tenant |
+### Python — client complet
 
-Le vrai plafond reste le **provider SMTP** (Gmail ≈ 500 emails/jour compte
-standard, 2000 Workspace ; Brevo/Resend selon plan). Pour du gros volume,
-configurer un provider payant dans le tenant (`smtp_user`/`smtp_password`)
-ou via `EMAIL_PROVIDER`.
+```python
+import hashlib, hmac, json, time, uuid, requests
+
+BASE_URL    = "https://<DOMAINE>"
+API_KEY     = "<api_key>"
+HMAC_SECRET = "<hmac_secret>".encode()
+
+def call(path: str, payload: dict) -> dict:
+    body = json.dumps(payload).encode()          # bytes exacts signés
+    ts   = str(int(time.time()))
+    sig  = hmac.new(HMAC_SECRET, body + ts.encode(), hashlib.sha256).hexdigest()
+    r = requests.post(BASE_URL + path, data=body, timeout=15, headers={
+        "Content-Type": "application/json",
+        "X-API-Key": API_KEY, "X-Timestamp": ts, "X-HMAC-Signature": sig,
+    })
+    if r.status_code == 429:
+        time.sleep(int(r.headers.get("Retry-After", 60)))
+        return call(path, payload)               # retry simple
+    r.raise_for_status()
+    return r.json()
+
+# --- flux complet ---
+resp = call("/v1/otp/send", {
+    "user_id": str(uuid.uuid4()), "email": "client@exemple.com",
+    "country_code": "FR", "purpose": "login_2fa", "language": "fr",
+})
+if resp["channel"] == "sms_fallback":
+    ...  # déclencher votre canal SMS (Twilio…)
+else:
+    request_id = resp["request_id"]               # à stocker
+    code = input("Code reçu par email : ")
+    print(call("/v1/otp/verify", {"request_id": request_id, "code": code}))
+```
+
+### Node.js — aucune dépendance
+
+```js
+import crypto from "node:crypto";
+
+const BASE_URL = "https://<DOMAINE>";
+const API_KEY = "<api_key>", HMAC_SECRET = "<hmac_secret>";
+
+async function call(path, payload) {
+  const body = JSON.stringify(payload);
+  const ts = String(Math.floor(Date.now() / 1000));
+  const sig = crypto.createHmac("sha256", HMAC_SECRET)
+                    .update(body + ts).digest("hex");
+  const r = await fetch(BASE_URL + path, {
+    method: "POST", body,
+    headers: { "Content-Type": "application/json",
+               "X-API-Key": API_KEY, "X-Timestamp": ts, "X-HMAC-Signature": sig },
+  });
+  if (!r.ok) throw new Error(`API ${r.status}: ${await r.text()}`);
+  return r.json();
+}
+```
+
+### PHP
+
+```php
+$body = json_encode(["request_id" => "req_...", "code" => "123456"]);
+$ts   = (string) time();
+$sig  = hash_hmac("sha256", $body . $ts, $HMAC_SECRET);
+$ch   = curl_init("$BASE_URL/v1/otp/verify");
+curl_setopt_array($ch, [
+  CURLOPT_RETURNTRANSFER => true, CURLOPT_POST => true,
+  CURLOPT_POSTFIELDS => $body,
+  CURLOPT_HTTPHEADER => ["Content-Type: application/json",
+    "X-API-Key: $API_KEY", "X-Timestamp: $ts", "X-HMAC-Signature: $sig"],
+]);
+$r = json_decode(curl_exec($ch), true); curl_close($ch);
+```
+
+### cURL / Bash
+
+```bash
+BODY='{"request_id":"req_...","code":"123456"}'
+TS=$(date +%s)
+SIG=$(printf '%s' "${BODY}${TS}" | openssl dgst -sha256 -hmac "$HMAC_SECRET" | cut -d' ' -f2)
+curl -X POST $BASE_URL/v1/otp/verify \
+  -H "Content-Type: application/json" -H "X-API-Key: $API_KEY" \
+  -H "X-Timestamp: $TS" -H "X-HMAC-Signature: $SIG" -d "$BODY"
+```
+
+### Dart / Flutter (dernier recours — voir §2)
+
+```dart
+final body = jsonEncode(payload);
+final ts = (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
+final sig = Hmac(sha256, utf8.encode(hmacSecret))
+    .convert(utf8.encode(body + ts)).toString();
+await http.post(Uri.parse('$baseUrl$path'), body: body, headers: {
+  'Content-Type': 'application/json',
+  'X-API-Key': apiKey, 'X-Timestamp': ts, 'X-HMAC-Signature': sig,
+});
+```
+
+---
+
+## 10. Tableau complet des erreurs
+
+| HTTP | `detail` | Action |
+|------|----------|--------|
+| `401` | `Not authenticated` | Ajouter les 3 headers |
+| `401` | `Unauthorized` | `X-API-Key` inconnu ou tenant désactivé |
+| `403` | `Invalid timestamp` / `Timestamp too old` | ts en secondes + horloge à l'heure |
+| `403` | `Invalid signature` | Signer les **bytes exacts** envoyés |
+| `403` | `Replay detected` | Nouveau ts + nouvelle signature à chaque requête |
+| `403` | purpose | `purpose` non présent dans `allowed_purposes` |
+| `422` | validation Pydantic | Champ manquant/format (`user_id` UUID, `code` 6 chiffres) |
+| `429` | `Too many OTP requests` | Attendre `Retry-After` s — quota tenant dépassé |
+| `502` | `Failed to send email: <raison>` | Config SMTP du tenant/global : host, port, user, password, `from_email` autorisé |
+
+## 11. Limites & quotas
+
+| Limite | Champ tenant | Défaut |
+|--------|--------------|--------|
+| Envois OTP / user / 10 min | `max_sends_per_user_per_10min` | 3 |
+| Envois OTP / IP / 10 min | `max_sends_per_ip_per_10min` | 3 |
+| Cooldown entre envois | `cooldown_seconds` | 60 |
+| Tentatives de vérification | `max_verify_attempts` | 5 |
+| Validité du code | `otp_ttl_seconds` | 300 s |
+
+Toutes modifiables par l'admin (`PATCH /v1/admin/tenants/{id}`). Le vrai
+plafond reste le provider SMTP (Gmail ≈ 500/j, Workspace 2000/j,
+Brevo/Resend selon plan).
+
+## 12. Checklist intégrateur
+
+1. `BASE_URL` + `api_key` + `hmac_secret` + `allowed_purposes` en main.
+2. Clés **côté serveur uniquement** (env vars de la Cloud Function).
+3. Tester `GET /health` → `{ "status": "ok", "redis": "ok" }`.
+4. Signer les bytes exacts ; ts en secondes ; horloge NTP.
+5. `user_id` = UUID ; `code` transmis en **string** 6 chiffres.
+6. Gérer les 2 branches de `/send` : `email` et `sms_fallback`.
+7. Gérer `429` via `Retry-After`, `502` en remontant l'erreur email.
+8. `/v1/otp/verify` avec **la même clé API** que `/send`.
+9. Configurer l'expéditeur du tenant (`/dashboard` ou admin) + « Tester
+   l'envoi » avant de brancher la prod.
+10. `DEMO_ENABLED=false` côté serveur en production.

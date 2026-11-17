@@ -903,7 +903,7 @@ async def dashboard(
     <input name="from_name" class="input mt-1" value="{_e(tenant.from_name or '')}" placeholder="{_e(tenant.brand_name)}"></div>
     <div><label class="text-xs font-semibold text-slate-600">SMTP Host</label>
     <input name="smtp_host" class="input mt-1" value="{_e(_cfg(tenant,'smtp_host') or 'smtp.gmail.com')}">
-    <p class="text-[11px] text-slate-400 mt-1">Gmail : smtp.gmail.com · IONOS : smtp.ionos.com · OVH : ssl0.ovh.net · Zoho : smtp.zoho.com</p></div>
+    <p class="text-[11px] text-slate-400 mt-1">Gmail : smtp.gmail.com · IONOS : smtp.ionos.fr (ou .com selon région) · OVH : ssl0.ovh.net · Zoho : smtp.zoho.com</p></div>
     <div><label class="text-xs font-semibold text-slate-600">SMTP Port</label>
     <input name="smtp_port" type="number" min="1" max="65535" class="input mt-1" value="{_e(str(_cfg(tenant,'smtp_port') or 587))}">
     <p class="text-[11px] text-slate-400 mt-1">587 = STARTTLS (Gmail, IONOS) · 465 = SSL (OVH, Zoho, cPanel) — détection automatique.</p></div>
@@ -1088,7 +1088,7 @@ def _demo_page() -> str:
       <div><label class="text-xs font-semibold text-slate-600">Email</label>
       <input id="email" type="email" class="input mt-1" value="test@example.com"></div>
       <div><label class="text-xs font-semibold text-slate-600">Code pays</label>
-      <input id="country" class="input mt-1" value="FR" maxlength="3"></div>
+      <input id="country" class="input mt-1" value="FR" maxlength="2"></div>
       <div><label class="text-xs font-semibold text-slate-600">Langue</label>
       <select id="language" class="input mt-1"><option value="fr">Français</option><option value="en">English</option></select></div>
     </div>

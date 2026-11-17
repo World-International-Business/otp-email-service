@@ -44,6 +44,12 @@ class GmailSMTPProvider(EmailProvider):
         if use_ssl is None:
             use_ssl = smtp_port == 465  # convention : 465 = SSL implicite
 
+        if not smtp_user or not smtp_password:
+            raise EmailSendError(
+                "Identifiants SMTP manquants (SMTP_USER / SMTP_PASSWORD) — "
+                "configurer le tenant ou les variables globales"
+            )
+
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
         msg["From"] = f"{from_name} <{from_email}>"
@@ -92,7 +98,11 @@ class GmailSMTPProvider(EmailProvider):
             server = smtplib.SMTP(smtp_host, smtp_port, timeout=10)
         with server:
             if not use_ssl:
-                server.starttls()
+                server.ehlo_or_helo_if_needed()
+                # STARTTLS seulement si le serveur l'annonce — un serveur
+                # plain (ex. mailserver local sur :25) n'a pas d'extension TLS.
+                if server.has_extn("starttls"):
+                    server.starttls()
             server.login(smtp_user, smtp_password)
             refused = server.sendmail(from_email, [to_email], raw_message)
             if refused:
