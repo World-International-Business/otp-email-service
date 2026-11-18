@@ -20,7 +20,9 @@ from src.services.email_service import EmailService
 from src.services.otp_service import OTPService
 from src.web.admin import router as admin_web_router
 from src.web.docs_page import router as docs_router
+from src.web.routes import FAVICON_URI
 from src.web.routes import router as web_router
+from src.web.tailwind_css import TAILWIND_CSS
 
 
 def setup_logging(log_level: str) -> None:
@@ -98,11 +100,17 @@ async def http_exception_page(request: Request, exc: StarletteHTTPException):
 
 
 def _error_page(code: int, title: str, detail: str, headers=None) -> HTMLResponse:
+    fonts = (
+        "https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800"
+        "&family=Space+Grotesk:wght@600;700&display=swap"
+    )
     return HTMLResponse(
         f"""<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="{FAVICON_URI}">
 <title>{title} — MailHub</title>
-<script src="https://cdn.tailwindcss.com"></script></head>
+<style>{TAILWIND_CSS}</style>
+<link href="{fonts}" rel="stylesheet"></head>
 <body class="bg-slate-50 min-h-screen flex items-center justify-center px-4">
 <div class="bg-white rounded-2xl shadow-sm border border-slate-200
      p-10 max-w-md w-full text-center">

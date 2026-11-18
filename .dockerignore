@@ -42,3 +42,4 @@ nul
 docker-compose.yml
 .dockerignore
 Dockerfile
+node_modules/

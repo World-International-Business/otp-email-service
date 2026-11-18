@@ -4,7 +4,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from src.web.i18n import I18nRoute
-from src.web.routes import _current_user, _landing_page
+from src.web.routes import UI_ICONS, _current_user, _landing_page
 
 router = APIRouter(tags=["web"], include_in_schema=False, route_class=I18nRoute)
 
@@ -166,7 +166,7 @@ curl_close($ch);""".replace("<", "&lt;").replace(">", "&gt;")
             ["<strong>Self-service</strong>", "Créez un compte sur <code>/register</code> — le dashboard affiche les credentials de votre tenant"],
             ["<strong>Par l'admin</strong>", "<code>POST /v1/admin/tenants</code> (header <code>X-Admin-Key</code>) ou le panneau <code>/admin</code> — la réponse contient la clé et le secret"],
         ])}
-        <p class="text-xs text-slate-400 mt-3">⚠️ <code>hmac_secret</code> n'est affiché qu'une seule fois — conservez-le en lieu sûr.</p>
+        <p class="text-xs text-slate-400 mt-3">{UI_ICONS['warn']} <code>hmac_secret</code> n'est affiché qu'une seule fois — conservez-le en lieu sûr.</p>
       """)
 
     card_auth = _card("doc-auth", "2. Authentification — signature HMAC-SHA256", f"""

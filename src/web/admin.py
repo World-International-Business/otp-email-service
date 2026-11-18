@@ -31,7 +31,7 @@ from src.core.tenants import (
     plan_quota_updates,
 )
 from src.services.events import get_events
-from src.web.routes import LOGO_SVG, _head
+from src.web.routes import LOGO_SVG, UI_ICONS, _head
 from src.web.users import WebUserStore
 
 router = APIRouter(prefix="/admin", tags=["admin-web"], include_in_schema=False)
@@ -247,8 +247,8 @@ async def admin_dashboard(
         )
         if t.plan_requested:
             partner_badge += (
-                f' <span class="badge bg-amber-50 text-amber-600 border border-amber-200">'
-                f"⏳ {_e(t.plan_requested.upper())} demandé</span>"
+                f' <span class="badge bg-amber-50 text-amber-600 border border-amber-200 inline-flex items-center gap-1">'
+                f'{UI_ICONS["clock"]} {_e(t.plan_requested.upper())} demandé</span>'
             )
         rows += f"""<tr class="hover:bg-slate-50 transition align-top">
   <td class="py-4 pl-5 pr-4">
@@ -734,7 +734,7 @@ async def admin_edit_tenant(
     if tenant.plan_requested:
         plan_request_html = f"""
   <p class="text-sm font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
-    ⏳ Ce client demande le plan <b>{_e(tenant.plan_requested.upper())}</b> —
+    {UI_ICONS['clock']} Ce client demande le plan <b>{_e(tenant.plan_requested.upper())}</b> —
     « Valider un paiement » appliquera ce plan et ses quotas.</p>"""
         reject_plan_form = f"""
     <form method="post" action="/admin/tenants/{_e(tenant_id)}/billing"

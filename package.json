@@ -1,0 +1,24 @@
+{
+  "name": "otp-email-service",
+  "version": "1.0.0",
+  "description": "Microservice **multi-tenant** d'envoi de codes OTP et d'emails transactionnels (FastAPI + Redis). Chaque client (tenant) a sa clé API, son secret HMAC, son expéditeur SMTP et ses quotas. Réduit les coûts SMS : le 2FA part par email, avec routage `sms_fallback` configurable par pays.",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss -i assets/input.css -o assets/app.css --minify && python scripts/embed_css.py"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/World-International-Business/otp-email-service.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/World-International-Business/otp-email-service/issues"
+  },
+  "homepage": "https://github.com/World-International-Business/otp-email-service#readme",
+  "devDependencies": {
+    "tailwindcss": "^3.4.17"
+  }
+}

@@ -40,6 +40,7 @@ from src.web.i18n import (
     I18nRoute,
     safe_next,
 )
+from src.web.tailwind_css import TAILWIND_CSS
 from src.web.users import SessionStore, WebUserStore, hash_password_pair
 
 router = APIRouter(tags=["web"], include_in_schema=False, route_class=I18nRoute)
@@ -63,79 +64,28 @@ LOGO_SVG = """<svg class="w-9 h-9" viewBox="0 0 40 40" fill="none">
 </svg>"""
 
 
+FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="10" fill="#4f46e5"/><path d="M10 14.5l10 7 10-7" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M11 13.5h18a1.5 1.5 0 011.5 1.5v10a1.5 1.5 0 01-1.5 1.5H11a1.5 1.5 0 01-1.5-1.5V15a1.5 1.5 0 011.5-1.5z" stroke="#fff" stroke-width="2.4" fill="none"/></svg>"""
+
+FAVICON_URI = (
+    "data:image/svg+xml,"
+    + FAVICON_SVG.replace("\n", "").replace('"', "'").replace("<", "%3C").replace(">", "%3E")
+    .replace("#", "%23")
+)
+
+
 def _head(title: str) -> str:
     return f"""<!DOCTYPE html>
 <html lang="fr" class="scroll-smooth">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="MailHub — API d'emails transactionnels et de codes OTP. Multi-tenant, sécurisée HMAC, intégration en 5 minutes.">
+<link rel="icon" type="image/svg+xml" href="{FAVICON_URI}">
 <title>{title} — MailHub</title>
-<script src="https://cdn.tailwindcss.com"></script>
+<style>{TAILWIND_CSS}</style>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-<script>
-tailwind.config = {{ theme: {{ extend: {{ fontFamily: {{ sans: ['Inter','sans-serif'] }},
-  colors: {{ brand: {{50:'#eef2ff',100:'#e0e7ff',200:'#c7d2fe',300:'#a5b4fc',400:'#818cf8',
-                     500:'#6366f1',600:'#4f46e5',700:'#4338ca',800:'#3730a3',900:'#312e81'}} }},
-  boxShadow: {{ soft: '0 2px 12px rgba(99,102,241,.12)' }} }} }} }};
-</script>
-<style>
-  :root {{ --brand: #6366f1; }}
-  body {{ font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }}
-  ::selection {{ background: rgba(99,102,241,.25); }}
-  ::-webkit-scrollbar {{ width: 10px; }}
-  ::-webkit-scrollbar-track {{ background: #f1f5f9; }}
-  ::-webkit-scrollbar-thumb {{ background: #c7d2fe; border-radius: 999px; }}
-  ::-webkit-scrollbar-thumb:hover {{ background: #a5b4fc; }}
-  .hero-bg {{ background: radial-gradient(ellipse 90% 65% at 50% -15%, rgba(99,102,241,.5), transparent),
-              radial-gradient(ellipse 45% 45% at 85% 15%, rgba(168,85,247,.22), transparent),
-              radial-gradient(ellipse 35% 35% at 10% 30%, rgba(16,185,129,.12), transparent),
-              linear-gradient(180deg, #090b1c 0%, #131735 55%, #1a1440 100%); }}
-  .grid-pattern {{ background-image: linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px);
-              background-size: 46px 46px;
-              mask-image: radial-gradient(ellipse 70% 65% at 50% 0%, black 30%, transparent 100%); }}
-  .orb {{ position:absolute; border-radius:999px; filter:blur(90px); opacity:.35; pointer-events:none; }}
-  .card {{ background:#fff; border:1px solid #e8eaf2; border-radius:1.15rem;
-         box-shadow:0 1px 3px rgba(15,23,42,.05); }}
-  .card-lift:hover {{ transform:translateY(-4px); box-shadow:0 16px 32px rgba(15,23,42,.1);
-         border-color:#c7d2fe; transition:all .22s ease; }}
-  .btn-primary {{ background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%); color:#fff;
-         padding:.72rem 1.6rem; border-radius:.7rem; font-weight:600; transition:all .18s ease;
-         display:inline-block; box-shadow:0 4px 14px rgba(99,102,241,.35); }}
-  .btn-primary:hover {{ transform:translateY(-2px);
-         box-shadow:0 10px 26px rgba(99,102,241,.45); filter:brightness(1.1); }}
-  .btn-primary:active {{ transform:translateY(0); }}
-  .btn-ghost {{ padding:.72rem 1.6rem; font-weight:600; color:rgba(255,255,255,.92);
-         border:1px solid rgba(255,255,255,.22); border-radius:.7rem; transition:all .18s ease;
-         backdrop-filter:blur(6px); }}
-  .btn-ghost:hover {{ background:rgba(255,255,255,.1); border-color:rgba(255,255,255,.4); }}
-  .btn-outline {{ padding:.6rem 1.3rem; font-weight:600; color:#4f46e5; border:1.5px solid #c7d2fe;
-         border-radius:.7rem; transition:all .18s ease; display:inline-block; }}
-  .btn-outline:hover {{ background:#eef2ff; border-color:#818cf8; }}
-  .gradient-text {{ background:linear-gradient(90deg,#818cf8,#c084fc,#34d399);
-         -webkit-background-clip:text; background-clip:text; color:transparent; }}
-  .glass {{ background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12);
-         backdrop-filter:blur(12px); }}
-  .input {{ width:100%; border:1px solid #d5dce8; border-radius:.65rem; padding:.65rem .95rem;
-         font-size:.9rem; transition:all .15s; background:#fff; }}
-  .input:focus {{ outline:none; border-color:var(--brand); box-shadow:0 0 0 3px rgba(59,110,246,.15); }}
-  .input::placeholder {{ color:#94a3b8; }}
-  code {{ background:#eef2f9; color:#2447b8; padding:.15rem .45rem; border-radius:.35rem; font-size:.82rem; overflow-wrap:anywhere; }}
-  .badge {{ font-size:.68rem; font-weight:700; letter-spacing:.06em; padding:.28rem .7rem; border-radius:999px; }}
-  .m-post {{ background:#dbeafe; color:#1d4ed8; }}
-  .m-get  {{ background:#dcfce7; color:#15803d; }}
-  .m-patch {{ background:#ffedd5; color:#c2410c; }}
-  .m-del  {{ background:#fee2e2; color:#b91c1c; }}
-  .navlink {{ color:#64748b; font-weight:500; transition:.15s; }}
-  .navlink:hover {{ color:#0f172a; }}
-  @keyframes fadeUp {{ from {{ opacity:0; transform:translateY(18px); }} to {{ opacity:1; transform:none; }} }}
-  .fade-up {{ animation:fadeUp .6s ease both; }}
-  .fade-up-1 {{ animation-delay:.08s }} .fade-up-2 {{ animation-delay:.16s }} .fade-up-3 {{ animation-delay:.24s }}
-  @media (max-width:640px) {{ .input {{ font-size:16px; }} }}
-  #sidebar {{ inset-inline-start:0; }}
-  @media (min-width:768px) {{ .sb-offset {{ margin-inline-start:16rem; }} }}
-</style>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 </head>"""
 
 
@@ -361,6 +311,14 @@ ICON = {
 }
 
 
+UI_ICONS = {
+    "check": '<svg class="w-4 h-4 inline-block -mt-0.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" stroke-linejoin="round" d="M8.5 12.5l2.5 2.5 4.5-5.5"/></svg>',
+    "error": '<svg class="w-4 h-4 inline-block -mt-0.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M9 9l6 6M15 9l-6 6"/></svg>',
+    "clock": '<svg class="w-4 h-4 inline-block -mt-0.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 7v5l3.5 2"/></svg>',
+    "warn": '<svg class="w-4 h-4 inline-block -mt-0.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v5m0 3.5v.01M10.3 3.9L2.6 17a2 2 0 001.7 3h15.4a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>',
+}
+
+
 @router.get("/", response_class=HTMLResponse)
 async def home(request: Request, settings: Settings = Depends(get_settings)) -> HTMLResponse:
     if await _current_user(request):
@@ -466,21 +424,37 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
           <span class="inline-flex items-center gap-1.5"><span class="text-emerald-400">✓</span> Sécurité HMAC-SHA256</span>
         </div>
       </div>
-      <div class="glass rounded-2xl p-1.5 shadow-2xl fade-up fade-up-2 hidden lg:block">
-        <div class="bg-slate-950/80 rounded-xl overflow-hidden">
-          <div class="flex items-center gap-2 px-4 py-3 border-b border-white/10">
-            <span class="w-3 h-3 rounded-full bg-rose-400"></span>
-            <span class="w-3 h-3 rounded-full bg-amber-400"></span>
-            <span class="w-3 h-3 rounded-full bg-emerald-400"></span>
-            <span class="text-xs text-slate-400 ml-2 font-mono">api.sh</span>
-          </div>
-          <pre class="p-5 text-[13px] leading-relaxed font-mono text-slate-300"><span class="text-slate-500"># Envoyer un OTP</span>
+      <div class="relative fade-up fade-up-2 hidden lg:block">
+        <div class="glass rounded-2xl p-1.5 shadow-2xl">
+          <div class="bg-slate-950/80 rounded-xl overflow-hidden">
+            <div class="flex items-center gap-2 px-4 py-3 border-b border-white/10">
+              <span class="w-3 h-3 rounded-full bg-rose-400"></span>
+              <span class="w-3 h-3 rounded-full bg-amber-400"></span>
+              <span class="w-3 h-3 rounded-full bg-emerald-400"></span>
+              <span class="text-xs text-slate-400 ml-2 font-mono">api.sh</span>
+            </div>
+            <pre class="p-5 text-[13px] leading-relaxed font-mono text-slate-300"><span class="text-slate-500"># Envoyer un OTP</span>
 <span class="text-violet-400">curl</span> -X POST {str('/v1/otp/send')} \\
   -H <span class="text-emerald-300">"X-API-Key: ••••"</span> \\
   -d <span class="text-amber-300">'{{"email":"client@ex.com","purpose":"login_2fa"}}'</span>
 
 <span class="text-slate-500"># Réponse</span>
 <span class="text-emerald-300">{{"channel":"email","request_id":"req_…","expires_in":300}}</span></pre>
+          </div>
+        </div>
+        <div class="floaty absolute -top-6 -right-5 bg-white rounded-xl shadow-xl border border-slate-200 px-4 py-3 flex items-center gap-3">
+          <span class="w-9 h-9 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">{UI_ICONS['check']}</span>
+          <div>
+            <p class="text-xs font-bold text-slate-800">Email délivré</p>
+            <p class="text-[11px] text-slate-400">il y a 0,4 s — boîte de réception</p>
+          </div>
+        </div>
+        <div class="floaty floaty-2 absolute -bottom-7 -left-5 bg-slate-900 rounded-xl shadow-xl border border-white/10 px-4 py-3 flex items-center gap-3">
+          <span class="w-9 h-9 rounded-lg bg-brand-600/20 text-brand-300 flex items-center justify-center font-mono text-[10px] font-bold">OTP</span>
+          <div>
+            <p class="text-[11px] text-slate-400">Code de vérification</p>
+            <p class="text-sm font-bold text-white font-mono tracking-[0.3em]">8 4 2 1 9 6</p>
+          </div>
         </div>
       </div>
     </div>
@@ -1006,11 +980,11 @@ async def dashboard(
 
     banner = ""
     if test == "ok":
-        banner = """<div class="mb-4 text-sm font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-          ✅ Email de test envoyé — vérifiez la boîte de réception (et les spams).</div>"""
+        banner = f"""<div class="mb-4 text-sm font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+          {UI_ICONS['check']} Email de test envoyé — vérifiez la boîte de réception (et les spams).</div>"""
     elif test:
         banner = f"""<div class="mb-4 text-sm font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
-          ❌ Échec de l'envoi test : {_e(test)}<br>
+          {UI_ICONS['error']} Échec de l'envoi test : {_e(test)}<br>
           <span class="font-normal text-red-600">Vérifiez SMTP Host / Port / User / Password. Rappel : smtp.gmail.com n'accepte
           que les comptes Google — pour une adresse pro, utilisez le serveur SMTP de son hébergeur
           (ex. IONOS : smtp.ionos.fr).</span></div>"""
@@ -1148,7 +1122,7 @@ async def dashboard(
             '<button disabled class="w-full text-xs font-bold text-slate-400 border border-slate-200 rounded-lg px-4 py-2 cursor-default">Plan actuel</button>'
             if pid == cur_plan
             else (
-                '<button disabled class="w-full text-xs font-bold text-amber-600 border border-amber-200 bg-amber-50 rounded-lg px-4 py-2 cursor-default">⏳ Demande en attente</button>'
+                f'<button disabled class="w-full text-xs font-bold text-amber-600 border border-amber-200 bg-amber-50 rounded-lg px-4 py-2 cursor-default inline-flex items-center justify-center gap-1.5">{UI_ICONS["clock"]} Demande en attente</button>'
                 if pid == pending_plan
                 else '<button class="w-full text-xs font-bold text-indigo-600 border border-indigo-200 rounded-lg px-4 py-2 hover:bg-indigo-50">Choisir ce plan</button>'
             )
@@ -1160,7 +1134,7 @@ async def dashboard(
     if pending_plan and pending_plan in PLANS:
         pending_banner = f"""
   <div class="mb-4 text-sm font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-    ⏳ Demande <b>{_e(PLANS[pending_plan]['label'])}</b> en attente — votre plan sera
+    {UI_ICONS['clock']} Demande <b>{_e(PLANS[pending_plan]['label'])}</b> en attente — votre plan sera
     activé dès validation du paiement (Stripe, PayPal, mobile money ou virement).
     Questions ? Utilisez le support ci-dessous.</div>"""
     plan_card_html = f"""
@@ -1172,9 +1146,23 @@ async def dashboard(
   <div class="grid sm:grid-cols-3 gap-3">{plan_cards}</div>
 </div>"""
 
+    plan_label = _e(PLANS.get(tenant.plan, {}).get("label", tenant.plan.upper()))
+    plan_badge = (
+        '<span class="badge bg-amber-100 text-amber-700">PARTENAIRE ∞</span>'
+        if tenant.unlimited else
+        f'<span class="badge bg-brand-50 text-brand-700 border border-brand-100">{plan_label}</span>'
+    )
     content = f"""
-<h1 class="text-2xl font-extrabold mb-1">Dashboard</h1>
-<p class="text-sm text-slate-500 mb-8">Bienvenue {_e(user.app_name)} — voici votre espace API.</p>
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-8">
+  <div>
+    <h1 class="text-2xl font-extrabold mb-1">Dashboard</h1>
+    <p class="text-sm text-slate-500">Bienvenue {_e(user.app_name)} — voici votre espace API.</p>
+  </div>
+  <div class="flex items-center gap-2 shrink-0">
+    {plan_badge}
+    <a href="/demo" class="btn-outline text-xs py-2 px-4">Tester l'API</a>
+  </div>
+</div>
 
 <div class="grid md:grid-cols-3 gap-5 mb-8">{stats_cards}</div>
 
