@@ -76,7 +76,11 @@ async def http_exception_page(request: Request, exc: StarletteHTTPException):
         return RedirectResponse(
             exc.headers["Location"], status_code=exc.status_code
         )
-    if request.url.path.startswith("/v1") or request.url.path.startswith("/admin/api"):
+    if (
+        request.url.path.startswith("/v1")
+        or request.url.path.startswith("/admin/api")
+        or request.url.path == "/health"
+    ):
         return JSONResponse(
             {"detail": exc.detail},
             status_code=exc.status_code,
