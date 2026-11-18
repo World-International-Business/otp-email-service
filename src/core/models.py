@@ -161,6 +161,11 @@ class TenantUpdateRequest(BaseModel):
     max_verify_attempts: int | None = None
     otp_ttl_seconds: int | None = None
     is_active: bool | None = None
+    unlimited: bool | None = None
+    billing_status: str | None = None
+    paid_until: str | None = None
+    payment_provider: str | None = None
+    payment_ref: str | None = None
 
 
 class TenantInfoResponse(BaseModel):

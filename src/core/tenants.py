@@ -31,6 +31,12 @@ class Tenant(BaseModel):
     rollout_percentage: int = Field(default=100, ge=0, le=100)
     allowed_purposes: list[str] = Field(default_factory=lambda: ["login_2fa"])
     plan: str = "free"
+    unlimited: bool = False  # partenaire : aucune limite de quota/cooldown
+    # Facturation déclarative (Stripe/PayPal branché via payment_ref)
+    billing_status: str = "trialing"  # trialing | active | past_due | canceled
+    paid_until: str | None = None     # date ISO de fin de période payée
+    payment_provider: str | None = None  # stripe | paypal | mobile | manual
+    payment_ref: str | None = None    # customer id / subscription id
     brand_color: str = "#6366f1"
     email_logo_url: str | None = None
     email_footer: str | None = None

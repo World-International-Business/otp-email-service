@@ -40,7 +40,7 @@ from src.web.i18n import (
     I18nRoute,
     safe_next,
 )
-from src.web.users import SessionStore, WebUserStore
+from src.web.users import SessionStore, WebUserStore, hash_password_pair
 
 router = APIRouter(tags=["web"], include_in_schema=False, route_class=I18nRoute)
 logger = logging.getLogger(__name__)
@@ -692,11 +692,15 @@ async def register(
         )
 
     reg_token = uuid.uuid4().hex
+    # Jamais le mot de passe en clair dans Redis : on ne stocke que le
+    # hash PBKDF2, réutilisé tel quel à la création du compte.
+    pw_salt, pw_hash = hash_password_pair(password)
     await redis.set(
         f"reg:{reg_token}",
         json.dumps({
             "app_name": app_name.strip(), "brand_name": brand_name.strip(),
-            "email": email.strip(), "password": password,
+            "email": email.strip(),
+            "password_salt": pw_salt, "password_hash": pw_hash,
             "request_id": otp_resp.request_id,
             "debug_code": otp_resp.debug_code,
         }),
@@ -827,9 +831,17 @@ async def register_verify(
     await redis.set(f"webuser:creds:{tenant_id}", f"{api_key}|{hmac_secret}", ex=86400)
 
     try:
-        user = await users.create(
-            pending["email"], pending["password"], tenant_id, pending["app_name"]
-        )
+        if "password_hash" in pending:
+            user = await users.create_hashed(
+                pending["email"], pending["password_hash"],
+                pending["password_salt"], tenant_id, pending["app_name"],
+            )
+        else:
+            # Rétrocompat : inscriptions en attente créées avant ce déploiement
+            user = await users.create(
+                pending["email"], pending["password"],
+                tenant_id, pending["app_name"],
+            )
     except Exception:
         # Rollback : ne pas laisser un tenant orphelin sans compte associé
         pipe = redis.pipeline()

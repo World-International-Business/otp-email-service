@@ -26,6 +26,12 @@ def _hash_password(password: str, salt: str, iterations: int = _PBKDF2_ITERATION
     return f"pbkdf2${iterations}${digest}"
 
 
+def hash_password_pair(password: str) -> tuple[str, str]:
+    """Retourne (salt, hash) PBKDF2 — permet de ne stocker que le hash."""
+    salt = secrets.token_hex(16)
+    return salt, _hash_password(password, salt)
+
+
 @dataclass
 class WebUser:
     user_id: str
@@ -50,12 +56,20 @@ class WebUserStore:
     async def create(
         self, email: str, password: str, tenant_id: str, app_name: str
     ) -> WebUser:
+        salt, password_hash = hash_password_pair(password)
+        return await self.create_hashed(
+            email, password_hash, salt, tenant_id, app_name
+        )
+
+    async def create_hashed(
+        self, email: str, password_hash: str, salt: str,
+        tenant_id: str, app_name: str,
+    ) -> WebUser:
         user_id = f"usr_{secrets.token_urlsafe(12)}"
-        salt = secrets.token_hex(16)
         user = WebUser(
             user_id=user_id,
             email=email.lower(),
-            password_hash=_hash_password(password, salt),
+            password_hash=password_hash,
             password_salt=salt,
             tenant_id=tenant_id,
             app_name=app_name,

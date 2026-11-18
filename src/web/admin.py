@@ -38,6 +38,14 @@ router = APIRouter(prefix="/admin", tags=["admin-web"], include_in_schema=False)
 ADMIN_COOKIE = "admin_session"
 ADMIN_SESSION_TTL = 12 * 3600  # 12 h
 ADMIN_SESSION_VALUE = "admin"  # marqueur stocké dans Redis (indépendant des credentials)
+BILLING_STATUSES = ("trialing", "active", "past_due", "canceled")
+BILLING_STATUS_LABELS = {
+    "trialing": "Essai",
+    "active": "Actif (payé)",
+    "past_due": "Paiement en retard",
+    "canceled": "Résilié",
+}
+PAYMENT_PROVIDERS = ("", "stripe", "paypal", "mobile_wallet", "manual")
 
 _EVENT_LABELS = {
     "otp_sent": ("OTP envoyé", "bg-emerald-100 text-emerald-700"),
@@ -232,11 +240,15 @@ async def admin_dashboard(
             "text-rose-600 border-rose-200 hover:bg-rose-50" if t.is_active
             else "text-emerald-600 border-emerald-200 hover:bg-emerald-50"
         )
+        partner_badge = (
+            ' <span class="badge bg-amber-100 text-amber-700">PARTENAIRE ∞</span>'
+            if t.unlimited else ""
+        )
         rows += f"""<tr class="hover:bg-slate-50 transition align-top">
   <td class="py-4 pl-5 pr-4">
     <p class="font-bold">{_e(t.name)}</p>
     <p class="text-xs text-slate-400"><code>{_e(t.tenant_id)}</code> · {_e(t.brand_name)}
-    · <span class="badge bg-indigo-50 text-indigo-700">{_e(PLANS.get(t.plan, PLANS["free"])["label"])}</span></p>
+    · <span class="badge bg-indigo-50 text-indigo-700">{_e(PLANS.get(t.plan, PLANS["free"])["label"])}</span>{partner_badge}</p>
   </td>
   <td class="py-4 pr-4">{status_badge}</td>
   <td class="py-4 pr-4 text-sm">
@@ -370,6 +382,20 @@ def _tenant_form(action: str, t: Tenant | None, include_account: bool) -> str:
         for pid, p in PLANS.items()
     )
 
+    cur_billing = t.billing_status if t else "trialing"
+    billing_options = "".join(
+        f'<option value="{_e(s)}"{" selected" if cur_billing == s else ""}>'
+        f"{_e(BILLING_STATUS_LABELS.get(s, s))}</option>"
+        for s in BILLING_STATUSES
+    )
+    cur_provider = (t.payment_provider or "") if t else ""
+    provider_options = "".join(
+        f'<option value="{_e(p)}"{" selected" if cur_provider == p else ""}>'
+        f"{_e(p) if p else '—'}</option>"
+        for p in PAYMENT_PROVIDERS
+    )
+    unlimited_checked = " checked" if t and t.unlimited else ""
+
     id_field = ""
     if t is None:
         id_field = """
@@ -448,6 +474,22 @@ def _tenant_form(action: str, t: Tenant | None, include_account: bool) -> str:
   <div><label class="text-xs font-semibold text-slate-600">Validité du code OTP (s)</label>
   <input name="otp_ttl_seconds" type="number" min="30" class="input mt-1"
          value="{g('otp_ttl_seconds', 600)}"></div>
+
+  <h3 class="font-bold text-sm text-slate-700 md:col-span-2 mt-2">Partenaire & facturation</h3>
+  <div class="md:col-span-2 flex items-center gap-2 bg-indigo-50 rounded-lg p-3">
+    <input name="unlimited" type="checkbox" id="unlimited" class="h-4 w-4"{unlimited_checked}>
+    <label for="unlimited" class="text-sm font-semibold text-indigo-700">
+      Partenaire — quotas et cooldown illimités (bypass total du rate-limit)</label>
+  </div>
+  <div><label class="text-xs font-semibold text-slate-600">Statut de facturation</label>
+  <select name="billing_status" class="input mt-1">{billing_options}</select></div>
+  <div><label class="text-xs font-semibold text-slate-600">Payé jusqu'au</label>
+  <input name="paid_until" type="date" class="input mt-1" value="{g('paid_until')}"></div>
+  <div><label class="text-xs font-semibold text-slate-600">Prestataire de paiement</label>
+  <select name="payment_provider" class="input mt-1">{provider_options}</select></div>
+  <div><label class="text-xs font-semibold text-slate-600">Référence paiement</label>
+  <input name="payment_ref" class="input mt-1" value="{g('payment_ref')}"
+         placeholder="cus_… / sub_… / transaction id"></div>
 
   {account}
   <div class="md:col-span-2 flex gap-3 mt-2">
@@ -739,6 +781,11 @@ async def admin_update_tenant(
     risky_countries: str = Form(""),
     rollout_percentage: int = Form(100),
     plan: str = Form("free"),
+    unlimited: str = Form(""),
+    billing_status: str = Form("trialing"),
+    paid_until: str = Form(""),
+    payment_provider: str = Form(""),
+    payment_ref: str = Form(""),
     max_sends_per_user_per_10min: int = Form(1000000),
     max_sends_per_ip_per_10min: int = Form(1000000),
     cooldown_seconds: int = Form(1),
@@ -768,6 +815,13 @@ async def admin_update_tenant(
         "rollout_percentage": max(0, min(100, rollout_percentage)),
         "allowed_purposes": _csv(allowed_purposes) or ["login_2fa"],
         "plan": plan,
+        "unlimited": unlimited == "on",
+        "billing_status": (
+            billing_status if billing_status in BILLING_STATUSES else "trialing"
+        ),
+        "paid_until": _opt(paid_until),
+        "payment_provider": _opt(payment_provider),
+        "payment_ref": _opt(payment_ref),
         "max_sends_per_user_per_10min": max(1, max_sends_per_user_per_10min),
         "max_sends_per_ip_per_10min": max(1, max_sends_per_ip_per_10min),
         "cooldown_seconds": max(1, cooldown_seconds),
