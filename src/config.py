@@ -51,6 +51,22 @@ class Settings(BaseSettings):
     brevo_api_key: str | None = None
     resend_api_key: str | None = None
 
+    # Paiements — remplir quand les comptes marchands seront créés
+    stripe_secret_key: str | None = None      # sk_live_… / sk_test_…
+    stripe_webhook_secret: str | None = None  # whsec_…
+    stripe_price_pro: str | None = None       # price_… du plan Pro
+    stripe_price_enterprise: str | None = None  # price_… du plan Enterprise
+    paypal_client_id: str | None = None
+    paypal_client_secret: str | None = None
+    paypal_webhook_id: str | None = None
+    # Mobile money — Orange Money (Cameroon etc.)
+    orange_money_merchant_key: str | None = None
+    orange_money_merchant_secret: str | None = None
+    # Mobile money — MTN MoMo (Collection API)
+    mtn_momo_api_user: str | None = None
+    mtn_momo_api_key: str | None = None
+    mtn_momo_subscription_key: str | None = None
+
     risky_countries: str = "CN,RU,BY,IR,KP"
     rollout_percentage: int = Field(default=100, ge=0, le=100)
 
