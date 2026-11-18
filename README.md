@@ -20,7 +20,7 @@ Linux/macOS : `bash scripts/run-local.sh`
 | `http://localhost:8001/` | Page d'accueil (redirige vers `/dashboard` si connecté) |
 | `http://localhost:8001/demo` | Démo interactive — envoi + vérification OTP, email transactionnel |
 | `http://localhost:8001/dashboard` | Espace client — config SMTP, branding, test d'envoi |
-| `http://localhost:8001/admin` | Espace admin — gestion des tenants (login = `ADMIN_API_KEY`) |
+| `http://localhost:8001/admin` | Espace admin — gestion des tenants (login = `ADMIN_API_KEY` ou `ADMIN_WEB_PASSWORD`) |
 | `http://localhost:8001/documentation` | **Guide d'intégration complet** (HMAC, endpoints, exemples par langage) |
 | `http://localhost:8001/docs` / `/redoc` | Swagger UI / ReDoc |
 | `http://localhost:8001/health` | Healthcheck `{status, redis, version}` |
@@ -37,6 +37,7 @@ cp .env.example .env   # Windows : copy .env.example .env
 | `DEBUG` | `true` → `debug_code` renvoie le code OTP dans la réponse (jamais en prod) | `false` |
 | `DEMO_ENABLED` | Active `/demo` (endpoints non authentifiés) — **`false` en prod** | `false` |
 | `API_KEY`, `HMAC_SECRET`, `ADMIN_API_KEY` | Secrets service — générer avec `secrets.token_hex(32)` | — |
+| `ADMIN_WEB_PASSWORD` | Mot de passe mémorisable pour `/admin/login` (en plus de `ADMIN_API_KEY`) | vide |
 | `USE_FAKEREDIS` | `true` = Redis en mémoire (**tout perdu au restart**) · `false` = vrai Redis | `false` |
 | `REDIS_URL` | Connexion Redis | `redis://localhost:6379/0` |
 | `EMAIL_PROVIDER` | `gmail` / `smtp` (alias générique) / `brevo` / `resend` / `console` | `console` |

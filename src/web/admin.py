@@ -114,14 +114,14 @@ async def admin_login_page(request: Request, error: str = "") -> HTMLResponse:
       <p class="text-sm text-slate-500 mb-6">Réservé aux administrateurs de la plateforme.</p>
       {err}
       <form method="post" action="/admin/login" class="space-y-4">
-        <div><label class="text-xs font-semibold text-slate-600">Clé administrateur</label>
+        <div><label class="text-xs font-semibold text-slate-600">Clé admin ou mot de passe</label>
         <input name="admin_key" type="password" class="input mt-1" required autofocus
-               placeholder="ADMIN_API_KEY"></div>
+               placeholder="ADMIN_API_KEY ou ADMIN_WEB_PASSWORD"></div>
         <button class="btn-primary w-full">Se connecter</button>
       </form>
     </div>
     <p class="text-center text-xs text-slate-500 mt-5">
-      La clé se trouve dans les variables d'environnement du serveur (ADMIN_API_KEY).
+      ADMIN_API_KEY ou ADMIN_WEB_PASSWORD dans les variables d'environnement.
     </p>
   </div>
 </body></html>""")
@@ -143,8 +143,12 @@ async def admin_login(
     if attempts > settings.web_login_max_attempts:
         raise HTTPException(status_code=429, detail="Too many attempts, retry later")
 
-    if not hmac.compare_digest(
-        admin_key.encode("utf-8", "ignore"), settings.admin_api_key.encode()
+    candidates = [settings.admin_api_key]
+    if settings.admin_web_password:
+        candidates.append(settings.admin_web_password)
+    if not any(
+        hmac.compare_digest(admin_key.encode("utf-8", "ignore"), c.encode())
+        for c in candidates
     ):
         return RedirectResponse("/admin/login?error=1", status_code=303)
 
@@ -200,10 +204,21 @@ async def admin_dashboard(
     redis = request.app.state.redis
     tenants = await TenantStore(redis).list()
 
+    from datetime import date
+    today = date.today().isoformat()
     rows = ""
     all_events: list[dict] = []
+    today_otps = today_emails = 0
+    active_count = 0
     for t in tenants:
+        active_count += 1 if t.is_active else 0
         stats = await _tenant_stats(redis, t)
+        pipe = redis.pipeline()
+        pipe.get(f"{t.key_prefix()}stats_daily:otps_sent:{today}")
+        pipe.get(f"{t.key_prefix()}stats_daily:emails_sent:{today}")
+        d_otps, d_emails = await pipe.execute()
+        today_otps += int(d_otps or 0)
+        today_emails += int(d_emails or 0)
         all_events.extend(
             {**ev, "tenant_id": t.tenant_id} for ev in await get_events(redis, t, 30)
         )
@@ -268,6 +283,8 @@ async def admin_dashboard(
         event_rows = ('<tr><td colspan="4" class="py-8 text-center text-slate-400">'
                       "Aucune interaction enregistrée.</td></tr>")
 
+    open_support = int(await redis.llen("support:open") or 0)
+
     content = f"""
 <div class="flex items-center justify-between mb-6">
   <div>
@@ -275,6 +292,28 @@ async def admin_dashboard(
     <p class="text-sm text-slate-500">{len(tenants)} tenant(s) — supervision et gestion des accès API.</p>
   </div>
   <a href="/admin/tenants/new" class="btn-primary text-sm">+ Nouveau tenant</a>
+</div>
+
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+
+  <div class="card p-4">
+    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Tenants</p>
+    <p class="text-2xl font-extrabold mt-1">{len(tenants)}
+      <span class="text-xs font-semibold text-emerald-600">{active_count} actifs</span></p>
+  </div>
+  <div class="card p-4">
+    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">OTP aujourd'hui</p>
+    <p class="text-2xl font-extrabold mt-1">{today_otps}</p>
+  </div>
+  <div class="card p-4">
+    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Emails aujourd'hui</p>
+    <p class="text-2xl font-extrabold mt-1">{today_emails}</p>
+  </div>
+  <div class="card p-4">
+    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Support</p>
+    <p class="text-2xl font-extrabold mt-1">{open_support}
+      <a href="/admin/support" class="text-xs font-semibold text-indigo-600">voir →</a></p>
+  </div>
 </div>
 
 <div class="card overflow-hidden mb-8">
