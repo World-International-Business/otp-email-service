@@ -735,7 +735,8 @@ def _verify_email_page(
       {err}
       <div><label class="text-xs font-semibold text-slate-600">Code à 6 chiffres envoyé à {_e(masked)}</label>
       <input name="code" class="input mt-1 text-center text-2xl tracking-[.4em]" maxlength="6"
-             inputmode="numeric" autocomplete="one-time-code" placeholder="••••••" required autofocus></div>
+             inputmode="numeric" autocomplete="one-time-code" placeholder="••••••" required autofocus
+             oninput="this.value=this.value.replace(/[^0-9]/g,'');if(this.value.length===6)this.form.requestSubmit()"></div>
       {att}
       {dbg}
     """
