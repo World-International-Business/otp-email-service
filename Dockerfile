@@ -28,4 +28,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 EXPOSE 8000
 
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# WEB_CONCURRENCY = nombre de workers uvicorn (défaut 2 ; ~1-2 par CPU).
+# L'état est dans Redis : plusieurs workers peuvent servir en parallèle.
+CMD ["sh", "-c", "uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${WEB_CONCURRENCY:-2}"]

@@ -39,11 +39,12 @@ router = APIRouter(prefix="/admin", tags=["admin-web"], include_in_schema=False)
 ADMIN_COOKIE = "admin_session"
 ADMIN_SESSION_TTL = 12 * 3600  # 12 h
 ADMIN_SESSION_VALUE = "admin"  # marqueur stocké dans Redis (indépendant des credentials)
-BILLING_STATUSES = ("trialing", "active", "past_due", "canceled")
+BILLING_STATUSES = ("trialing", "active", "past_due", "expired", "canceled")
 BILLING_STATUS_LABELS = {
     "trialing": "Essai",
     "active": "Actif (payé)",
     "past_due": "Paiement en retard",
+    "expired": "Expiré (retour au gratuit)",
     "canceled": "Résilié",
 }
 PAYMENT_PROVIDERS = ("", "stripe", "paypal", "mobile_wallet", "manual")
@@ -727,6 +728,7 @@ async def admin_edit_tenant(
         "trialing": '<span class="badge bg-slate-100 text-slate-600">ESSAI</span>',
         "active": '<span class="badge bg-emerald-100 text-emerald-700">ACTIF (PAYÉ)</span>',
         "past_due": '<span class="badge bg-amber-100 text-amber-700">EN RETARD</span>',
+        "expired": '<span class="badge bg-orange-100 text-orange-700">EXPIRÉ</span>',
         "canceled": '<span class="badge bg-rose-100 text-rose-700">RÉSILIÉ</span>',
     }.get(tenant.billing_status, _e(tenant.billing_status))
     plan_request_html = ""

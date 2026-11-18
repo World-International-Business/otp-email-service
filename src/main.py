@@ -1,9 +1,11 @@
 """Point d'entrée FastAPI."""
 
+import asyncio
 import html
 import logging
 import sys
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
+from datetime import date
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -15,7 +17,7 @@ from src.api.admin_routes import admin_router
 from src.api.dependencies import get_email_provider, get_redis_client, get_settings
 from src.api.middleware import JSONLogMiddleware, SecurityHeadersMiddleware
 from src.api.routes import email_router, router
-from src.core.tenants import seed_default_tenant
+from src.core.tenants import TenantStore, plan_quota_updates, seed_default_tenant
 from src.services.email_service import EmailService
 from src.services.otp_service import OTPService
 from src.web.admin import router as admin_web_router
@@ -38,6 +40,49 @@ def setup_logging(log_level: str) -> None:
     root.setLevel(getattr(logging, log_level.upper(), logging.INFO))
 
 
+async def _expire_billing_once(redis) -> int:
+    """Rétrograde les tenants dont la période payée est terminée.
+
+    `paid_until` est une date ISO (YYYY-MM-DD) — comparaison lexicale sûre.
+    Les partenaires `unlimited` et le plan gratuit ne sont jamais touchés.
+    Retourne le nombre de tenants rétrogradés.
+    """
+    store = TenantStore(redis)
+    today = date.today().isoformat()
+    downgraded = 0
+    for t in await store.list():
+        if (
+            t.paid_until
+            and t.paid_until < today
+            and not t.unlimited
+            and t.plan != "free"
+        ):
+            await store.update(
+                t.tenant_id,
+                {
+                    "plan": "free",
+                    "billing_status": "expired",
+                    **plan_quota_updates("free"),
+                },
+            )
+            downgraded += 1
+            logging.getLogger(__name__).info(
+                "billing_expired_downgrade",
+                extra={"tenant_id": t.tenant_id, "paid_until": t.paid_until},
+            )
+    return downgraded
+
+
+async def _expire_billing_loop(redis, interval: int) -> None:
+    """Boucle périodique de résiliation automatique des abonnements expirés."""
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await _expire_billing_once(redis)
+        except Exception:
+            logging.getLogger(__name__).exception("billing_expiry_loop_error")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
@@ -55,8 +100,15 @@ async def lifespan(app: FastAPI):
     # Tenant par défaut créé depuis les variables d'env (rétrocompatibilité)
     await seed_default_tenant(redis, settings)
 
+    billing_task = asyncio.create_task(
+        _expire_billing_loop(redis, settings.billing_check_interval_seconds)
+    )
+
     logging.getLogger(__name__).info("service_started", extra={"version": settings.app_version})
     yield
+    billing_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await billing_task
     await redis.close()
     logging.getLogger(__name__).info("service_stopped")
 

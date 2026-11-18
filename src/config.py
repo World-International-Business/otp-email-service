@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     mtn_momo_api_key: str | None = None
     mtn_momo_subscription_key: str | None = None
 
+    # Résiliation automatique des abonnements expirés (secondes entre chaque balayage)
+    billing_check_interval_seconds: int = 3600
+
     risky_countries: str = "CN,RU,BY,IR,KP"
     rollout_percentage: int = Field(default=100, ge=0, le=100)
 
