@@ -717,6 +717,12 @@ async def admin_edit_tenant(
     <button class="text-sm font-bold text-white bg-rose-600 rounded-lg px-5 py-2.5 hover:bg-rose-700">Supprimer le tenant</button>
   </form>
 </div>"""
+    paid_badge = {
+        "trialing": '<span class="badge bg-slate-100 text-slate-600">ESSAI</span>',
+        "active": '<span class="badge bg-emerald-100 text-emerald-700">ACTIF (PAYÉ)</span>',
+        "past_due": '<span class="badge bg-amber-100 text-amber-700">EN RETARD</span>',
+        "canceled": '<span class="badge bg-rose-100 text-rose-700">RÉSILIÉ</span>',
+    }.get(tenant.billing_status, _e(tenant.billing_status))
     content = f"""
 <div class="flex items-center justify-between mb-6">
   <div>
@@ -733,6 +739,31 @@ async def admin_edit_tenant(
 {info}
 <div class="card p-4 sm:p-6 mb-6">
   {_tenant_form(f'/admin/tenants/{_e(tenant_id)}', tenant, include_account=False)}
+</div>
+
+<div class="card p-4 sm:p-6 mb-6">
+  <h2 class="font-bold mb-1">Facturation — validation manuelle</h2>
+  <p class="text-sm text-slate-500 mb-4">Statut : {paid_badge}
+    {f"· payé jusqu'au <b>{_e(tenant.paid_until)}</b>" if tenant.paid_until else ""}
+    {f"· via {_e(tenant.payment_provider)}" if tenant.payment_provider else ""}
+    {f"· réf <code>{_e(tenant.payment_ref)}</code>" if tenant.payment_ref else ""}</p>
+  <div class="flex flex-wrap gap-2">
+    <form method="post" action="/admin/tenants/{_e(tenant_id)}/billing">
+      <input type="hidden" name="action" value="paid">
+      <button class="text-xs font-semibold text-emerald-700 border border-emerald-200 rounded-lg px-4 py-2 hover:bg-emerald-50">✓ Valider un paiement (+30 j)</button>
+    </form>
+    <form method="post" action="/admin/tenants/{_e(tenant_id)}/billing">
+      <input type="hidden" name="action" value="past_due">
+      <button class="text-xs font-semibold text-amber-700 border border-amber-200 rounded-lg px-4 py-2 hover:bg-amber-50">Marquer en retard</button>
+    </form>
+    <form method="post" action="/admin/tenants/{_e(tenant_id)}/billing"
+          onsubmit="return confirm('Résilier ce client ?')">
+      <input type="hidden" name="action" value="canceled">
+      <button class="text-xs font-semibold text-rose-600 border border-rose-200 rounded-lg px-4 py-2 hover:bg-rose-50">Résilier</button>
+    </form>
+  </div>
+  <p class="text-[11px] text-slate-400 mt-3">À utiliser si Stripe / PayPal / mobile money est
+  indisponible ou pour un paiement reçu hors ligne — la trace reste via le prestataire « manual ».</p>
 </div>
 
 <div class="card p-4 sm:p-6">
@@ -835,6 +866,35 @@ async def admin_update_tenant(
     tenant = await TenantStore(request.app.state.redis).update(tenant_id, updates)
     if tenant is None:
         raise HTTPException(status_code=404, detail="Tenant introuvable")
+    return RedirectResponse(f"/admin/tenants/{tenant_id}?saved=1", status_code=303)
+
+
+@router.post("/tenants/{tenant_id}/billing")
+async def admin_billing_action(
+    tenant_id: str,
+    request: Request,
+    action: str = Form(...),
+    settings: Settings = Depends(get_settings),
+    _: None = Depends(require_same_origin),
+):
+    """Validation manuelle des paiements — utile quand Stripe / PayPal /
+    mobile money est indisponible ou pour un règlement reçu hors ligne."""
+    await _require_admin(request, settings)
+    store = TenantStore(request.app.state.redis)
+    tenant = await store.get(tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant introuvable")
+    if action == "paid":
+        from datetime import date, timedelta
+        await store.update(tenant_id, {
+            "billing_status": "active",
+            "paid_until": (date.today() + timedelta(days=30)).isoformat(),
+            "payment_provider": tenant.payment_provider or "manual",
+        })
+    elif action in ("past_due", "canceled"):
+        await store.update(tenant_id, {"billing_status": action})
+    else:
+        raise HTTPException(status_code=422, detail="Action inconnue")
     return RedirectResponse(f"/admin/tenants/{tenant_id}?saved=1", status_code=303)
 
 
