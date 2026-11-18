@@ -580,17 +580,20 @@ def _auth_form(title: str, action: str, fields: str, link: str) -> HTMLResponse:
 
 
 @router.get("/register", response_class=HTMLResponse)
-async def register_page(request: Request, settings: Settings = Depends(get_settings)) -> HTMLResponse:
+async def register_page(
+    request: Request, error: str = "", settings: Settings = Depends(get_settings)
+) -> HTMLResponse:
     if await _current_user(request):
         return RedirectResponse("/dashboard", status_code=303)
     if not settings.web_signup_enabled:
         raise HTTPException(status_code=404)
+    err = f'<p class="text-sm text-red-600">{_e(error)}</p>' if error else ""
     invite_field = ""
     if settings.signup_invite_code:
         invite_field = """
       <div><label class="text-xs font-semibold text-slate-600">Code d'invitation</label>
       <input name="invite_code" class="input mt-1" required></div>"""
-    fields = """
+    fields = err + """
       <div><label class="text-xs font-semibold text-slate-600">Nom de votre application</label>
       <input name="app_name" class="input mt-1" placeholder="Ma Boutique" required></div>
       <div><label class="text-xs font-semibold text-slate-600">Marque (dans vos emails)</label>
@@ -670,16 +673,14 @@ async def register(
             include_debug_code=True,
         )
     except HTTPException as exc:
-        return _auth_form(
-            "Créer un compte", "/register",
-            f'<p class="text-sm text-red-600">{_e(exc.detail)}</p>',
-            '<a href="/register" class="text-indigo-600">Réessayer</a>',
+        return RedirectResponse(
+            f"/register?error={quote(str(exc.detail)[:120])}", status_code=303
         )
     if otp_resp.channel.value != "email":
-        return _auth_form(
-            "Créer un compte", "/register",
-            '<p class="text-sm text-red-600">Impossible d\'envoyer l\'email de vérification pour le moment.</p>',
-            '<a href="/register" class="text-indigo-600">Réessayer</a>',
+        return RedirectResponse(
+            "/register?error="
+            + quote("Impossible d'envoyer l'email de vérification pour le moment."),
+            status_code=303,
         )
 
     reg_token = uuid.uuid4().hex

@@ -84,6 +84,41 @@ class WebUserStore:
             data = ast.literal_eval(raw)
         return WebUser(**data)
 
+    async def list_by_tenant(self, tenant_id: str) -> list[WebUser]:
+        """Tous les comptes web rattachés à un tenant (usage admin)."""
+        users: list[WebUser] = []
+        async for key in self.redis.scan_iter("webuser:usr_*"):
+            raw = await self.redis.get(key)
+            if not raw:
+                continue
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if data.get("tenant_id") == tenant_id:
+                users.append(WebUser(**data))
+        return sorted(users, key=lambda u: u.email)
+
+    async def delete(self, user_id: str) -> bool:
+        """Supprime un compte web + son index email."""
+        user = await self.get(user_id)
+        if not user:
+            return False
+        pipe = self.redis.pipeline()
+        pipe.delete(self._key(user_id), self._email_key(user.email))
+        await pipe.execute()
+        return True
+
+    async def set_password(self, user_id: str, new_password: str) -> bool:
+        """Réinitialise le mot de passe (usage admin)."""
+        user = await self.get(user_id)
+        if not user:
+            return False
+        user.password_salt = secrets.token_hex(16)
+        user.password_hash = _hash_password(new_password, user.password_salt)
+        await self.redis.set(self._key(user_id), json.dumps(asdict(user)))
+        return True
+
     async def authenticate(self, email: str, password: str) -> WebUser | None:
         user = await self.get_by_email(email)
         if not user:
