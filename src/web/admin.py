@@ -607,6 +607,35 @@ async def admin_edit_tenant(
   <div class="card p-4"><p class="text-xs font-semibold text-slate-500">SMTP</p>
     <p class="font-bold mt-1 truncate">{_e(tenant.smtp_host or 'global')}</p></div>
 </div>"""
+    users = await WebUserStore(request.app.state.redis).list_by_tenant(tenant_id)
+    user_rows = ""
+    for u in users:
+        user_rows += f"""<tr class="border-t border-slate-100">
+  <td class="py-2.5 pl-5 pr-4 text-sm">{html.escape(u.email)}
+    <span class="text-xs text-slate-400 ml-2">{html.escape(u.user_id)}</span></td>
+  <td class="py-2.5 pr-5 text-right whitespace-nowrap">
+    <form method="post" action="/admin/tenants/{_e(tenant_id)}/users/{_e(u.user_id)}/reset-password" class="inline">
+      <button class="text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-lg px-3 py-1.5 hover:bg-indigo-50">Reset MDP</button>
+    </form>
+    <form method="post" action="/admin/tenants/{_e(tenant_id)}/users/{_e(u.user_id)}/delete" class="inline ml-1"
+          onsubmit="return confirm('Supprimer ce compte utilisateur ?')">
+      <button class="text-xs font-semibold text-rose-600 border border-rose-200 rounded-lg px-3 py-1.5 hover:bg-rose-50">Supprimer</button>
+    </form>
+  </td>
+</tr>"""
+    if not user_rows:
+        user_rows = ('<tr><td colspan="2" class="py-6 text-center text-sm text-slate-400">'
+                     "Aucun compte dashboard.</td></tr>")
+    delete_zone = "" if tenant_id == "default" else f"""
+<div class="card p-4 sm:p-6 border-rose-200 mt-6">
+  <h2 class="font-bold mb-1 text-rose-700">Zone danger</h2>
+  <p class="text-sm text-slate-500 mb-4">Supprime le tenant, ses clés API, ses statistiques
+  et ses comptes utilisateurs. <b>Action irréversible.</b></p>
+  <form method="post" action="/admin/tenants/{_e(tenant_id)}/delete"
+        onsubmit="return confirm('Supprimer définitivement ce tenant et ses comptes ?')">
+    <button class="text-sm font-bold text-white bg-rose-600 rounded-lg px-5 py-2.5 hover:bg-rose-700">Supprimer le tenant</button>
+  </form>
+</div>"""
     content = f"""
 <div class="flex items-center justify-between mb-6">
   <div>
@@ -636,7 +665,13 @@ async def admin_edit_tenant(
     <input name="user_password" type="password" class="input mt-1" required minlength="8" placeholder="8 caractères min"></div>
     <div class="flex items-end"><button class="btn-primary text-sm">Créer le compte</button></div>
   </form>
-</div>"""
+</div>
+
+<div class="card p-4 sm:p-6 mt-6">
+  <h2 class="font-bold mb-3">Comptes dashboard existants</h2>
+  <div class="overflow-x-auto"><table class="w-full text-sm"><tbody>{user_rows}</tbody></table></div>
+</div>
+{delete_zone}"""
     return _admin_page(f"Tenant {tenant_id}", content)
 
 
@@ -823,3 +858,83 @@ async def admin_support_resolve(
         await redis.set(f"support:{req_id}", json.dumps(req), keepttl=True)
     await redis.lrem("support:open", 0, req_id)
     return RedirectResponse("/admin/support", status_code=303)
+
+
+# ---------------------------------------------------------------------
+# Gestion complète du compte client — utilisateurs + suppression tenant
+# ---------------------------------------------------------------------
+
+@router.post("/tenants/{tenant_id}/users/{user_id}/delete")
+async def admin_delete_user(
+    tenant_id: str,
+    user_id: str,
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    _: None = Depends(require_same_origin),
+):
+    await _require_admin(request, settings)
+    if not re.fullmatch(r"usr_[A-Za-z0-9_-]+", user_id):
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    user = await WebUserStore(request.app.state.redis).get(user_id)
+    if not user or user.tenant_id != tenant_id:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    await WebUserStore(request.app.state.redis).delete(user_id)
+    return RedirectResponse(f"/admin/tenants/{tenant_id}", status_code=303)
+
+
+@router.post("/tenants/{tenant_id}/users/{user_id}/reset-password")
+async def admin_reset_user_password(
+    tenant_id: str,
+    user_id: str,
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    _: None = Depends(require_same_origin),
+):
+    await _require_admin(request, settings)
+    if not re.fullmatch(r"usr_[A-Za-z0-9_-]+", user_id):
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    user = await WebUserStore(request.app.state.redis).get(user_id)
+    if not user or user.tenant_id != tenant_id:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    new_password = secrets.token_urlsafe(12)
+    await WebUserStore(request.app.state.redis).set_password(user_id, new_password)
+    content = f"""
+<div class="card p-8 max-w-lg">
+  <h1 class="text-xl font-bold mb-2">Mot de passe réinitialisé</h1>
+  <p class="text-sm text-slate-500 mb-4">Nouveau mot de passe pour
+  <b>{html.escape(user.email)}</b> — communiquez-le au client, il ne sera plus affiché :</p>
+  <div class="bg-slate-900 text-emerald-300 font-mono rounded-lg p-4 select-all break-all mb-6">{html.escape(new_password)}</div>
+  <a href="/admin/tenants/{_e(tenant_id)}" class="btn-primary text-sm">Retour au tenant</a>
+</div>"""
+    return _admin_page("Mot de passe réinitialisé", content)
+
+
+@router.post("/tenants/{tenant_id}/delete")
+async def admin_delete_tenant(
+    tenant_id: str,
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    _: None = Depends(require_same_origin),
+):
+    await _require_admin(request, settings)
+    redis = request.app.state.redis
+    store = TenantStore(redis)
+    tenant = await store.get(tenant_id)
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Tenant introuvable")
+    if tenant_id == "default":
+        raise HTTPException(
+            status_code=422,
+            detail="Le tenant 'default' ne peut pas être supprimé",
+        )
+    users = WebUserStore(redis)
+    for user in await users.list_by_tenant(tenant_id):
+        await users.delete(user.user_id)
+    keys = [f"tenant:{tenant_id}", f"tenant:bykey:{tenant.api_key_hash}",
+            f"webuser:creds:{tenant_id}"]
+    async for key in redis.scan_iter(f"t:{tenant_id}:*"):
+        keys.append(key)
+    if keys:
+        await redis.delete(*keys)
+    await redis.srem("tenant:index", tenant_id)
+    return RedirectResponse("/admin", status_code=303)
