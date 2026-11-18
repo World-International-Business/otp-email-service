@@ -653,6 +653,14 @@ async def register(
             '<a href="/login" class="text-indigo-600">Se connecter</a>',
         )
 
+    # Si une inscription est déjà en attente pour cet email, on renvoie
+    # vers la page de saisie existante au lieu de consommer un nouvel
+    # envoi OTP (quota 3/10min + cooldown — sinon l'utilisateur reste
+    # bloqué sur le formulaire sans pouvoir saisir le code reçu).
+    existing_tok = await redis.get(f"regidx:{email.strip().lower()}")
+    if existing_tok and await redis.get(f"reg:{existing_tok}"):
+        return RedirectResponse(f"/register/verify?t={existing_tok}", status_code=303)
+
     # Vérification de l'adresse email AVANT création du compte : on envoie
     # un OTP via le tenant "default" (config .env), puis on stocke la
     # demande en attente dans Redis (15 min). Le compte n'est créé qu'une
@@ -694,6 +702,7 @@ async def register(
         }),
         ex=900,
     )
+    await redis.set(f"regidx:{email.strip().lower()}", reg_token, ex=900)
     return RedirectResponse(f"/register/verify?t={reg_token}", status_code=303)
 
 
@@ -787,14 +796,15 @@ async def register_verify(
 
     # Email vérifiée : dernier contrôle avant provisioning
     users = WebUserStore(redis)
+    regidx_key = f"regidx:{pending['email'].strip().lower()}"
     if await users.get_by_email(pending["email"]):
-        await redis.delete(f"reg:{t}")
+        await redis.delete(f"reg:{t}", regidx_key)
         return _auth_form(
             "Créer un compte", "/register",
             '<p class="text-sm text-red-600">Cet email est déjà utilisé.</p>',
             '<a href="/login" class="text-indigo-600">Se connecter</a>',
         )
-    await redis.delete(f"reg:{t}")
+    await redis.delete(f"reg:{t}", regidx_key)
 
     # Auto-provisioning : créer le tenant + credentials
     tenant_id = f"t_{uuid.uuid4().hex[:10]}"
