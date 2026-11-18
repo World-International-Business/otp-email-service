@@ -228,10 +228,26 @@ def _landing_page(content: str, logged_in: bool = False) -> HTMLResponse:
 def _dashboard_page(user, tenant, content: str, active: str = "dashboard", debug: bool = True) -> HTMLResponse:
     icons = {
         "dashboard": '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>',
+        "stats": '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 20V10m5 10V4m5 16v-7m5 7V8"/></svg>',
+        "plan": '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2l2.5 6.5L21 9l-5 4.5L17.5 21 12 17l-5.5 4L8 13.5 3 9l6.5-.5z"/></svg>',
+        "creds": '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M10.9 12.1L21 2m-4 4l3 3"/></svg>',
+        "smtp": '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 7l10 6L22 7"/></svg>',
+        "branding": '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 019 9h-9z"/><circle cx="12" cy="12" r="3"/></svg>',
+        "integration": '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 6l-5 6 5 6m8-12l5 6-5 6"/></svg>',
+        "support": '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a8 8 0 01-8 8H5l-2 2V12a8 8 0 018-8h2a8 8 0 018 8z"/></svg>',
         "demo": '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg>',
         "docs": '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4h13l3 3v13a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z"/></svg>',
     }
-    items = [("dashboard", "Dashboard", "/dashboard")]
+    items = [
+        ("dashboard", "Vue d'ensemble", "/dashboard"),
+        ("stats", "Statistiques", "/dashboard#sec-stats"),
+        ("plan", "Abonnement", "/dashboard#sec-plan"),
+        ("creds", "Clés API", "/dashboard#sec-creds"),
+        ("smtp", "Expéditeur SMTP", "/dashboard#sec-smtp"),
+        ("branding", "Emails & marque", "/dashboard#sec-branding"),
+        ("integration", "Intégration", "/dashboard#sec-integration"),
+        ("support", "Support", "/dashboard#sec-support"),
+    ]
     if debug:
         items.append(("demo", "Tester l'API", "/demo"))
     nav = "".join(
@@ -1061,7 +1077,7 @@ async def dashboard(
           <span class="text-[10px] text-slate-400">{d.strftime('%d/%m')}</span>
         </div>"""
     chart_html = f"""
-<div class="card p-4 sm:p-6 mb-6">
+<div id="sec-stats" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
   <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
     <h2 class="font-bold">Envois — 7 derniers jours</h2>
     <div class="flex flex-wrap gap-4 text-xs text-slate-500">
@@ -1098,7 +1114,7 @@ async def dashboard(
             for lbl, cls in [event_labels.get(e.get("type", ""), (e.get("type", "?"), "bg-slate-100 text-slate-600"))]
         )
         activity_html = f"""
-<div class="card p-4 sm:p-6 mb-6">
+<div id="sec-activity" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
   <h2 class="font-bold mb-4">Activité récente</h2>
   <div class="overflow-x-auto"><table class="w-full text-sm">
     <tbody class="divide-y divide-slate-100">{rows}</tbody>
@@ -1135,7 +1151,7 @@ async def dashboard(
         for pid, p in PLANS.items()
     )
     plan_card_html = f"""
-<div class="card p-4 sm:p-6 mb-6">
+<div id="sec-plan" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
   <h2 class="font-bold mb-1">Votre abonnement</h2>
   <p class="text-sm text-slate-500 mb-4">Plan actuel : <b>{_e(PLANS[cur_plan]['label'])}</b> —
   changer de plan applique immédiatement les quotas du plan à votre tenant.</p>
@@ -1151,7 +1167,7 @@ async def dashboard(
 {chart_html}
 {activity_html}
 
-<div class="card p-4 sm:p-6 mb-6">
+<div id="sec-creds" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
   <div class="flex items-center justify-between mb-2">
     <h2 class="font-bold">Vos credentials API</h2>
     <span class="badge bg-emerald-100 text-emerald-700">ACTIF</span>
@@ -1167,7 +1183,7 @@ async def dashboard(
 
 {plan_card_html}
 
-<div class="card p-4 sm:p-6 mb-6">
+<div id="sec-smtp" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
   <h2 class="font-bold mb-1">Configuration de votre expéditeur email</h2>
   <p class="text-sm text-slate-500 mb-4">Configurez l'adresse email utilisée pour envoyer VOS emails
   (Gmail : utilisez un <a class="text-indigo-600 underline" href="https://myaccount.google.com/apppasswords" target="_blank">mot de passe d'application</a>).</p>
@@ -1200,7 +1216,7 @@ async def dashboard(
   </form>
 </div>
 
-<div class="card p-4 sm:p-6 mb-6">
+<div id="sec-branding" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
   <h2 class="font-bold mb-1">Personnalisation des emails</h2>
   <p class="text-sm text-slate-500 mb-4">Couleur, logo et pied de page appliqués à tous vos emails (OTP et transactionnels).</p>
   <form method="post" action="/dashboard/branding" class="grid md:grid-cols-2 gap-4 mb-4">
@@ -1221,7 +1237,7 @@ async def dashboard(
   <iframe src="/dashboard/email-preview" class="w-full h-96 rounded-xl border border-slate-200 bg-white" title="Aperçu email"></iframe>
 </div>
 
-<div class="card p-4 sm:p-6 mb-6">
+<div id="sec-integration" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
   <h2 class="font-bold mb-1">Intégrer l'API dans votre projet</h2>
   <p class="text-sm text-slate-500 mb-4">Chaque requête doit être signée : <code>HMAC-SHA256(body + timestamp, votre secret)</code>.</p>
   <div class="bg-slate-900 text-slate-100 rounded-lg p-5 text-xs overflow-auto font-mono">
@@ -1252,7 +1268,7 @@ print(r.json())   # {{"verified":true,"attempts_remaining":0}}</pre>
   <p class="text-xs text-slate-500 mt-3">Node.js / PHP / cURL : voir <a href="/docs" class="text-indigo-600 underline">la documentation Swagger</a>.</p>
 </div>
 
-<div class="card p-4 sm:p-6 mb-6">
+<div id="sec-support" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
   <h2 class="font-bold mb-1">Contacter le support</h2>
   <p class="text-sm text-slate-500 mb-4">Un problème, une question ? L'équipe admin vous répond.</p>
   <form method="post" action="/dashboard/support" class="grid gap-3">
@@ -1262,7 +1278,7 @@ print(r.json())   # {{"verified":true,"attempts_remaining":0}}</pre>
   </form>
 </div>
 
-<div class="card p-4 sm:p-6">
+<div id="sec-config" class="card p-4 sm:p-6 scroll-mt-24">
   <h2 class="font-bold mb-4">Votre configuration</h2>
   <div class="grid md:grid-cols-2 gap-4 text-sm">
     <div><p class="text-xs font-semibold text-slate-500">Purposes autorisés</p><p class="mt-1">{', '.join(f'<code>{_e(p)}</code>' for p in tenant.allowed_purposes)}</p></div>
