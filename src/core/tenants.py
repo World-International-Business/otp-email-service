@@ -31,6 +31,7 @@ class Tenant(BaseModel):
     rollout_percentage: int = Field(default=100, ge=0, le=100)
     allowed_purposes: list[str] = Field(default_factory=lambda: ["login_2fa"])
     plan: str = "free"
+    plan_requested: str | None = None  # plan payant demandé, en attente de validation
     unlimited: bool = False  # partenaire : aucune limite de quota/cooldown
     # Facturation déclarative (Stripe/PayPal branché via payment_ref)
     billing_status: str = "trialing"  # trialing | active | past_due | canceled

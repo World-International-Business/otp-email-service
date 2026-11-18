@@ -28,6 +28,7 @@ from src.core.tenants import (
     generate_api_key,
     generate_hmac_secret,
     hash_api_key,
+    plan_quota_updates,
 )
 from src.services.events import get_events
 from src.web.routes import LOGO_SVG, _head
@@ -244,6 +245,11 @@ async def admin_dashboard(
             ' <span class="badge bg-amber-100 text-amber-700">PARTENAIRE ∞</span>'
             if t.unlimited else ""
         )
+        if t.plan_requested:
+            partner_badge += (
+                f' <span class="badge bg-amber-50 text-amber-600 border border-amber-200">'
+                f"⏳ {_e(t.plan_requested.upper())} demandé</span>"
+            )
         rows += f"""<tr class="hover:bg-slate-50 transition align-top">
   <td class="py-4 pl-5 pr-4">
     <p class="font-bold">{_e(t.name)}</p>
@@ -723,6 +729,19 @@ async def admin_edit_tenant(
         "past_due": '<span class="badge bg-amber-100 text-amber-700">EN RETARD</span>',
         "canceled": '<span class="badge bg-rose-100 text-rose-700">RÉSILIÉ</span>',
     }.get(tenant.billing_status, _e(tenant.billing_status))
+    plan_request_html = ""
+    reject_plan_form = ""
+    if tenant.plan_requested:
+        plan_request_html = f"""
+  <p class="text-sm font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+    ⏳ Ce client demande le plan <b>{_e(tenant.plan_requested.upper())}</b> —
+    « Valider un paiement » appliquera ce plan et ses quotas.</p>"""
+        reject_plan_form = f"""
+    <form method="post" action="/admin/tenants/{_e(tenant_id)}/billing"
+          onsubmit="return confirm('Refuser cette demande de plan ?')">
+      <input type="hidden" name="action" value="reject_plan">
+      <button class="text-xs font-semibold text-slate-600 border border-slate-200 rounded-lg px-4 py-2 hover:bg-slate-50">Refuser la demande</button>
+    </form>"""
     content = f"""
 <div class="flex items-center justify-between mb-6">
   <div>
@@ -747,6 +766,7 @@ async def admin_edit_tenant(
     {f"· payé jusqu'au <b>{_e(tenant.paid_until)}</b>" if tenant.paid_until else ""}
     {f"· via {_e(tenant.payment_provider)}" if tenant.payment_provider else ""}
     {f"· réf <code>{_e(tenant.payment_ref)}</code>" if tenant.payment_ref else ""}</p>
+  {plan_request_html}
   <div class="flex flex-wrap gap-2">
     <form method="post" action="/admin/tenants/{_e(tenant_id)}/billing">
       <input type="hidden" name="action" value="paid">
@@ -761,6 +781,7 @@ async def admin_edit_tenant(
       <input type="hidden" name="action" value="canceled">
       <button class="text-xs font-semibold text-rose-600 border border-rose-200 rounded-lg px-4 py-2 hover:bg-rose-50">Résilier</button>
     </form>
+    {reject_plan_form}
   </div>
   <p class="text-[11px] text-slate-400 mt-3">À utiliser si Stripe / PayPal / mobile money est
   indisponible ou pour un paiement reçu hors ligne — la trace reste via le prestataire « manual ».</p>
@@ -886,11 +907,19 @@ async def admin_billing_action(
         raise HTTPException(status_code=404, detail="Tenant introuvable")
     if action == "paid":
         from datetime import date, timedelta
-        await store.update(tenant_id, {
+        updates = {
             "billing_status": "active",
             "paid_until": (date.today() + timedelta(days=30)).isoformat(),
             "payment_provider": tenant.payment_provider or "manual",
-        })
+        }
+        # Une demande de plan en attente est appliquée avec le paiement.
+        if tenant.plan_requested and tenant.plan_requested in PLANS:
+            updates["plan"] = tenant.plan_requested
+            updates["plan_requested"] = None
+            updates.update(plan_quota_updates(tenant.plan_requested))
+        await store.update(tenant_id, updates)
+    elif action == "reject_plan":
+        await store.update(tenant_id, {"plan_requested": None})
     elif action in ("past_due", "canceled"):
         await store.update(tenant_id, {"billing_status": action})
     else:

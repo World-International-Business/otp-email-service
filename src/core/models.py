@@ -162,6 +162,7 @@ class TenantUpdateRequest(BaseModel):
     otp_ttl_seconds: int | None = None
     is_active: bool | None = None
     unlimited: bool | None = None
+    plan_requested: str | None = None
     billing_status: str | None = None
     paid_until: str | None = None
     payment_provider: str | None = None

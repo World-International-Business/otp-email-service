@@ -1127,6 +1127,7 @@ async def dashboard(
     base_url = _e(str(request.base_url).rstrip("/"))
 
     cur_plan = tenant.plan if tenant and tenant.plan in PLANS else "free"
+    pending_plan = tenant.plan_requested if tenant else None
     plan_cards = "".join(
         f'<div class="border rounded-xl p-4 flex flex-col '
         f'{"border-indigo-500 ring-1 ring-indigo-500" if pid == cur_plan else "border-slate-200"}">'
@@ -1146,16 +1147,28 @@ async def dashboard(
         + (
             '<button disabled class="w-full text-xs font-bold text-slate-400 border border-slate-200 rounded-lg px-4 py-2 cursor-default">Plan actuel</button>'
             if pid == cur_plan
-            else '<button class="w-full text-xs font-bold text-indigo-600 border border-indigo-200 rounded-lg px-4 py-2 hover:bg-indigo-50">Choisir ce plan</button>'
+            else (
+                '<button disabled class="w-full text-xs font-bold text-amber-600 border border-amber-200 bg-amber-50 rounded-lg px-4 py-2 cursor-default">⏳ Demande en attente</button>'
+                if pid == pending_plan
+                else '<button class="w-full text-xs font-bold text-indigo-600 border border-indigo-200 rounded-lg px-4 py-2 hover:bg-indigo-50">Choisir ce plan</button>'
+            )
         )
         + "</form></div>"
         for pid, p in PLANS.items()
     )
+    pending_banner = ""
+    if pending_plan and pending_plan in PLANS:
+        pending_banner = f"""
+  <div class="mb-4 text-sm font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+    ⏳ Demande <b>{_e(PLANS[pending_plan]['label'])}</b> en attente — votre plan sera
+    activé dès validation du paiement (Stripe, PayPal, mobile money ou virement).
+    Questions ? Utilisez le support ci-dessous.</div>"""
     plan_card_html = f"""
 <div id="sec-plan" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
   <h2 class="font-bold mb-1">Votre abonnement</h2>
   <p class="text-sm text-slate-500 mb-4">Plan actuel : <b>{_e(PLANS[cur_plan]['label'])}</b> —
-  changer de plan applique immédiatement les quotas du plan à votre tenant.</p>
+  les plans payants sont activés après validation du paiement.</p>
+  {pending_banner}
   <div class="grid sm:grid-cols-3 gap-3">{plan_cards}</div>
 </div>"""
 
@@ -1452,10 +1465,18 @@ async def dashboard_plan(
     user = await _require_user(request)
     if plan not in PLANS:
         raise HTTPException(status_code=422, detail="Plan invalide")
-    await TenantStore(request.app.state.redis).update(
-        user.tenant_id, {"plan": plan, **plan_quota_updates(plan)}
-    )
-    return RedirectResponse("/dashboard", status_code=303)
+    redis = request.app.state.redis
+    if plan == "free":
+        # Le plan gratuit est appliqué immédiatement (rien à payer)
+        await TenantStore(redis).update(
+            user.tenant_id,
+            {"plan": plan, "plan_requested": None, **plan_quota_updates(plan)},
+        )
+        return RedirectResponse("/dashboard", status_code=303)
+    # Plan payant → demande en attente : l'admin valide le paiement
+    # (manuel ou webhook Stripe/PayPal/mobile money) puis applique le plan.
+    await TenantStore(redis).update(user.tenant_id, {"plan_requested": plan})
+    return RedirectResponse("/dashboard?plan_requested=" + plan, status_code=303)
 
 
 @router.post("/dashboard/test-email")
