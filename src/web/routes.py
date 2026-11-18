@@ -247,9 +247,10 @@ def _dashboard_page(user, tenant, content: str, active: str = "dashboard", debug
         ("branding", "Emails & marque", "/dashboard#sec-branding"),
         ("integration", "Intégration", "/dashboard#sec-integration"),
         ("support", "Support", "/dashboard#sec-support"),
+        # Console de test : toujours visible — pour un client connecté elle
+        # reste accessible même si la démo publique est désactivée.
+        ("demo", "Tester l'API", "/demo"),
     ]
-    if debug:
-        items.append(("demo", "Tester l'API", "/demo"))
     nav = "".join(
         f'<a href="{url}" class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium '
         f'{"bg-brand-600 text-white shadow-lg shadow-brand-600/30" if key == active else "text-slate-400 hover:bg-white/5 hover:text-white"} transition">'
@@ -1595,9 +1596,10 @@ async function sendEmail() {
 
 @router.get("/demo", response_class=HTMLResponse)
 async def demo(request: Request, settings: Settings = Depends(get_settings)) -> HTMLResponse:
-    if not settings.demo_enabled:
-        raise HTTPException(status_code=404)
     user = await _current_user(request)
+    # Démo publique désactivée ? La console reste ouverte aux clients connectés.
+    if not settings.demo_enabled and not user:
+        raise HTTPException(status_code=404)
     # Connecté : pré-remplir le champ Tenant avec SON tenant pour que les
     # envois de test alimentent ses stats du dashboard (pas "default").
     default_tenant = user.tenant_id if user else "default"
@@ -1626,15 +1628,18 @@ class DemoVerifyRequest(BaseModel):
 
 
 async def _demo_tenant(request: Request, tenant_id: str) -> Tenant:
+    """Tenant ciblé par la démo — restreint pour éviter l'abus inter-tenants :
+    anonyme → 'default' uniquement ; connecté → son propre tenant ou 'default'.
+    Un paramètre tenant_id libre laissait n'importe qui consommer le quota et
+    le SMTP d'un autre client."""
+    allowed = {"default"}
+    user = await _current_user(request)
+    if user:
+        allowed.add(user.tenant_id)
+    if tenant_id not in allowed:
+        tenant_id = user.tenant_id if user else "default"
     store = TenantStore(request.app.state.redis)
     tenant = await store.get(tenant_id)
-    if tenant is None:
-        # Fallback : accepter aussi le nom ou la marque du tenant (insensible à la casse)
-        needle = tenant_id.strip().lower()
-        for t in await store.list():
-            if needle in (t.name.lower(), t.brand_name.lower()):
-                tenant = t
-                break
     if tenant is None or not tenant.is_active:
         raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' not found")
     return tenant
@@ -1648,7 +1653,7 @@ async def demo_send(
     settings: Settings = Depends(get_settings),
     _: None = Depends(require_same_origin),
 ):
-    if not settings.demo_enabled:
+    if not settings.demo_enabled and not await _current_user(request):
         raise HTTPException(status_code=404)
     tenant = await _demo_tenant(request, payload.tenant_id)
     response = await service.send_otp(
@@ -1675,7 +1680,7 @@ async def demo_verify(
     settings: Settings = Depends(get_settings),
     _: None = Depends(require_same_origin),
 ):
-    if not settings.demo_enabled:
+    if not settings.demo_enabled and not await _current_user(request):
         raise HTTPException(status_code=404)
     tenant = await _demo_tenant(request, payload.tenant_id)
     return await service.verify(tenant, payload.request_id, payload.code)
@@ -1699,7 +1704,7 @@ async def demo_email(
     settings: Settings = Depends(get_settings),
     _: None = Depends(require_same_origin),
 ):
-    if not settings.demo_enabled:
+    if not settings.demo_enabled and not await _current_user(request):
         raise HTTPException(status_code=404)
     tenant = await _demo_tenant(request, payload.tenant_id)
     req = EmailSendRequest(
