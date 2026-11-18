@@ -37,6 +37,7 @@ router = APIRouter(prefix="/admin", tags=["admin-web"], include_in_schema=False)
 
 ADMIN_COOKIE = "admin_session"
 ADMIN_SESSION_TTL = 12 * 3600  # 12 h
+ADMIN_SESSION_VALUE = "admin"  # marqueur stocké dans Redis (indépendant des credentials)
 
 _EVENT_LABELS = {
     "otp_sent": ("OTP envoyé", "bg-emerald-100 text-emerald-700"),
@@ -88,9 +89,8 @@ async def _require_admin(request: Request, settings: Settings) -> None:
     if not token:
         raise HTTPException(status_code=303, headers={"Location": "/admin/login"})
     stored = await request.app.state.redis.get(f"adminsession:{token}")
-    # La session stocke le HASH de la clé (jamais la clé en clair dans Redis)
-    expected = hash_api_key(settings.admin_api_key)
-    if not stored or not hmac.compare_digest(stored.encode(), expected.encode()):
+    # Marqueur fixe : la session ne dépend ni de ADMIN_API_KEY ni du mot de passe
+    if not stored or not hmac.compare_digest(stored.encode(), ADMIN_SESSION_VALUE.encode()):
         raise HTTPException(status_code=303, headers={"Location": "/admin/login"})
 
 
@@ -143,9 +143,9 @@ async def admin_login(
     if attempts > settings.web_login_max_attempts:
         raise HTTPException(status_code=429, detail="Too many attempts, retry later")
 
-    candidates = [settings.admin_api_key]
-    if settings.admin_web_password:
-        candidates.append(settings.admin_web_password)
+    candidates = [
+        c for c in (settings.admin_api_key, settings.admin_web_password) if c
+    ]
     if not any(
         hmac.compare_digest(admin_key.encode("utf-8", "ignore"), c.encode())
         for c in candidates
@@ -154,7 +154,7 @@ async def admin_login(
 
     token = secrets.token_urlsafe(32)
     await redis.set(
-        f"adminsession:{token}", hash_api_key(settings.admin_api_key),
+        f"adminsession:{token}", ADMIN_SESSION_VALUE,
         ex=ADMIN_SESSION_TTL,
     )
     resp = RedirectResponse("/admin", status_code=303)

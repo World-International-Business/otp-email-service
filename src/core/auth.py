@@ -83,8 +83,12 @@ async def verify_admin(
     """Authentification des routes d'administration des tenants."""
     # compare_digest sur bytes : accepte toute entrée (les str non-ASCII
     # lèvent TypeError sinon -> 500 / DoS trivial via header forgé).
-    if not admin_key or not hmac.compare_digest(
-        admin_key.encode("utf-8", "ignore"), settings.admin_api_key.encode()
+    if (
+        not settings.admin_api_key
+        or not admin_key
+        or not hmac.compare_digest(
+            admin_key.encode("utf-8", "ignore"), settings.admin_api_key.encode()
+        )
     ):
         raise HTTPException(status_code=401, detail="Unauthorized")
 

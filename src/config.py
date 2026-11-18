@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     api_key: str = Field(..., min_length=32)
     hmac_secret: bytes = Field(..., min_length=16)
-    admin_api_key: str = Field(..., min_length=32)
+    admin_api_key: str | None = Field(default=None, min_length=32)
     admin_web_password: str | None = None  # mot de passe alternatif pour /admin/login
 
     redis_url: str = "redis://localhost:6379/0"
