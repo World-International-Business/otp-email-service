@@ -149,6 +149,14 @@ curl_close($ch);""".replace("<", "&lt;").replace(">", "&gt;")
     verify_body = '{\n  "request_id": "req_XXXXXXXXXXXXXXXX",\n  "code": "123456"\n}'
     verify_resp = '{ "verified": true,  "attempts_remaining": 0 }   // succes\n{ "verified": false, "attempts_remaining": 2 }   // mauvais code\n{ "verified": false, "attempts_remaining": 0 }   // bloque / expire'
     email_body = '{\n  "to_email": "client@exemple.com",\n  "type": "notification",\n  "language": "fr",\n  "data": { "title": "Commande expédiée", "message": "Arrivée sous 48 h." }\n}'
+    custom_body = (
+        '{\n  "to_email": "client@exemple.com",\n  "type": "custom",\n'
+        '  "subject": "Confirmez votre compte",\n'
+        '  "text_body": "Cliquez pour activer votre compte : https://app.exemple.com/confirm?token=abc",\n'
+        '  "html_body": "<p>Activez votre compte :</p><p><a href=\\"https://app.exemple.com/confirm?token=abc\\" '
+        'style=\\"background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none\\">'
+        'Confirmer mon compte</a></p>"\n}'
+    )
     confirm_url = base + "/v1/otp/confirm?request_id=req_...&code=123456&t=<tenant_id>"
 
     card_credentials = _card("doc-credentials", "1. Obtenir vos credentials", f"""
@@ -219,16 +227,32 @@ curl_close($ch);""".replace("<", "&lt;").replace(">", "&gt;")
         un <code>/v1/otp/verify</code> ultérieur renverra <code>verified: false</code> (déjà utilisé).</p>
       """)
 
-    card_email = _card("doc-email", "6. Emails transactionnels", f"""
-        <p class="text-sm text-slate-500 mb-4"><code>POST /v1/email/send</code> — même auth HMAC,
-        même pipeline d'envoi.</p>
+    card_email = _card("doc-email", "6. Emails — tout type de contenu", f"""
+        <p class="text-sm text-slate-500 mb-4"><code>POST /v1/email/send</code> — même auth HMAC.
+        L'API n'envoie pas que des OTP : <strong>notifications, liens de confirmation ou de
+        réinitialisation, reçus, factures, alertes, contenu HTML libre</strong> — tout passe
+        par ce seul endpoint.</p>
+        {_table(["Cas d'usage", "type", "Exemple"], [
+            ["Bienvenue / onboarding", "<code>welcome</code>", "« Votre compte est prêt »"],
+            ["Notification produit", "<code>notification</code>", "Commande expédiée, alerte sécurité"],
+            ["Reçu / transaction", "<code>transaction</code>", "Montant + devise + statut"],
+            ["<strong>Tout le reste</strong> — lien de vérif, reset MDP, facture, marketing", "<code>custom</code>", "Sujet + texte + HTML libres"],
+        ])}
+        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mt-5 mb-3">Corps de requête</p>
         {_code_block(email_body)}
-        <div class="mt-4">{_table(["type", "Champs requis"], [
-            ["<code>welcome</code>", "<code>data: {{name}}</code>"],
-            ["<code>notification</code>", "<code>data: {{title, message}}</code>"],
-            ["<code>transaction</code>", "<code>data: {{amount, currency, status}}</code>"],
-            ["<code>custom</code>", "<code>subject</code> + <code>text_body</code> (racine), <code>html_body</code> optionnel"],
+        <div class="mt-4">{_table(["type", "Champs"], [
+            ["<code>welcome</code>", "<code>data.name</code> (prénom affiché)"],
+            ["<code>notification</code>", "<code>data.title</code> + <code>data.message</code>"],
+            ["<code>transaction</code>", "<code>data.amount</code>, <code>data.currency</code>, <code>data.status</code>"],
+            ["<code>custom</code>", "<code>subject</code> + <code>text_body</code> obligatoires · <code>html_body</code> optionnel"],
         ])}</div>
+        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mt-5 mb-3">Exemple custom — lien de confirmation avec bouton</p>
+        {_code_block(custom_body)}
+        <p class="text-xs text-slate-400 mt-3">Sans <code>html_body</code>, le
+        <code>text_body</code> est automatiquement mis en page avec votre branding
+        (couleur, logo, pied de page). Avec <code>html_body</code>, votre HTML est envoyé
+        tel quel — utilisez du CSS <em>inline</em> et des liens en <code>https://</code>
+        pour la compatibilité des clients mail.</p>
         <p class="text-sm text-slate-500 mt-4">Réponse : <code>{{"sent": true, "message_id": "msg_...", "to_email": "..."}}</code>
         — <code>sent</code> = accepté par le SMTP, pas « livré ».</p>
       """)
