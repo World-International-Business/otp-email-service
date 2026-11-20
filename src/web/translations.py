@@ -915,19 +915,19 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     "Code : ": ("Code: ", "Code: ", "Código: ", "الرمز: "),
 
     # ------------------------------------------- attributs (placeholder, title)
-    "@0 OTP envoyés": ("@0 OTP sent", "@0 OTP sent", "@0 OTP enviados", "@0 OTP مرسلة"),
-    "@0 OTP vérifiés": ("@0 OTP verified", "@0 OTP verifiziert", "@0 OTP verificados", "@0 OTP مُتحقق منها"),
-    "@0 emails envoyés": ("@0 emails sent", "@0 E-Mails gesendet", "@0 emails enviados", "@0 بريد مُرسل"),
-    "@Aperçu email": ("@Email preview", "@E-Mail-Vorschau", "@Vista previa de email", "@معاينة البريد"),
-    "@Décrivez votre problème...": ("@Describe your issue...", "@Beschreiben Sie Ihr Problem...", "@Describe tu problema...", "@صف مشكلتك..."),
-    "@Ex : © 2026 MaSociété — contact@maboite.com": ("@E.g.: © 2026 MyCompany — contact@mycompany.com", "@Z. B.: © 2026 MeineFirma — kontakt@meinefirma.com", "@Ej.: © 2026 MiEmpresa — contacto@miempresa.com", "@مثال: © 2026 شركتي — contact@mycompany.com"),
-    "@8 caractères min": ("@8 characters min", "@min. 8 Zeichen", "@mín. 8 caracteres", "@8 أحرف كحد أدنى"),
-    "@Vide = texte par défaut": ("@Empty = default text", "@Leer = Standardtext", "@Vacío = texto predeterminado", "@فارغ = النص الافتراضي"),
-    "@minuscules, chiffres, - et _": ("@lowercase, digits, - and _", "@Kleinbuchstaben, Ziffern, - und _", "@minúsculas, dígitos, - y _", "@أحرف صغيرة، أرقام، - و_"),
-    "@Clé admin ou mot de passe": ("@Admin key or password", "@Admin-Schlüssel oder Passwort", "@Clave admin o contraseña", "@مفتاح المشرف أو كلمة المرور"),
-    "@Language": ("@Language", "@Sprache", "@Idioma", "@اللغة"),
-    "@Sujet": ("@Subject", "@Betreff", "@Asunto", "@الموضوع"),
-    "@Choisir": ("@Choose", "@Auswählen", "@Elegir", "@اختيار"),
+    "@0 OTP envoyés": ("0 OTP sent", "0 OTP sent", "0 OTP enviados", "0 OTP مرسلة"),
+    "@0 OTP vérifiés": ("0 OTP verified", "0 OTP verifiziert", "0 OTP verificados", "0 OTP مُتحقق منها"),
+    "@0 emails envoyés": ("0 emails sent", "0 E-Mails gesendet", "0 emails enviados", "0 بريد مُرسل"),
+    "@Aperçu email": ("Email preview", "E-Mail-Vorschau", "Vista previa de email", "معاينة البريد"),
+    "@Décrivez votre problème...": ("Describe your issue...", "Beschreiben Sie Ihr Problem...", "Describe tu problema...", "صف مشكلتك..."),
+    "@Ex : © 2026 MaSociété — contact@maboite.com": ("E.g.: © 2026 MyCompany — contact@mycompany.com", "Z. B.: © 2026 MeineFirma — kontakt@meinefirma.com", "Ej.: © 2026 MiEmpresa — contacto@miempresa.com", "مثال: © 2026 شركتي — contact@mycompany.com"),
+    "@8 caractères min": ("8 characters min", "min. 8 Zeichen", "mín. 8 caracteres", "8 أحرف كحد أدنى"),
+    "@Vide = texte par défaut": ("Empty = default text", "Leer = Standardtext", "Vacío = texto predeterminado", "فارغ = النص الافتراضي"),
+    "@minuscules, chiffres, - et _": ("lowercase, digits, - and _", "Kleinbuchstaben, Ziffern, - und _", "minúsculas, dígitos, - y _", "أحرف صغيرة، أرقام، - و_"),
+    "@Clé admin ou mot de passe": ("Admin key or password", "Admin-Schlüssel oder Passwort", "Clave admin o contraseña", "مفتاح المشرف أو كلمة المرور"),
+    "@Language": ("Language", "Sprache", "Idioma", "اللغة"),
+    "@Sujet": ("Subject", "Betreff", "Asunto", "الموضوع"),
+    "@Choisir": ("Choose", "Auswählen", "Elegir", "اختيار"),
 
     # ------------------------------------------- reliquats
     "Contacter le support": ("Contact support", "Support kontaktieren", "Contactar soporte", "الاتصال بالدعم"),
@@ -967,7 +967,7 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     ),
 
     # ------------------------------------------- reliquats (suite)
-    "@ADMIN_API_KEY ou ADMIN_WEB_PASSWORD": ("@ADMIN_API_KEY or ADMIN_WEB_PASSWORD", "@ADMIN_API_KEY oder ADMIN_WEB_PASSWORD", "@ADMIN_API_KEY o ADMIN_WEB_PASSWORD", "@ADMIN_API_KEY أو ADMIN_WEB_PASSWORD"),
+    "@ADMIN_API_KEY ou ADMIN_WEB_PASSWORD": ("ADMIN_API_KEY or ADMIN_WEB_PASSWORD", "ADMIN_API_KEY oder ADMIN_WEB_PASSWORD", "ADMIN_API_KEY o ADMIN_WEB_PASSWORD", "ADMIN_API_KEY أو ADMIN_WEB_PASSWORD"),
     "Envois — 7 derniers jours": ("Sends — last 7 days", "Sendungen — letzte 7 Tage", "Envíos — últimos 7 días", "الإرسالات — آخر 7 أيام"),
     "PNG/JPG/GIF/WebP, 512 Ko max, fond transparent conseillé (~180×36 px). Upload prioritaire sur l'URL.": (
         "PNG/JPG/GIF/WebP, 512 KB max, transparent background recommended (~180×36 px). Upload takes priority over the URL.",
@@ -997,6 +997,18 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     "Python — client complet": ("Python — complete client", "Python — vollständiger Client", "Python — cliente completo", "Python — عميل كامل"),
     "Page introuvable — MailHub": ("Page not found — MailHub", "Seite nicht gefunden — MailHub", "Página no encontrada — MailHub", "الصفحة غير موجودة — MailHub"),
     "Reset MDP": ("Reset password", "Passwort zurücksetzen", "Restablecer contraseña", "إعادة تعيين كلمة المرور"),
+
+    # ------------------------------------------- activité récente
+    "Activité récente": ("Recent activity", "Letzte Aktivität", "Actividad reciente", "النشاط الأخير"),
+    "OTP envoyé": ("OTP sent", "OTP gesendet", "OTP enviado", "OTP مُرسَل"),
+    "OTP vérifié": ("OTP verified", "OTP verifiziert", "OTP verificado", "OTP مُتحقَّق منه"),
+    "Vérif. échouée": ("Verification failed", "Verifizierung fehlgeschlagen", "Verificación fallida", "فشل التحقق"),
+    "Envoi OTP échoué": ("OTP send failed", "OTP-Versand fehlgeschlagen", "Envío OTP fallido", "فشل إرسال OTP"),
+    "Rate limit": ("Rate limit", "Rate-Limit", "Límite de tasa", "تحديد المعدل"),
+    "Fallback SMS": ("SMS fallback", "SMS-Fallback", "Fallback SMS", "SMS احتياطي"),
+    "Purpose refusé": ("Purpose denied", "Purpose abgelehnt", "Purpose denegado", "الغرض مرفوض"),
+    "Email envoyé": ("Email sent", "E-Mail gesendet", "Email enviado", "بريد مُرسل"),
+    "Email échoué": ("Email failed", "E-Mail fehlgeschlagen", "Email fallido", "فشل البريد"),
     "✓ Valider un paiement (+30 j)": ("✓ Validate a payment (+30 d)", "✓ Zahlung bestätigen (+30 T)", "✓ Validar un pago (+30 d)", "✓ تأكيد دفعة (+30 ي)"),
 
     "— « Valider un paiement » appliquera ce plan et ses quotas.": (
@@ -1096,6 +1108,19 @@ PATTERNS: list[tuple[re.Pattern, tuple[str, str, str, str]]] = [
     (
         re.compile(r"^Tenant (.+) — MailHub$"),
         ("Tenant {0} — MailHub", "Tenant {0} — MailHub", "Tenant {0} — MailHub", "المستأجر {0} — MailHub"),
+    ),
+    # title= des barres du graphe : « 3 OTP envoyés » (clé @, valeur sans @)
+    (
+        re.compile(r"^@(\d+) OTP envoyés$"),
+        ("{0} OTPs sent", "{0} OTPs gesendet", "{0} OTPs enviados", "{0} OTP مُرسَل"),
+    ),
+    (
+        re.compile(r"^@(\d+) OTP vérifiés$"),
+        ("{0} OTPs verified", "{0} OTPs verifiziert", "{0} OTPs verificados", "{0} OTP مُتحقَّق منه"),
+    ),
+    (
+        re.compile(r"^@(\d+) emails envoyés$"),
+        ("{0} emails sent", "{0} E-Mails gesendet", "{0} emails enviados", "{0} بريد مُرسل"),
     ),
 ]
 
