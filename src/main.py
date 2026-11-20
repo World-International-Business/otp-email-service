@@ -22,6 +22,7 @@ from src.services.email_service import EmailService
 from src.services.otp_service import OTPService
 from src.web.admin import router as admin_web_router
 from src.web.docs_page import router as docs_router
+from src.web.i18n import get_lang, translate_html
 from src.web.routes import FAVICON_URI
 from src.web.routes import router as web_router
 from src.web.tailwind_css import TAILWIND_CSS
@@ -148,16 +149,17 @@ async def http_exception_page(request: Request, exc: StarletteHTTPException):
     }
     title = messages.get(exc.status_code, "Erreur")
     detail = html.escape(str(exc.detail or title))
-    return _error_page(exc.status_code, title, detail, exc.headers)
+    return _error_page(exc.status_code, title, detail, exc.headers, request)
 
 
-def _error_page(code: int, title: str, detail: str, headers=None) -> HTMLResponse:
+def _error_page(
+    code: int, title: str, detail: str, headers=None, request: Request | None = None
+) -> HTMLResponse:
     fonts = (
         "https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800"
         "&family=Space+Grotesk:wght@600;700&display=swap"
     )
-    return HTMLResponse(
-        f"""<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+    page = f"""<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" type="image/svg+xml" href="{FAVICON_URI}">
 <title>{title} — MailHub</title>
@@ -171,10 +173,10 @@ def _error_page(code: int, title: str, detail: str, headers=None) -> HTMLRespons
   <p class="text-sm text-slate-500 mb-6">{detail}</p>
   <a href="/" class="inline-block bg-indigo-600 text-white text-sm font-semibold
      rounded-lg px-6 py-2.5 hover:bg-indigo-700">Retour à l'accueil</a>
-</div></body></html>""",
-        status_code=code,
-        headers=headers,
-    )
+</div></body></html>"""
+    if request is not None:
+        page = translate_html(page, get_lang(request), request.url.path)
+    return HTMLResponse(page, status_code=code, headers=headers)
 
 
 @app.exception_handler(RequestValidationError)
@@ -192,7 +194,7 @@ async def validation_exception_page(request: Request, exc: RequestValidationErro
         if missing
         else "Données du formulaire invalides."
     )
-    return _error_page(422, "Données invalides", detail)
+    return _error_page(422, "Données invalides", detail, request=request)
 
 
 @app.get("/health")

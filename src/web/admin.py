@@ -31,10 +31,14 @@ from src.core.tenants import (
     plan_quota_updates,
 )
 from src.services.events import get_events
+from src.web.i18n import I18nRoute
 from src.web.routes import LOGO_SVG, UI_ICONS, _head
 from src.web.users import WebUserStore
 
-router = APIRouter(prefix="/admin", tags=["admin-web"], include_in_schema=False)
+router = APIRouter(
+    prefix="/admin", tags=["admin-web"], include_in_schema=False,
+    route_class=I18nRoute,
+)
 
 ADMIN_COOKIE = "admin_session"
 ADMIN_SESSION_TTL = 12 * 3600  # 12 h
