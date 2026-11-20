@@ -1,15 +1,18 @@
 """Interface web de la plateforme — landing, auth, dashboard, démo."""
 
+import base64
 import hmac
 import html
 import json
 import logging
+import re
 import uuid
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel, EmailStr
+from starlette.datastructures import UploadFile
 
 from src.api.dependencies import (
     get_client_ip,
@@ -1220,24 +1223,66 @@ async def dashboard(
 
 <div id="sec-branding" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
   <h2 class="font-bold mb-1">Personnalisation des emails</h2>
-  <p class="text-sm text-slate-500 mb-4">Couleur, logo et pied de page appliqués à tous vos emails (OTP et transactionnels).</p>
-  <form method="post" action="/dashboard/branding" class="grid md:grid-cols-2 gap-4 mb-4">
+  <p class="text-sm text-slate-500 mb-4">Couleur, logo et pied de page appliqués à tous vos emails (OTP et transactionnels). L'aperçu se met à jour en direct.</p>
+  <form id="brandingForm" method="post" action="/dashboard/branding" enctype="multipart/form-data" class="grid md:grid-cols-2 gap-4 mb-4">
     <div><label class="text-xs font-semibold text-slate-600">Couleur de marque</label>
     <div class="flex gap-2 mt-1">
       <input name="brand_color" type="color" class="h-10 w-14 rounded-lg border border-slate-200 cursor-pointer" value="{_e(tenant.brand_color)}">
-      <input class="input flex-1" value="{_e(tenant.brand_color)}" readonly>
+      <input id="brandColorHex" class="input flex-1 font-mono" value="{_e(tenant.brand_color)}" maxlength="7" spellcheck="false">
     </div></div>
-    <div><label class="text-xs font-semibold text-slate-600">URL du logo (optionnel)</label>
-    <input name="email_logo_url" type="url" class="input mt-1" value="{_e(tenant.email_logo_url or '')}" placeholder="https://votresite.com/logo.png">
-    <p class="text-[11px] text-slate-400 mt-1">PNG/JPG, fond transparent conseillé, ~180×36 px.</p></div>
+    <div><label class="text-xs font-semibold text-slate-600">Logo — URL ou upload</label>
+    <div class="flex gap-2 mt-1">
+      <input name="email_logo_url" type="url" class="input flex-1" value="{_e(tenant.email_logo_url or '')}" placeholder="https://votresite.com/logo.png">
+      <label class="btn-outline text-xs px-4 py-2.5 cursor-pointer whitespace-nowrap inline-flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 16V4m0 0l-4 4m4-4l4 4M4 20h16"/></svg>
+        Choisir
+        <input name="logo_file" type="file" accept="image/png,image/jpeg,image/gif,image/webp" class="hidden">
+      </label>
+    </div>
+    <p class="text-[11px] text-slate-400 mt-1"><span id="logoFileName">PNG/JPG/GIF/WebP, 512 Ko max, fond transparent conseillé (~180×36 px). Upload prioritaire sur l'URL.</span></p></div>
     <div class="md:col-span-2"><label class="text-xs font-semibold text-slate-600">Pied de page personnalisé (optionnel)</label>
     <input name="email_footer" class="input mt-1" value="{_e(tenant.email_footer or '')}" placeholder="Ex : © 2026 MaSociété — contact@maboite.com">
     <p class="text-[11px] text-slate-400 mt-1">Vide = « Message automatique de VotreMarque — merci de ne pas répondre. »</p></div>
     <div class="md:col-span-2"><button class="btn-primary">Sauvegarder le branding</button></div>
   </form>
   <p class="text-xs font-semibold text-slate-600 mb-2">Aperçu de votre email OTP :</p>
-  <iframe src="/dashboard/email-preview" class="w-full h-96 rounded-xl border border-slate-200 bg-white" title="Aperçu email"></iframe>
+  <iframe id="brandPreview" src="/dashboard/email-preview" class="w-full h-96 rounded-xl border border-slate-200 bg-white" title="Aperçu email"></iframe>
 </div>
+<script>
+(function() {{
+  var form = document.getElementById('brandingForm');
+  var frame = document.getElementById('brandPreview');
+  var picker = form.elements['brand_color'];
+  var hex = document.getElementById('brandColorHex');
+  var logoUrl = form.elements['email_logo_url'];
+  var logoFile = form.elements['logo_file'];
+  var footer = form.elements['email_footer'];
+  var fileName = document.getElementById('logoFileName');
+  var timer;
+  function schedule() {{ clearTimeout(timer); timer = setTimeout(refresh, 350); }}
+  async function refresh() {{
+    var fd = new FormData();
+    fd.append('brand_color', picker.value);
+    fd.append('email_logo_url', logoUrl.value);
+    fd.append('email_footer', footer.value);
+    if (logoFile.files[0]) fd.append('logo_file', logoFile.files[0]);
+    try {{
+      var r = await fetch('/dashboard/email-preview', {{ method: 'POST', body: fd }});
+      if (r.ok) frame.srcdoc = await r.text();
+    }} catch (e) {{ /* réseau : l'aperçu garde la version sauvegardée */ }}
+  }}
+  picker.addEventListener('input', function() {{ hex.value = picker.value; schedule(); }});
+  hex.addEventListener('input', function() {{
+    if (/^#[0-9a-fA-F]{{6}}$/.test(hex.value)) {{ picker.value = hex.value; schedule(); }}
+  }});
+  logoUrl.addEventListener('input', schedule);
+  footer.addEventListener('input', schedule);
+  logoFile.addEventListener('change', function() {{
+    if (logoFile.files[0]) fileName.textContent = 'Fichier : ' + logoFile.files[0].name;
+    schedule();
+  }});
+}})();
+</script>
 
 <div id="sec-integration" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
   <h2 class="font-bold mb-1">Intégrer l'API dans votre projet</h2>
@@ -1337,31 +1382,83 @@ async def dashboard_config(
     return RedirectResponse("/dashboard", status_code=303)
 
 
+_LOGO_MAX_BYTES = 512 * 1024  # 512 Ko — assez pour un logo, évite de gonfler Redis
+_LOGO_SIGNATURES = {
+    "image/png": b"\x89PNG",
+    "image/jpeg": b"\xff\xd8\xff",
+    "image/gif": b"GIF8",
+    "image/webp": b"RIFF",
+}
+
+
+def _logo_valid(data: bytes, content_type: str) -> bool:
+    """Signature magique + taille OK pour un logo embarqué."""
+    sig = _LOGO_SIGNATURES.get(content_type)
+    return bool(
+        data and len(data) <= _LOGO_MAX_BYTES and sig and data.startswith(sig)
+    )
+
+
+async def _read_logo_upload(form) -> tuple[bytes, str] | None:
+    """Extrait un logo uploadé -> (bytes, content-type) validé, sinon None."""
+    f = form.get("logo_file")
+    if not isinstance(f, UploadFile) or not f.filename:
+        return None
+    data = await f.read()
+    ct = f.content_type or ""
+    if not _logo_valid(data, ct):
+        raise HTTPException(
+            status_code=422,
+            detail="Logo invalide — PNG/JPG/GIF/WebP, 512 Ko max.",
+        )
+    return data, ct
+
+
+@router.get("/brand/{tenant_id}/logo")
+async def brand_logo(tenant_id: str, request: Request):
+    """Logo de marque public — référencé dans les emails (les clients mail le récupèrent)."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", tenant_id):
+        raise HTTPException(status_code=404, detail="Logo introuvable")
+    raw = await request.app.state.redis.get(f"brandlogo:{tenant_id}")
+    if raw is None:
+        raise HTTPException(status_code=404, detail="Logo introuvable")
+    meta = json.loads(raw)
+    return Response(
+        content=base64.b64decode(meta["b64"]),
+        media_type=meta["ct"],
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
 @router.post("/dashboard/branding")
 async def dashboard_branding(
     request: Request,
-    brand_color: str = Form("#6366f1"),
-    email_logo_url: str = Form(""),
-    email_footer: str = Form(""),
     _: None = Depends(require_same_origin),
 ):
     user = await _require_user(request)
-    color = brand_color.strip()
-    if not (
-        len(color) == 7
-        and color.startswith("#")
-        and all(c in "0123456789abcdefABCDEF" for c in color[1:])
-    ):
+    form = await request.form()
+    color = str(form.get("brand_color") or "#6366f1").strip()
+    if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
         raise HTTPException(status_code=422, detail="Couleur invalide (format #rrggbb)")
-    logo = email_logo_url.strip()
+    logo = str(form.get("email_logo_url") or "").strip()
     if logo and not logo.startswith(("https://", "http://")):
         raise HTTPException(status_code=422, detail="URL de logo invalide")
+    uploaded = await _read_logo_upload(form)
+    if uploaded:
+        data, ct = uploaded
+        await request.app.state.redis.set(
+            f"brandlogo:{user.tenant_id}",
+            json.dumps({"ct": ct, "b64": base64.b64encode(data).decode()}),
+        )
+        # URL absolue pour les clients mail ; relative si PUBLIC_BASE_URL absent
+        base = request.app.state.settings.public_base_url.rstrip("/")
+        logo = f"{base}/brand/{user.tenant_id}/logo"
     await TenantStore(request.app.state.redis).update(
         user.tenant_id,
         {
             "brand_color": color,
             "email_logo_url": logo or None,
-            "email_footer": email_footer.strip() or None,
+            "email_footer": str(form.get("email_footer") or "").strip() or None,
         },
     )
     return RedirectResponse("/dashboard", status_code=303)
@@ -1414,6 +1511,40 @@ async def dashboard_email_preview(request: Request):
             color=tenant.brand_color,
             logo_url=tenant.email_logo_url,
             footer=tenant.email_footer,
+        )
+    )
+
+
+@router.post("/dashboard/email-preview", response_class=HTMLResponse)
+async def dashboard_email_preview_live(
+    request: Request, _: None = Depends(require_same_origin)
+):
+    """Aperçu instantané : rend l'email avec les valeurs du formulaire (non sauvegardées)."""
+    user = await _require_user(request)
+    tenant = await TenantStore(request.app.state.redis).get(user.tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant introuvable")
+    form = await request.form()
+    color = str(form.get("brand_color") or "")
+    if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+        color = tenant.brand_color
+    logo = str(form.get("email_logo_url") or "").strip()
+    if logo and not logo.startswith(("https://", "http://")):
+        logo = ""
+    logo = logo or tenant.email_logo_url
+    uploaded = await _read_logo_upload(form)
+    if uploaded:
+        data, ct = uploaded
+        logo = f"data:{ct};base64,{base64.b64encode(data).decode()}"
+    return HTMLResponse(
+        otp_html(
+            "482915",
+            tenant.brand_name,
+            "fr",
+            ttl_minutes=max(1, round(tenant.otp_ttl_seconds / 60)),
+            color=color,
+            logo_url=logo,
+            footer=str(form.get("email_footer") or "").strip() or tenant.email_footer,
         )
     )
 
