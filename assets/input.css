@@ -258,26 +258,6 @@
   .m-get { background: #dcfce7; color: #15803d; }
   .m-patch { background: #ffedd5; color: #c2410c; }
   .m-del { background: #fee2e2; color: #b91c1c; }
-  .eyebrow {
-    display: inline-flex;
-    align-items: center;
-    gap: .45rem;
-    font-size: .68rem;
-    font-weight: 800;
-    letter-spacing: .12em;
-    text-transform: uppercase;
-    color: #424f8c;
-    background: #eef1fa;
-    border: 1px solid #dde2f4;
-    padding: .38rem .85rem;
-    border-radius: 999px;
-  }
-  .eyebrow::before {
-    content: "";
-    width: .45rem; height: .45rem;
-    border-radius: 999px;
-    background: linear-gradient(135deg, var(--brand), var(--accent));
-  }
 
   /* ---------- Alertes ---------- */
   .alert {

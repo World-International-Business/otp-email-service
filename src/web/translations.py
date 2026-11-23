@@ -23,12 +23,6 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     "@Fermer": ("Close", "Schließen", "Cerrar", "إغلاق"),
 
     # ---------------------------------------------------------- hero
-    "API OTP & Emails transactionnels": (
-        "OTP &amp; transactional email API",
-        "OTP- &amp; Transaktions-E-Mail-API",
-        "API de OTP y emails transaccionales",
-        "واجهة API لرموز OTP والبريد الإلكتروني المعاملاتي",
-    ),
     "Vos codes de vérification et emails,": (
         "Your verification codes and emails,",
         "Ihre Bestätigungscodes und E-Mails,",
@@ -59,7 +53,6 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     "SHA-256 signé": ("SHA-256 signed", "SHA-256-signiert", "Firmado SHA-256", "موقّع بـ SHA-256"),
 
     # ---------------------------------------------------------- services
-    "Nos services": ("Our services", "Unsere Leistungen", "Nuestros servicios", "خدماتنا"),
     "Tout pour vos emails & OTP": (
         "Everything for your emails &amp; OTPs",
         "Alles für Ihre E-Mails &amp; OTPs",
@@ -428,7 +421,6 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     "Emails": ("Emails", "E-Mails", "Emails", "رسائل البريد"),
     "Exemples par langage": ("Examples by language", "Beispiele nach Sprache", "Ejemplos por lenguaje", "أمثلة حسب لغة البرمجة"),
     "Erreurs &amp; limites": ("Errors &amp; limits", "Fehler &amp; Limits", "Errores y límites", "الأخطاء والحدود"),
-    "DOCUMENTATION": ("DOCUMENTATION", "DOKUMENTATION", "DOCUMENTACIÓN", "التوثيق"),
     "Intégrer MailHub": ("Integrate MailHub", "MailHub integrieren", "Integrar MailHub", "دمج MailHub"),
     "Une API REST unique pour vos codes OTP et emails transactionnels. Toutes les requêtes sont signées": (
         "A single REST API for your OTP codes and transactional emails. All requests are signed with",
