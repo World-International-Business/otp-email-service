@@ -6,7 +6,9 @@ import html
 import json
 import logging
 import re
+import time
 import uuid
+from datetime import date
 from pathlib import Path
 from urllib.parse import quote
 
@@ -43,7 +45,9 @@ from src.services.payments import (
     create_checkout,
     get_tx,
     list_payments,
+    new_tx_id,
     plan_price,
+    record_tx,
 )
 from src.web.i18n import (
     DEFAULT_LANG,
@@ -1343,6 +1347,7 @@ async def dashboard(
     if payments:
         _st = {"paid": ("Payé", "bg-emerald-100 text-emerald-700"),
                "created": ("En attente", "bg-amber-100 text-amber-700"),
+               "pending_manual": ("En attente", "bg-amber-100 text-amber-700"),
                "failed": ("Échoué", "bg-rose-100 text-rose-700")}
         prow = "".join(
             f'<tr class="hover:bg-slate-50 transition">'
@@ -1823,10 +1828,8 @@ async def dashboard_plan(
             {"plan": plan, "plan_requested": None, **plan_quota_updates(plan)},
         )
         return RedirectResponse("/dashboard", status_code=303)
-    # Plan payant → demande en attente : l'admin valide le paiement
-    # (manuel ou webhook Stripe/PayPal/mobile money) puis applique le plan.
-    await TenantStore(redis).update(user.tenant_id, {"plan_requested": plan})
-    return RedirectResponse("/dashboard?plan_requested=" + plan, status_code=303)
+    # Plan payant → page checkout : formulaire de facturation + moyen de paiement
+    return RedirectResponse("/dashboard/billing?plan=" + plan, status_code=303)
 
 
 @router.post("/dashboard/plan/cancel")
@@ -1838,6 +1841,181 @@ async def dashboard_plan_cancel(
     redis = request.app.state.redis
     await TenantStore(redis).update(user.tenant_id, {"plan_requested": None})
     return RedirectResponse("/dashboard", status_code=303)
+
+
+@router.get("/dashboard/billing", response_class=HTMLResponse)
+async def dashboard_billing_page(
+    request: Request,
+    plan: str = "",
+    err: str = "",
+    settings: Settings = Depends(get_settings),
+):
+    user = await _require_user(request)
+    if plan not in PLANS or plan == "free":
+        return RedirectResponse("/dashboard#sec-plan", status_code=303)
+    redis = request.app.state.redis
+    tenant = await TenantStore(redis).get(user.tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant introuvable")
+
+    providers = available_providers(settings)
+    method_cards = ""
+    for prov, meta in providers.items():
+        amt, cur = plan_price(settings, plan, prov)
+        if not amt:
+            continue
+        method_cards += (
+            '<label class="flex items-center gap-3 border border-slate-200 rounded-xl px-4 py-3 '
+            'cursor-pointer transition hover:border-brand-300 '
+            'has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50/50">'
+            f'<input type="radio" name="provider" value="{_e(prov)}" required class="accent-brand-600">'
+            f'<span class="flex-1"><span class="font-semibold text-sm">{_e(meta["label"])}</span>'
+            f'<span class="text-xs text-slate-400 ml-1.5">· {_e(meta["via"])}</span></span>'
+            f'<b class="text-brand-600 text-sm whitespace-nowrap">{amt:g} {_e(cur)}</b></label>'
+        )
+    manual_checked = " checked" if not method_cards else ""
+    method_cards += (
+        '<label class="flex items-center gap-3 border border-slate-200 rounded-xl px-4 py-3 '
+        'cursor-pointer transition hover:border-brand-300 '
+        'has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50/50">'
+        f'<input type="radio" name="provider" value="manual" required{manual_checked} class="accent-brand-600">'
+        '<span class="flex-1"><span class="font-semibold text-sm">Paiement manuel</span>'
+        '<span class="text-xs text-slate-400 ml-1.5">· virement, cash, mobile money hors ligne</span></span>'
+        '<span class="text-xs text-slate-400">Validé par l’administrateur</span></label>'
+    )
+    price_rows = "".join(
+        f'<li class="flex justify-between text-sm"><span class="text-slate-500">{_e(meta["label"])}</span>'
+        f'<b>{amt:g} {_e(cur)}</b></li>'
+        for prov, meta in providers.items()
+        for amt, cur in [plan_price(settings, plan, prov)] if amt
+    ) or '<li class="text-sm text-slate-500">Tarif convenu avec l’administrateur</li>'
+    err_banner = ""
+    if err:
+        err_banner = (
+            '<div class="alert alert-err mb-4">'
+            + ("Informations de facturation incomplètes — vérifiez les champs requis."
+               if err == "form" else
+               "Le prestataire de paiement est momentanément indisponible — "
+               "réessayez ou choisissez le paiement manuel.")
+            + "</div>"
+        )
+    p_info = PLANS[plan]
+    content = f"""
+<div class="mb-6">
+  <a href="/dashboard#sec-plan" class="text-xs text-slate-400 hover:text-brand-600 transition">← Retour au dashboard</a>
+  <h1 class="text-2xl font-extrabold mt-1">Finaliser votre commande</h1>
+  <p class="text-sm text-slate-500">Complétez vos informations de facturation puis choisissez un moyen de paiement.</p>
+</div>
+{err_banner}
+<div class="grid lg:grid-cols-5 gap-6 items-start">
+  <form method="post" action="/dashboard/billing/submit" class="lg:col-span-3 card p-4 sm:p-6 space-y-5">
+    <input type="hidden" name="plan" value="{_e(plan)}">
+    <div>
+      <h2 class="font-bold text-sm mb-3">Informations de facturation</h2>
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div><label class="text-xs font-semibold text-slate-600">Nom complet *</label>
+        <input name="billing_name" class="input mt-1" required maxlength="120"
+               value="{_e(tenant.billing_name or user.app_name or "")}"></div>
+        <div><label class="text-xs font-semibold text-slate-600">Société</label>
+        <input name="billing_company" class="input mt-1" maxlength="120"
+               value="{_e(tenant.billing_company or "")}"></div>
+        <div><label class="text-xs font-semibold text-slate-600">Email de facturation *</label>
+        <input name="billing_email" type="email" class="input mt-1" required maxlength="200"
+               value="{_e(tenant.billing_email or user.email)}"></div>
+        <div><label class="text-xs font-semibold text-slate-600">Téléphone *</label>
+        <input name="billing_phone" class="input mt-1" required maxlength="40" placeholder="+225 ..."
+               value="{_e(tenant.billing_phone or "")}"></div>
+      </div>
+    </div>
+    <div>
+      <h2 class="font-bold text-sm mb-3">Moyen de paiement</h2>
+      <div class="space-y-2">{method_cards}</div>
+    </div>
+    <button class="btn-primary w-full justify-center">Valider ma commande</button>
+  </form>
+  <div class="lg:col-span-2 card p-4 sm:p-6">
+    <h2 class="font-bold text-sm mb-3">Récapitulatif</h2>
+    <div class="flex items-center justify-between mb-3 pb-3 border-b border-slate-100">
+      <span class="font-semibold">{_e(p_info['label'])}</span>
+      <span class="badge bg-brand-50 text-brand-700">30 jours</span>
+    </div>
+    <ul class="space-y-1.5 mb-4">
+      <li class="flex justify-between text-sm"><span class="text-slate-500">Envois/utilisateur/10min</span><b>{p_info['max_sends_per_user_per_10min']}</b></li>
+      <li class="flex justify-between text-sm"><span class="text-slate-500">Envois/IP/10min</span><b>{p_info['max_sends_per_ip_per_10min']}</b></li>
+      <li class="flex justify-between text-sm"><span class="text-slate-500">Cooldown</span><b>{p_info['cooldown_seconds']}s</b></li>
+      <li class="flex justify-between text-sm"><span class="text-slate-500">Essais de vérification</span><b>{p_info['max_verify_attempts']}</b></li>
+    </ul>
+    <div class="pt-3 border-t border-slate-100">
+      <p class="text-xs font-semibold text-slate-600 mb-1.5">Tarif selon le moyen de paiement :</p>
+      <ul class="space-y-1">{price_rows}</ul>
+    </div>
+    <p class="text-[11px] text-slate-400 mt-4">Paiement en ligne : activation immédiate.
+    Paiement manuel : activation par l’administrateur après réception.</p>
+  </div>
+</div>"""
+    return _dashboard_page(user, tenant, content, active="plan")
+
+
+@router.post("/dashboard/billing/submit")
+async def dashboard_billing_submit(
+    request: Request,
+    plan: str = Form(...),
+    provider: str = Form(...),
+    billing_name: str = Form(""),
+    billing_email: str = Form(""),
+    billing_phone: str = Form(""),
+    billing_company: str = Form(""),
+    settings: Settings = Depends(get_settings),
+    _: None = Depends(require_same_origin),
+):
+    user = await _require_user(request)
+    if plan not in PLANS or plan == "free":
+        raise HTTPException(status_code=422, detail="Plan invalide")
+    online = provider in available_providers(settings)
+    if provider != "manual" and not online:
+        raise HTTPException(status_code=422, detail="Moyen de paiement invalide")
+    if not (billing_name.strip() and billing_email.strip() and billing_phone.strip()):
+        return RedirectResponse(f"/dashboard/billing?plan={plan}&err=form", status_code=303)
+    redis = request.app.state.redis
+    store = TenantStore(redis)
+    await store.update(
+        user.tenant_id,
+        {
+            "plan_requested": plan,
+            "billing_name": billing_name.strip()[:120],
+            "billing_email": billing_email.strip()[:200],
+            "billing_phone": billing_phone.strip()[:40],
+            "billing_company": billing_company.strip()[:120] or None,
+        },
+    )
+    tenant = await store.get(user.tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant introuvable")
+    if provider == "manual":
+        tx_id = new_tx_id()
+        await record_tx(
+            redis,
+            tx_id,
+            {
+                "tenant_id": user.tenant_id,
+                "plan": plan,
+                "provider": "manual",
+                "amount": 0,
+                "currency": "",
+                "status": "pending_manual",
+                "ts": int(time.time()),
+                "date": date.today().isoformat(),
+                "billing_name": tenant.billing_name,
+                "billing_email": tenant.billing_email,
+                "billing_phone": tenant.billing_phone,
+            },
+        )
+        return RedirectResponse("/dashboard?plan_requested=" + plan, status_code=303)
+    base = (settings.public_base_url or "").rstrip("/") or str(request.base_url).rstrip("/")
+    res = await create_checkout(provider, plan, tenant, settings, base, redis)
+    if "error" in res:
+        return RedirectResponse(f"/dashboard/billing?plan={plan}&err=provider", status_code=303)
+    return RedirectResponse(res["url"], status_code=303)
 
 
 @router.post("/dashboard/billing/checkout")

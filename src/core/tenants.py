@@ -38,6 +38,11 @@ class Tenant(BaseModel):
     paid_until: str | None = None     # date ISO de fin de période payée
     payment_provider: str | None = None  # stripe | paypal | mobile | manual
     payment_ref: str | None = None    # customer id / subscription id
+    # Coordonnées de facturation saisies au checkout
+    billing_name: str | None = None
+    billing_email: str | None = None
+    billing_phone: str | None = None
+    billing_company: str | None = None
     brand_color: str = "#5060a8"
     email_logo_url: str | None = None
     email_footer: str | None = None

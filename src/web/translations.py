@@ -1119,6 +1119,86 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     "Annuler la demande": (
         "Cancel request", "Anfrage stornieren", "Cancelar solicitud", "إلغاء الطلب",
     ),
+    "Finaliser votre commande": (
+        "Complete your order", "Bestellung abschließen", "Finalizar tu pedido", "إتمام طلبك",
+    ),
+    "Complétez vos informations de facturation puis choisissez un moyen de paiement.": (
+        "Fill in your billing details then choose a payment method.",
+        "Geben Sie Ihre Rechnungsdaten ein und wählen Sie eine Zahlungsmethode.",
+        "Completa tus datos de facturación y elige un medio de pago.",
+        "أكمل بيانات الفوترة ثم اختر وسيلة الدفع.",
+    ),
+    "Informations de facturation": (
+        "Billing details", "Rechnungsdaten", "Datos de facturación", "بيانات الفوترة",
+    ),
+    "Nom complet *": ("Full name *", "Vollständiger Name *", "Nombre completo *", "الاسم الكامل *"),
+    "Société": ("Company", "Firma", "Empresa", "الشركة"),
+    "Email de facturation *": (
+        "Billing email *", "Rechnungs-E-Mail *", "Email de facturación *", "بريد الفوترة *",
+    ),
+    "Téléphone *": ("Phone *", "Telefon *", "Teléfono *", "الهاتف *"),
+    "Moyen de paiement": (
+        "Payment method", "Zahlungsmethode", "Medio de pago", "وسيلة الدفع",
+    ),
+    "Paiement manuel": ("Manual payment", "Manuelle Zahlung", "Pago manual", "الدفع اليدوي"),
+    "virement, cash, mobile money hors ligne": (
+        "bank transfer, cash, offline mobile money",
+        "Überweisung, Bargeld, Offline-Mobile-Money",
+        "transferencia, efectivo, dinero móvil sin conexión",
+        "تحويل بنكي أو نقدًا أو Mobile Money دون اتصال",
+    ),
+    "Validé par l’administrateur": (
+        "Validated by the administrator",
+        "Vom Administrator bestätigt",
+        "Validado por el administrador",
+        "يؤكدها المسؤول",
+    ),
+    "Valider ma commande": (
+        "Confirm my order", "Bestellung bestätigen", "Confirmar mi pedido", "تأكيد طلبي",
+    ),
+    "Récapitulatif": ("Summary", "Zusammenfassung", "Resumen", "الملخص"),
+    "30 jours": ("30 days", "30 Tage", "30 días", "30 يومًا"),
+    "Envois/utilisateur/10min": (
+        "Sends/user/10min", "Sendungen/Nutzer/10Min", "Envíos/usuario/10min", "إرسال/مستخدم/10د",
+    ),
+    "Envois/IP/10min": (
+        "Sends/IP/10min", "Sendungen/IP/10Min", "Envíos/IP/10min", "إرسال/IP/10د",
+    ),
+    "Cooldown": ("Cooldown", "Cooldown", "Enfriamiento", "فترة الانتظار"),
+    "Essais de vérification": (
+        "Verification attempts", "Verifizierungsversuche", "Intentos de verificación", "محاولات التحقق",
+    ),
+    "Tarif selon le moyen de paiement :": (
+        "Price by payment method:",
+        "Preis je nach Zahlungsmethode:",
+        "Precio según el medio de pago:",
+        "السعر حسب وسيلة الدفع:",
+    ),
+    "Tarif convenu avec l’administrateur": (
+        "Price agreed with the administrator",
+        "Preis mit dem Administrator vereinbart",
+        "Precio acordado con el administrador",
+        "السعر بالاتفاق مع المسؤول",
+    ),
+    "Paiement en ligne : activation immédiate. Paiement manuel : activation par l’administrateur après réception.": (
+        "Online payment: immediate activation. Manual payment: activated by the administrator upon receipt.",
+        "Online-Zahlung: sofortige Aktivierung. Manuelle Zahlung: Aktivierung durch den Administrator nach Eingang.",
+        "Pago en línea: activación inmediata. Pago manual: activado por el administrador al recibirlo.",
+        "الدفع الإلكتروني: تفعيل فوري. الدفع اليدوي: يفعّله المسؤول عند الاستلام.",
+    ),
+    "Retour au dashboard": ("Back to dashboard", "Zurück zum Dashboard", "Volver al panel", "العودة إلى اللوحة"),
+    "Informations de facturation incomplètes — vérifiez les champs requis.": (
+        "Incomplete billing details — check the required fields.",
+        "Unvollständige Rechnungsdaten — bitte Pflichtfelder prüfen.",
+        "Datos de facturación incompletos — revisa los campos obligatorios.",
+        "بيانات فوترة ناقصة — تحقق من الحقول المطلوبة.",
+    ),
+    "Le prestataire de paiement est momentanément indisponible — réessayez ou choisissez le paiement manuel.": (
+        "The payment provider is temporarily unavailable — try again or choose manual payment.",
+        "Der Zahlungsanbieter ist vorübergehend nicht erreichbar — versuchen Sie es erneut oder wählen Sie manuelle Zahlung.",
+        "El proveedor de pago no está disponible temporalmente — inténtalo de nuevo o elige el pago manual.",
+        "مزود الدفع غير متاح مؤقتًا — أعد المحاولة أو اختر الدفع اليدوي.",
+    ),
     "Carte bancaire": ("Card", "Bankkarte", "Tarjeta bancaria", "بطاقة بنكية"),
     "Mobile Money": ("Mobile Money", "Mobile Money", "Dinero móvil", "الدفع عبر الهاتف"),
     "Historique des paiements": (

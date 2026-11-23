@@ -757,6 +757,7 @@ async def admin_edit_tenant(
     if payments:
         _pst = {"paid": ("Payé", "bg-emerald-100 text-emerald-700"),
                 "created": ("En attente", "bg-amber-100 text-amber-700"),
+                "pending_manual": ("En attente", "bg-amber-100 text-amber-700"),
                 "failed": ("Échoué", "bg-rose-100 text-rose-700")}
         _prow = "".join(
             f'<tr class="border-t border-slate-100">'
@@ -797,7 +798,9 @@ async def admin_edit_tenant(
   <p class="text-sm text-slate-500 mb-4">Statut : {paid_badge}
     {f"· payé jusqu'au <b>{_e(tenant.paid_until)}</b>" if tenant.paid_until else ""}
     {f"· via {_e(tenant.payment_provider)}" if tenant.payment_provider else ""}
-    {f"· réf <code>{_e(tenant.payment_ref)}</code>" if tenant.payment_ref else ""}</p>
+    {f"· réf <code>{_e(tenant.payment_ref)}</code>" if tenant.payment_ref else ""}
+    {f'<br>Contact facturation : <b>{_e(tenant.billing_name)}</b> — {_e(tenant.billing_email)} · {_e(tenant.billing_phone)}' if tenant.billing_name else ""}
+    {f' · {_e(tenant.billing_company)}' if tenant.billing_name and tenant.billing_company else ""}</p>
   {plan_request_html}
   <div class="flex flex-wrap gap-2">
     <form method="post" action="/admin/tenants/{_e(tenant_id)}/billing">
