@@ -154,6 +154,27 @@ def available_providers(settings) -> dict[str, dict]:
     return out
 
 
+# Moyens de paiement hors ligne — toujours proposés, validés manuellement
+# par l'administrateur après réception effective du règlement.
+MANUAL_METHODS: dict[str, dict] = {
+    "virement": {"label": "Virement bancaire", "via": "IBAN / transfert"},
+    "momo": {"label": "Mobile Money", "via": "Orange / MTN / Wave / Moov — transfert direct"},
+    "cash": {"label": "Espèces / autre moyen", "via": "remise en main propre, Western Union…"},
+}
+
+
+def manual_method_details(settings, method: str) -> str:
+    """Coordonnées de réception affichées au client pour un moyen manuel."""
+    if method == "virement":
+        return settings.billing_bank_details or ""
+    if method == "momo":
+        parts = [x for x in (settings.billing_momo_number, settings.billing_momo_name) if x]
+        return " · ".join(parts)
+    if method == "cash":
+        return settings.billing_manual_note or ""
+    return ""
+
+
 def plan_price(settings, plan: str, provider: str) -> tuple[float | int, str]:
     """(montant, devise) selon le provider ; (0, '') si non tarifé."""
     mobile = provider == "mobile"

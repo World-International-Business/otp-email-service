@@ -764,7 +764,7 @@ async def admin_edit_tenant(
             f'<td class="py-2 pr-3 text-xs text-slate-500 whitespace-nowrap">{_e(p.get("date") or "—")}</td>'
             f'<td class="py-2 pr-3 text-xs font-semibold">{_e((p.get("plan") or "—").upper())}</td>'
             f'<td class="py-2 pr-3 text-xs whitespace-nowrap">{_e(str(p.get("amount") or "—"))} {_e(p.get("currency") or "")}</td>'
-            f'<td class="py-2 pr-3 text-xs text-slate-500">{_e(p.get("provider") or "—")}</td>'
+            f'<td class="py-2 pr-3 text-xs text-slate-500">{_e(p.get("method") or p.get("provider") or "—")}</td>'
             f'<td class="py-2 pr-3"><span class="badge {_pst.get(p.get("status"), ("?", "bg-slate-100 text-slate-500"))[1]}">'
             f'{_pst.get(p.get("status"), ("?", ""))[0]}</span></td>'
             f'<td class="py-2 text-right"><code class="text-[10px] text-slate-400">{_e(p.get("tx_id") or "")}</code></td></tr>'
