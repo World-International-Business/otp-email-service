@@ -1,0 +1,260 @@
+"""Tests d'intégration API — auth HMAC, queue d'envoi, idempotence,
+statuts, webhooks sortants et rappels de facturation.
+
+L'app tourne sur fakeredis + provider console (env de test) — aucun service
+externe requis. EMAIL_QUEUE_POLL_SECONDS=3600 neutralise le worker de fond :
+les tests pilotent process_*_once() manuellement (déterministe).
+"""
+
+import hashlib
+import hmac
+import json
+import re
+import time
+import uuid
+
+import pytest
+from fastapi.testclient import TestClient
+
+API_KEY = "k" * 64
+HMAC_SECRET = "s" * 32
+
+
+def _sign(body: bytes, secret: str = HMAC_SECRET, api_key: str = API_KEY) -> dict:
+    ts = str(int(time.time()))
+    nonce = uuid.uuid4().hex
+    sig = hmac.new(
+        secret.encode(), body + ts.encode() + b"|" + nonce.encode(), hashlib.sha256
+    ).hexdigest()
+    return {
+        "X-API-Key": api_key,
+        "X-Timestamp": ts,
+        "X-Nonce": nonce,
+        "X-HMAC-Signature": sig,
+    }
+
+
+def _post(client, path: str, payload: dict, extra_headers: dict | None = None):
+    body = json.dumps(payload).encode()
+    headers = {**_sign(body), **(extra_headers or {})}
+    return client.post(path, content=body,
+                       headers={"Content-Type": "application/json", **headers})
+
+
+def _get(client, path: str, secret: str = HMAC_SECRET, api_key: str = API_KEY):
+    return client.get(path, headers=_sign(b"", secret, api_key))
+
+
+class _SpyProvider:
+    """Provider capturant — enregistre les emails au lieu de les envoyer."""
+
+    def __init__(self, fail: bool = False):
+        self.sent: list[tuple] = []
+        self.fail = fail
+
+    async def send_email(self, to_email, subject, text_body, html_body,
+                         sender=None):
+        if self.fail:
+            from src.email_providers.base import EmailSendError
+            raise EmailSendError("smtp down")
+        self.sent.append((to_email, subject, text_body))
+        return True
+
+
+@pytest.fixture
+def client(monkeypatch):
+    for k, v in {
+        "API_KEY": API_KEY,
+        "HMAC_SECRET": HMAC_SECRET,
+        "FROM_EMAIL": "noreply@test.dev",
+        "FROM_NAME": "MailHub Test",
+        "EMAIL_PROVIDER": "console",
+        "USE_FAKEREDIS": "true",
+        "DEBUG": "true",
+        "ADMIN_API_KEY": "a" * 40,
+        "EMAIL_QUEUE_POLL_SECONDS": "3600",
+        "BILLING_CHECK_INTERVAL_SECONDS": "3600",
+    }.items():
+        monkeypatch.setenv(k, v)
+    from src.config import get_settings
+    get_settings.cache_clear()
+    import src.main as m
+    with TestClient(m.app) as c:
+        yield c
+
+
+@pytest.fixture
+def redis(client):
+    return client.app.state.redis
+
+
+async def test_health(client):
+    assert client.get("/health").status_code == 200
+
+
+async def test_auth_rejected_without_headers(client):
+    assert client.post("/v1/email/send", json={}).status_code == 401
+    assert client.post("/v1/otp/send", json={}).status_code == 401
+
+
+async def test_otp_send_and_verify_flow(client):
+    spy = _SpyProvider()
+    client.app.state.otp_service.email_provider = spy
+    resp = _post(client, "/v1/otp/send", {
+        "user_id": str(uuid.uuid4()),
+        "email": "user@example.com",
+        "country_code": "FR",
+        "purpose": "login_2fa",
+    })
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["channel"] == "email" and data["request_id"].startswith("req_")
+    # Le code n'est jamais dans la réponse API : on le lit dans le corps
+    # de l'email capturé par le provider espion.
+    code = re.search(r"\b(\d{6})\b", spy.sent[0][2]).group(1)
+    resp2 = _post(client, "/v1/otp/verify",
+                  {"request_id": data["request_id"], "code": code})
+    assert resp2.status_code == 200 and resp2.json()["verified"] is True
+
+
+async def test_otp_idempotency_key_replays_same_response(client):
+    client.app.state.otp_service.email_provider = _SpyProvider()
+    payload = {"user_id": str(uuid.uuid4()), "email": "u2@example.com",
+               "country_code": "FR", "purpose": "login_2fa"}
+    h = {"Idempotency-Key": "test-key-1"}
+    r1 = _post(client, "/v1/otp/send", payload, h)
+    r2 = _post(client, "/v1/otp/send", payload, h)
+    assert r1.status_code == r2.status_code == 200
+    # Même request_id => même code, aucun email supplémentaire.
+    assert r1.json()["request_id"] == r2.json()["request_id"]
+    assert len(client.app.state.otp_service.email_provider.sent) == 1
+
+
+async def test_email_send_queued_then_delivered(client, redis):
+    resp = _post(client, "/v1/email/send", {
+        "to_email": "client@example.com", "type": "notification",
+        "data": {"name": "Alice"},
+    })
+    assert resp.status_code == 200, resp.text
+    mid = resp.json()["message_id"]
+    assert resp.json()["status"] == "queued"
+
+    r = _get(client, f"/v1/email/status/{mid}")
+    assert r.status_code == 200 and r.json()["status"] == "queued"
+
+    from src.services.email_queue import process_email_queue_once
+    n = await process_email_queue_once(redis, client.app.state.email_service)
+    assert n == 1
+    r = _get(client, f"/v1/email/status/{mid}")
+    assert r.json()["status"] == "sent"
+
+
+async def test_email_idempotency_key(client):
+    payload = {"to_email": "x@example.com", "type": "notification", "data": {}}
+    h = {"Idempotency-Key": "mail-key-1"}
+    r1 = _post(client, "/v1/email/send", payload, h)
+    r2 = _post(client, "/v1/email/send", payload, h)
+    assert r1.json()["message_id"] == r2.json()["message_id"]
+
+
+async def test_status_is_tenant_scoped(client, redis):
+    """Le message_id d'un tenant n'est pas lisible par un autre tenant."""
+    from src.core.tenants import (
+        Tenant,
+        TenantStore,
+        generate_api_key,
+        generate_hmac_secret,
+        hash_api_key,
+    )
+
+    key2 = generate_api_key()
+    secret2 = generate_hmac_secret()
+    await TenantStore(redis).create(Tenant(
+        tenant_id="other", name="Other", api_key_hash=hash_api_key(key2),
+        hmac_secret=secret2, from_email="o@x.co", from_name="O",
+        allowed_purposes=["login_2fa"],
+    ))
+    resp = _post(client, "/v1/email/send",
+                 {"to_email": "a@b.co", "type": "notification", "data": {}})
+    mid = resp.json()["message_id"]
+    r = _get(client, f"/v1/email/status/{mid}", secret=secret2, api_key=key2)
+    assert r.status_code == 404
+
+
+async def test_queue_retry_then_dead_letter(client, redis):
+    """Provider en panne => retry puis dead + quota destinataire rendu."""
+    from src.services.email_queue import get_status, process_email_queue_once
+
+    client.app.state.email_service.email_provider = _SpyProvider(fail=True)
+    resp = _post(client, "/v1/email/send",
+                 {"to_email": "f@x.co", "type": "notification", "data": {}})
+    mid = resp.json()["message_id"]
+
+    await process_email_queue_once(redis, client.app.state.email_service,
+                                   max_attempts=2)
+    st = await get_status(redis, mid)
+    assert st["status"] == "retry" and st["attempts"] == 1
+
+    # Forcer l'échéance du retry
+    job_ids = await redis.zrange("mail:queue", 0, -1)
+    assert job_ids
+    for jid in job_ids:
+        await redis.zadd("mail:queue", {jid: 0})
+    await process_email_queue_once(redis, client.app.state.email_service,
+                                   max_attempts=2)
+    st = await get_status(redis, mid)
+    assert st["status"] == "dead" and "smtp down" in st["error"]
+
+
+async def test_outbound_webhook_signed_and_delivered(client, redis, respx_mock):
+    """Le tenant reçoit un POST signé HMAC quand l'email part."""
+    from src.core.tenants import TenantStore
+    from src.services.email_queue import process_email_queue_once
+    from src.services.webhooks import process_webhook_queue_once
+
+    await TenantStore(redis).update(
+        "default", {"webhook_url": "https://client.example.com/hook"})
+    route = respx_mock.post("https://client.example.com/hook").respond(200)
+
+    resp = _post(client, "/v1/email/send",
+                 {"to_email": "w@x.co", "type": "notification", "data": {}})
+    assert resp.status_code == 200
+    await process_email_queue_once(redis, client.app.state.email_service)
+    await process_webhook_queue_once(redis)
+
+    assert route.called
+    req = route.calls[0].request
+    assert req.headers["X-MailHub-Event"] == "email.sent"
+    expected = hmac.new(HMAC_SECRET.encode(), req.content,
+                        hashlib.sha256).hexdigest()
+    assert req.headers["X-MailHub-Signature"] == f"sha256={expected}"
+    body = json.loads(req.content)
+    assert body["event"] == "email.sent" and body["data"]["to"] == "w@x.co"
+
+
+async def test_stripe_webhook_requires_secret(client):
+    """Sans STRIPE_WEBHOOK_SECRET configuré : 404 ; mauvaise signature : 400."""
+    r = client.post("/v1/billing/webhooks/stripe",
+                    content=b"{}", headers={"stripe-signature": "x"})
+    assert r.status_code in (400, 404)
+
+
+async def test_billing_reminder_sends_email(client, redis):
+    """J-7 avant paid_until => email de rappel au compte dashboard."""
+    from datetime import date, timedelta
+
+    from src.core.tenants import TenantStore
+    from src.services.billing_reminders import run_billing_reminders
+    from src.web.users import WebUserStore
+
+    until = (date.today() + timedelta(days=7)).isoformat()
+    await TenantStore(redis).update("default", {
+        "plan": "pro", "billing_status": "active", "paid_until": until})
+    await WebUserStore(redis).create("boss@t.co", "Passw0rd!", "default", "App")
+
+    spy = _SpyProvider()
+    n = await run_billing_reminders(redis, spy)
+    assert n == 1
+    assert spy.sent[0][0] == "boss@t.co" and "expire" in spy.sent[0][1]
+    # Dédupliqué : un second passage n'envoie rien.
+    assert await run_billing_reminders(redis, spy) == 0

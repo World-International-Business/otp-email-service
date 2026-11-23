@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     signup_invite_code: str | None = None  # si défini, requis à l'inscription
     web_login_max_attempts: int = 5        # par IP / 10 min
 
-    email_provider: str = "gmail"
+    email_provider: str = "smtp"  # smtp | brevo | resend | console (« gmail » = alias legacy)
     from_email: EmailStr
     from_name: str = "SendBID"
 
@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     paypal_client_id: str | None = None
     paypal_client_secret: str | None = None
     paypal_webhook_id: str | None = None
+    paypal_env: str = "live"  # live | sandbox
     # Mobile money — Orange Money (Cameroon etc.)
     orange_money_merchant_key: str | None = None
     orange_money_merchant_secret: str | None = None
@@ -66,9 +67,26 @@ class Settings(BaseSettings):
     mtn_momo_api_user: str | None = None
     mtn_momo_api_key: str | None = None
     mtn_momo_subscription_key: str | None = None
+    # Agrégateur mobile money — CinetPay (Orange Money, MTN MoMo, Wave, Moov…)
+    cinetpay_api_key: str | None = None
+    cinetpay_site_id: str | None = None
+
+    # Tarifs affichés/facturés en ligne (0 ou absent = bouton masqué,
+    # le plan reste activable manuellement par l'admin comme avant)
+    plan_price_pro: float = 0.0           # carte/PayPal, devise billing_currency
+    plan_price_enterprise: float = 0.0
+    billing_currency: str = "EUR"
+    plan_price_pro_mobile: int = 0        # agrégateur mobile, devise billing_currency_mobile
+    plan_price_enterprise_mobile: int = 0
+    billing_currency_mobile: str = "XOF"
 
     # Résiliation automatique des abonnements expirés (secondes entre chaque balayage)
     billing_check_interval_seconds: int = 3600
+
+    # File d'envoi d'emails (livraison asynchrone + retries) et webhooks sortants
+    email_queue_enabled: bool = True      # False = envoi synchrone comme avant
+    email_queue_poll_seconds: float = 1.0  # intervalle de poll du worker
+    email_max_attempts: int = 4            # 1 essai + 3 retries (60s, 5min, 15min) puis dead
 
     risky_countries: str = "CN,RU,BY,IR,KP"
     rollout_percentage: int = Field(default=100, ge=0, le=100)

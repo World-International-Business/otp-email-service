@@ -62,7 +62,7 @@ otp-email-service/
 │   │
 │   ├── email_providers/            # Infrastructure d'envoi — interface commune
 │   │   ├── base.py                 # EmailProvider (abstract) + SenderIdentity
-│   │   ├── gmail.py                # SMTP STARTTLS via asyncio.to_thread
+│   │   ├── smtp.py                 # SMTP universel (Gmail, Yahoo, iCloud, Outlook…)
 │   │   ├── brevo.py                # API REST Brevo v3 (httpx, BREVO_API_KEY)
 │   │   ├── resend.py               # API REST Resend (httpx, RESEND_API_KEY)
 │   │   └── console.py              # Simulation : email dans les logs (dev uniquement)

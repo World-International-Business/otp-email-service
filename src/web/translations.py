@@ -316,11 +316,11 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
         "Configuración de tu remitente de email",
         "إعدادات مرسِل البريد الإلكتروني",
     ),
-    "Configurez l'adresse email utilisée pour envoyer VOS emails (Gmail : utilisez un": (
-        "Configure the email address used to send YOUR emails (Gmail: use an",
-        "Konfigurieren Sie die E-Mail-Adresse, über die IHRE E-Mails versendet werden (Gmail: verwenden Sie ein",
-        "Configura la dirección de email usada para enviar TUS emails (Gmail: usa una",
-        "اضبط عنوان البريد المستخدم لإرسال رسائلك أنت (Gmail: استخدم",
+    "Configurez l'adresse email utilisée pour envoyer VOS emails — tout serveur SMTP est supporté (Gmail, Yahoo, iCloud, Outlook, IONOS, OVH, Zoho…). Gmail, Yahoo et iCloud exigent un": (
+        "Configure the email address used to send YOUR emails — any SMTP server is supported (Gmail, Yahoo, iCloud, Outlook, IONOS, OVH, Zoho…). Gmail, Yahoo and iCloud require an",
+        "Konfigurieren Sie die E-Mail-Adresse für IHRE E-Mails — jeder SMTP-Server wird unterstützt (Gmail, Yahoo, iCloud, Outlook, IONOS, OVH, Zoho…). Gmail, Yahoo und iCloud erfordern ein",
+        "Configura la dirección de email usada para enviar TUS emails — se admite cualquier servidor SMTP (Gmail, Yahoo, iCloud, Outlook, IONOS, OVH, Zoho…). Gmail, Yahoo e iCloud requieren una",
+        "اضبط عنوان البريد المستخدم لإرسال رسائلك أنت — أي خادم SMTP مدعوم (Gmail، Yahoo، iCloud، Outlook، IONOS، OVH، Zoho…). يتطلب Gmail وYahoo وiCloud",
     ),
     "mot de passe d'application": ("app password", "App-Passwort", "contraseña de aplicación", "كلمة مرور التطبيق"),
     "Marque affichée": ("Displayed brand", "Angezeigte Marke", "Marca mostrada", "العلامة المعروضة"),
@@ -815,7 +815,7 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     ),
     "SMTP": ("SMTP", "SMTP", "SMTP", "SMTP"),
     "SMTP du client": ("Client's SMTP", "SMTP des Kunden", "SMTP del cliente", "SMTP الخاص بالعميل"),
-    "(vide = config globale du serveur ; IONOS : smtp.ionos.fr:587)": ("(empty = server's global config; IONOS: smtp.ionos.fr:587)", "(leer = globale Server-Konfiguration; IONOS: smtp.ionos.fr:587)", "(vacío = config global del servidor; IONOS: smtp.ionos.fr:587)", "(فارغ = الإعداد العام للخادم؛ IONOS: smtp.ionos.fr:587)"),
+    "(vide = config globale ; tout serveur SMTP : Gmail, Yahoo, iCloud, Outlook, IONOS, OVH, Zoho…)": ("(empty = global config; any SMTP server: Gmail, Yahoo, iCloud, Outlook, IONOS, OVH, Zoho…)", "(leer = globale Konfiguration; jeder SMTP-Server: Gmail, Yahoo, iCloud, Outlook, IONOS, OVH, Zoho…)", "(vacío = config global; cualquier servidor SMTP: Gmail, Yahoo, iCloud, Outlook, IONOS, OVH, Zoho…)", "(فارغ = الإعداد العام؛ أي خادم SMTP: Gmail، Yahoo، iCloud، Outlook، IONOS، OVH، Zoho…)"),
     "SMTP Password(vide = inchangé)": ("SMTP Password (empty = unchanged)", "SMTP-Passwort (leer = unverändert)", "Contraseña SMTP (vacío = sin cambios)", "كلمة مرور SMTP (فارغ = بدون تغيير)"),
     "Email expéditeur": ("Sender email", "Absender-E-Mail", "Email remitente", "بريد المرسل"),
     "Couleur emails": ("Email color", "E-Mail-Farbe", "Color de emails", "لون البريد"),
@@ -924,23 +924,23 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     # ------------------------------------------- reliquats
     "Contacter le support": ("Contact support", "Support kontaktieren", "Contactar soporte", "الاتصال بالدعم"),
     "Clé = tenant actif": ("Key = active tenant", "Schlüssel = aktiver Tenant", "Clave = tenant activo", "المفتاح = مستأجر نشط"),
-    "587 = STARTTLS (Gmail, IONOS) · 465 = SSL (OVH, Zoho, cPanel) — détection automatique.": (
-        "587 = STARTTLS (Gmail, IONOS) · 465 = SSL (OVH, Zoho, cPanel) — automatic detection.",
-        "587 = STARTTLS (Gmail, IONOS) · 465 = SSL (OVH, Zoho, cPanel) — automatische Erkennung.",
-        "587 = STARTTLS (Gmail, IONOS) · 465 = SSL (OVH, Zoho, cPanel) — detección automática.",
-        "587 = STARTTLS (Gmail، IONOS) · 465 = SSL (OVH، Zoho، cPanel) — كشف تلقائي.",
+    "587 = STARTTLS (la plupart des fournisseurs) · 465 = SSL — détection automatique selon le port.": (
+        "587 = STARTTLS (most providers) · 465 = SSL — automatic detection by port.",
+        "587 = STARTTLS (die meisten Anbieter) · 465 = SSL — automatische Erkennung anhand des Ports.",
+        "587 = STARTTLS (la mayoría de proveedores) · 465 = SSL — detección automática según el puerto.",
+        "587 = STARTTLS (معظم المزوّدين) · 465 = SSL — كشف تلقائي حسب المنفذ.",
     ),
-    "Avec Gmail, doit correspondre au SMTP User (ou à un alias « Envoyer en tant que » vérifié) — sinon Google réécrit l'expéditeur.": (
-        "With Gmail, must match the SMTP User (or a verified « Send as » alias) — otherwise Google rewrites the sender.",
-        "Bei Gmail muss es dem SMTP-Benutzer entsprechen (oder einem verifizierten « Senden als »-Alias) — sonst schreibt Google den Absender um.",
-        "Con Gmail, debe coincidir con el SMTP User (o un alias « Enviar como » verificado) — si no, Google reescribe el remitente.",
-        "مع Gmail، يجب أن يطابق مستخدم SMTP (أو اسم مستعار « إرسال باسم » موثّق) — وإلا يعيد Google كتابة المرسل.",
+    "Doit généralement correspondre au SMTP User (ou à un alias vérifié) — sinon le fournisseur réécrit l'expéditeur.": (
+        "Should generally match the SMTP User (or a verified alias) — otherwise the provider rewrites the sender.",
+        "Sollte in der Regel dem SMTP-Benutzer entsprechen (oder einem verifizierten Alias) — sonst schreibt der Anbieter den Absender um.",
+        "Generalmente debe coincidir con el SMTP User (o un alias verificado) — si no, el proveedor reescribe el remitente.",
+        "يجب عمومًا أن يطابق مستخدم SMTP (أو اسمًا مستعارًا موثّقًا) — وإلا يعيد المزوّد كتابة المُرسل.",
     ),
-    "Vide = config globale (.env) · Gmail : smtp.gmail.com · IONOS : smtp.ionos.fr (ou .com selon région) · OVH : ssl0.ovh.net · Zoho : smtp.zoho.com": (
-        "Empty = global config (.env) · Gmail: smtp.gmail.com · IONOS: smtp.ionos.fr (or .com depending on region) · OVH: ssl0.ovh.net · Zoho: smtp.zoho.com",
-        "Leer = globale Konfiguration (.env) · Gmail: smtp.gmail.com · IONOS: smtp.ionos.fr (oder .com je nach Region) · OVH: ssl0.ovh.net · Zoho: smtp.zoho.com",
-        "Vacío = config global (.env) · Gmail: smtp.gmail.com · IONOS: smtp.ionos.fr (o .com según la región) · OVH: ssl0.ovh.net · Zoho: smtp.zoho.com",
-        "فارغ = الإعداد العام (.env) · Gmail: smtp.gmail.com · IONOS: smtp.ionos.fr (أو .com حسب المنطقة) · OVH: ssl0.ovh.net · Zoho: smtp.zoho.com",
+    "Vide = config globale (.env) · Gmail : smtp.gmail.com · Yahoo : smtp.mail.yahoo.com · iCloud : smtp.mail.me.com · Outlook : smtp.office365.com · IONOS : smtp.ionos.fr · OVH : ssl0.ovh.net · Zoho : smtp.zoho.com": (
+        "Empty = global config (.env) · Gmail: smtp.gmail.com · Yahoo: smtp.mail.yahoo.com · iCloud: smtp.mail.me.com · Outlook: smtp.office365.com · IONOS: smtp.ionos.fr · OVH: ssl0.ovh.net · Zoho: smtp.zoho.com",
+        "Leer = globale Konfiguration (.env) · Gmail: smtp.gmail.com · Yahoo: smtp.mail.yahoo.com · iCloud: smtp.mail.me.com · Outlook: smtp.office365.com · IONOS: smtp.ionos.fr · OVH: ssl0.ovh.net · Zoho: smtp.zoho.com",
+        "Vacío = config global (.env) · Gmail: smtp.gmail.com · Yahoo: smtp.mail.yahoo.com · iCloud: smtp.mail.me.com · Outlook: smtp.office365.com · IONOS: smtp.ionos.fr · OVH: ssl0.ovh.net · Zoho: smtp.zoho.com",
+        "فارغ = الإعداد العام (.env) · Gmail: smtp.gmail.com · Yahoo: smtp.mail.yahoo.com · iCloud: smtp.mail.me.com · Outlook: smtp.office365.com · IONOS: smtp.ionos.fr · OVH: ssl0.ovh.net · Zoho: smtp.zoho.com",
     ),
     "— avec la": ("— with the", "— mit dem", "— con la", "— مع"),
     "Le mot de passe doit contenir au moins 8 caractères.": ("The password must be at least 8 characters.", "Das Passwort muss mindestens 8 Zeichen enthalten.", "La contraseña debe tener al menos 8 caracteres.", "يجب أن تحتوي كلمة المرور على 8 أحرف على الأقل."),
@@ -1098,6 +1098,69 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
         "Ihre Anfrage wurde gesendet.",
         "Tu solicitud ha sido enviada.",
         "تم إرسال طلبك.",
+    ),
+
+    # ---------------------------------------------------------- paiements
+    "Payer en ligne — activation immédiate après validation :": (
+        "Pay online — activated immediately after validation:",
+        "Online bezahlen — sofortige Aktivierung nach Bestätigung:",
+        "Pagar en línea — activación inmediata tras la validación:",
+        "ادفع عبر الإنترنت — التفعيل فوري بعد التأكيد:",
+    ),
+    "Carte bancaire": ("Card", "Bankkarte", "Tarjeta bancaria", "بطاقة بنكية"),
+    "Mobile Money": ("Mobile Money", "Mobile Money", "Dinero móvil", "الدفع عبر الهاتف"),
+    "Historique des paiements": (
+        "Payment history", "Zahlungsverlauf", "Historial de pagos", "سجل المدفوعات",
+    ),
+    "Transactions en ligne": (
+        "Online transactions", "Online-Transaktionen", "Transacciones en línea", "المعاملات عبر الإنترنت",
+    ),
+    "Payé": ("Paid", "Bezahlt", "Pagado", "مدفوع"),
+    "En attente": ("Pending", "Ausstehend", "Pendiente", "قيد الانتظار"),
+    "Échoué": ("Failed", "Fehlgeschlagen", "Fallido", "فشل"),
+    "Paiement confirmé — votre plan est actif.": (
+        "Payment confirmed — your plan is active.",
+        "Zahlung bestätigt — Ihr Plan ist aktiv.",
+        "Pago confirmado — tu plan está activo.",
+        "تم تأكيد الدفع — خطتك نشطة.",
+    ),
+    "Paiement reçu — activation en cours de confirmation, votre plan sera appliqué automatiquement dans quelques instants.": (
+        "Payment received — confirmation in progress, your plan will be applied automatically in a few moments.",
+        "Zahlung eingegangen — Bestätigung läuft, Ihr Plan wird in Kürze automatisch aktiviert.",
+        "Pago recibido — confirmación en curso, tu plan se aplicará automáticamente en unos instantes.",
+        "تم استلام الدفع — التأكيد جارٍ، سيتم تفعيل خطتك تلقائيًا خلال لحظات.",
+    ),
+    "Paiement annulé — aucun montant n'a été débité.": (
+        "Payment cancelled — no amount was charged.",
+        "Zahlung abgebrochen — es wurde kein Betrag abgebucht.",
+        "Pago cancelado — no se ha cobrado ningún importe.",
+        "تم إلغاء الدفع — لم يتم خصم أي مبلغ.",
+    ),
+    "Le paiement n'a pas pu être initialisé — réessayez ou contactez le support.": (
+        "The payment could not be initialized — try again or contact support.",
+        "Die Zahlung konnte nicht initialisiert werden — versuchen Sie es erneut oder kontaktieren Sie den Support.",
+        "No se pudo iniciar el pago — inténtalo de nuevo o contacta con soporte.",
+        "تعذّر بدء عملية الدفع — حاول مرة أخرى أو تواصل مع الدعم.",
+    ),
+
+    # ---------------------------------------------------------- webhooks
+    "Webhook de notification (URL)": (
+        "Notification webhook (URL)", "Benachrichtigungs-Webhook (URL)", "Webhook de notificación (URL)", "ويب هوك الإشعارات (URL)",
+    ),
+    "Votre endpoint reçoit les statuts d'envoi en temps réel : email.sent, email.failed, email.dead, otp.sent, otp.verified — POST JSON signé X-MailHub-Signature avec votre secret HMAC.": (
+        "Your endpoint receives delivery statuses in real time: email.sent, email.failed, email.dead, otp.sent, otp.verified — signed JSON POST via X-MailHub-Signature with your HMAC secret.",
+        "Ihr Endpunkt empfängt Sendestatus in Echtzeit: email.sent, email.failed, email.dead, otp.sent, otp.verified — signierter JSON-POST via X-MailHub-Signature mit Ihrem HMAC-Secret.",
+        "Tu endpoint recibe los estados de envío en tiempo real: email.sent, email.failed, email.dead, otp.sent, otp.verified — POST JSON firmado con X-MailHub-Signature y tu secreto HMAC.",
+        "تستقبل نقطة النهاية حالات الإرسال في الوقت الفعلي: email.sent، email.failed، email.dead، otp.sent، otp.verified — طلب POST JSON موقّع عبر X-MailHub-Signature بسرّك HMAC.",
+    ),
+    "Webhook sortant (URL)": (
+        "Outgoing webhook (URL)", "Ausgehender Webhook (URL)", "Webhook saliente (URL)", "ويب هوك صادر (URL)",
+    ),
+    "Reçoit les événements email.sent / email.failed / email.dead / otp.* — body JSON signé par X-MailHub-Signature (HMAC du tenant).": (
+        "Receives email.sent / email.failed / email.dead / otp.* events — JSON body signed via X-MailHub-Signature (tenant HMAC).",
+        "Empfängt die Ereignisse email.sent / email.failed / email.dead / otp.* — JSON-Body signiert via X-MailHub-Signature (Tenant-HMAC).",
+        "Recibe los eventos email.sent / email.failed / email.dead / otp.* — cuerpo JSON firmado con X-MailHub-Signature (HMAC del tenant).",
+        "يستقبل أحداث email.sent / email.failed / email.dead / otp.* — جسم JSON موقّع عبر X-MailHub-Signature (HMAC الخاص بالمستأجر).",
     ),
 }
 

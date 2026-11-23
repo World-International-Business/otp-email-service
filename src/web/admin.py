@@ -31,6 +31,7 @@ from src.core.tenants import (
     plan_quota_updates,
 )
 from src.services.events import get_events
+from src.services.payments import list_payments
 from src.web.i18n import I18nRoute
 from src.web.routes import LOGO_FULL, LOGO_MARK, UI_ICONS, _head
 from src.web.users import WebUserStore
@@ -442,8 +443,11 @@ def _tenant_form(action: str, t: Tenant | None, include_account: bool) -> str:
   <input name="email_logo_url" type="url" class="input mt-1" value="{g('email_logo_url')}" placeholder="https://…"></div>
   <div class="md:col-span-2"><label class="text-xs font-semibold text-slate-600">Pied de page emails</label>
   <input name="email_footer" class="input mt-1" value="{g('email_footer')}" placeholder="Vide = texte par défaut"></div>
+  <div class="md:col-span-2"><label class="text-xs font-semibold text-slate-600">Webhook sortant (URL)</label>
+  <input name="webhook_url" type="url" class="input mt-1" value="{g('webhook_url')}" placeholder="https://client.com/webhooks/mailhub">
+  <p class="text-[11px] text-slate-400 mt-1">Reçoit les événements email.sent / email.failed / email.dead / otp.* — body JSON signé par X-MailHub-Signature (HMAC du tenant).</p></div>
 
-  <h3 class="font-bold text-sm text-slate-700 md:col-span-2 mt-2">SMTP du client <span class="font-normal text-slate-400">(vide = config globale du serveur ; IONOS : smtp.ionos.fr:587)</span></h3>
+  <h3 class="font-bold text-sm text-slate-700 md:col-span-2 mt-2">SMTP du client <span class="font-normal text-slate-400">(vide = config globale ; tout serveur SMTP : Gmail, Yahoo, iCloud, Outlook, IONOS, OVH, Zoho…)</span></h3>
   <div><label class="text-xs font-semibold text-slate-600">SMTP Host</label>
   <input name="smtp_host" class="input mt-1" value="{g('smtp_host')}" placeholder="smtp.ionos.fr"></div>
   <div><label class="text-xs font-semibold text-slate-600">SMTP Port</label>
@@ -549,6 +553,7 @@ async def admin_create_tenant(
     brand_color: str = Form("#5060a8"),
     email_logo_url: str = Form(""),
     email_footer: str = Form(""),
+    webhook_url: str = Form(""),
     smtp_host: str = Form(""),
     smtp_port: str = Form(""),
     smtp_user: str = Form(""),
@@ -596,6 +601,7 @@ async def admin_create_tenant(
         brand_color=brand_color.strip() or "#5060a8",
         email_logo_url=email_logo_url.strip() or None,
         email_footer=email_footer.strip() or None,
+        webhook_url=webhook_url.strip() or None,
         smtp_host=smtp_host.strip() or None,
         smtp_port=_int_or_none(smtp_port),
         smtp_user=smtp_user.strip() or None,
@@ -746,6 +752,28 @@ async def admin_edit_tenant(
       <input type="hidden" name="action" value="reject_plan">
       <button class="text-xs font-semibold text-slate-600 border border-slate-200 rounded-lg px-4 py-2 hover:bg-slate-50">Refuser la demande</button>
     </form>"""
+    payments = await list_payments(request.app.state.redis, tenant_id)
+    payments_html = ""
+    if payments:
+        _pst = {"paid": ("Payé", "bg-emerald-100 text-emerald-700"),
+                "created": ("En attente", "bg-amber-100 text-amber-700"),
+                "failed": ("Échoué", "bg-rose-100 text-rose-700")}
+        _prow = "".join(
+            f'<tr class="border-t border-slate-100">'
+            f'<td class="py-2 pr-3 text-xs text-slate-500 whitespace-nowrap">{_e(p.get("date") or "—")}</td>'
+            f'<td class="py-2 pr-3 text-xs font-semibold">{_e((p.get("plan") or "—").upper())}</td>'
+            f'<td class="py-2 pr-3 text-xs whitespace-nowrap">{_e(str(p.get("amount") or "—"))} {_e(p.get("currency") or "")}</td>'
+            f'<td class="py-2 pr-3 text-xs text-slate-500">{_e(p.get("provider") or "—")}</td>'
+            f'<td class="py-2 pr-3"><span class="badge {_pst.get(p.get("status"), ("?", "bg-slate-100 text-slate-500"))[1]}">'
+            f'{_pst.get(p.get("status"), ("?", ""))[0]}</span></td>'
+            f'<td class="py-2 text-right"><code class="text-[10px] text-slate-400">{_e(p.get("tx_id") or "")}</code></td></tr>'
+            for p in payments
+        )
+        payments_html = f"""
+  <div class="mt-4 pt-4 border-t border-slate-100">
+    <p class="text-xs font-semibold text-slate-600 mb-2">Transactions en ligne</p>
+    <div class="overflow-x-auto"><table class="w-full"><tbody>{_prow}</tbody></table></div>
+  </div>"""
     content = f"""
 <div class="flex items-center justify-between mb-6">
   <div>
@@ -787,6 +815,7 @@ async def admin_edit_tenant(
     </form>
     {reject_plan_form}
   </div>
+  {payments_html}
   <p class="text-[11px] text-slate-400 mt-3">À utiliser si Stripe / PayPal / mobile money est
   indisponible ou pour un paiement reçu hors ligne — la trace reste via le prestataire « manual ».</p>
 </div>
@@ -829,6 +858,7 @@ async def admin_update_tenant(
     brand_color: str = Form("#5060a8"),
     email_logo_url: str = Form(""),
     email_footer: str = Form(""),
+    webhook_url: str = Form(""),
     smtp_host: str = Form(""),
     smtp_port: str = Form(""),
     smtp_user: str = Form(""),
@@ -864,6 +894,7 @@ async def admin_update_tenant(
         "brand_color": brand_color.strip() or "#5060a8",
         "email_logo_url": _opt(email_logo_url),
         "email_footer": _opt(email_footer),
+        "webhook_url": _opt(webhook_url),
         "smtp_host": _opt(smtp_host),
         "smtp_port": _int_or_none(smtp_port),
         "smtp_user": _opt(smtp_user),

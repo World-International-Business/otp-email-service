@@ -8,7 +8,7 @@ from fastapi import HTTPException, Request
 
 from src.config import Settings, get_settings
 from src.email_providers.base import EmailProvider
-from src.email_providers.gmail import GmailSMTPProvider
+from src.email_providers.smtp import SMTPProvider
 from src.services.email_service import EmailService
 from src.services.otp_service import OTPService
 
@@ -32,9 +32,10 @@ def get_redis_client(settings: Settings):
 def get_email_provider(settings: Settings | None = None) -> EmailProvider:
     settings = settings or get_settings()
     provider = settings.email_provider.lower()
-    if provider in ("gmail", "smtp"):
-        # "smtp" = alias explicite du provider SMTP générique (adresses pro)
-        return GmailSMTPProvider(settings)
+    if provider in ("smtp", "gmail"):
+        # SMTP universel : Gmail, Yahoo, iCloud, Outlook, IONOS, OVH, Zoho…
+        # « gmail » = alias legacy des anciennes configs.
+        return SMTPProvider(settings)
     if provider == "brevo":
         from src.email_providers.brevo import BrevoProvider
 

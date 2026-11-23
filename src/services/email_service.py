@@ -12,9 +12,11 @@ from src.core.models import EmailSendRequest, EmailSendResponse, EmailType, Lang
 from src.core.security import hash_code
 from src.core.tenants import Tenant
 from src.email_providers.base import EmailProvider, EmailSendError, SenderIdentity
+from src.services.email_queue import set_status
 from src.services.email_templates import generic_html, resolve_logo_url
 from src.services.events import incr_daily_stat, log_event, mask_email
 from src.services.rate_limiter import RateLimiter
+from src.services.webhooks import enqueue_webhook
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +45,10 @@ class EmailService:
             smtp_use_ssl=tenant.smtp_use_ssl,
         )
 
-    async def send(
+    async def prepare_send(
         self, tenant: Tenant, request: EmailSendRequest, client_ip: str = "unknown"
-    ) -> EmailSendResponse:
-        """Envoie un email selon son type. Lève HTTPException en cas d'échec."""
+    ) -> tuple[str, str, str, RateLimiter]:
+        """Rend le contenu + réserve le quota destinataire (422/429 sinon)."""
         to_email = str(request.to_email)
         # Rendre AVANT de réserver un slot quota : un type=custom incomplet
         # lève 422 ici — il ne doit pas consommer le quota du destinataire.
@@ -65,22 +67,78 @@ class EmailService:
                 detail="Too many emails to this recipient",
                 headers={"Retry-After": str(retry_after)},
             )
+        return subject, text_body, html_body, limiter
 
-        message_id = f"msg_{secrets.token_urlsafe(16)}"
+    async def deliver(
+        self,
+        tenant: Tenant,
+        to_email: str,
+        subject: str,
+        text_body: str,
+        html_body: str,
+        message_id: str,
+        email_type: str,
+        client_ip: str = "unknown",
+    ) -> None:
+        """Livraison SMTP + stats + événements + webhook `email.sent`.
 
-        reason = ""
+        Ne touche pas au rate limiting (réservé à l'amont, rendu au dead).
+        Lève EmailSendError — l'appelant décide : 502 (synchrone) ou retry
+        (file d'attente).
+        """
         try:
             success = await self.email_provider.send_email(
-                to_email=request.to_email,
+                to_email=to_email,
                 subject=subject,
                 text_body=text_body,
                 html_body=html_body,
                 sender=self._sender(tenant),
             )
         except EmailSendError as exc:
-            success, reason = False, str(exc)[:150]
-
+            raise EmailSendError(str(exc)[:150]) from exc
         if not success:
+            raise EmailSendError("provider returned False")
+
+        await self.redis.incr(f"{tenant.key_prefix()}stats:emails_sent")
+        await incr_daily_stat(self.redis, tenant, "emails_sent")
+        await log_event(
+            self.redis, tenant, "email_sent",
+            email=mask_email(to_email),
+            email_type=email_type, message_id=message_id,
+            client_ip=client_ip,
+        )
+        logger.info(
+            "email_sent",
+            extra={
+                "tenant_id": tenant.tenant_id,
+                "message_id": message_id,
+                "type": email_type,
+                "to_email_hash": hash_code(to_email),
+            },
+        )
+        await enqueue_webhook(
+            self.redis, tenant, "email.sent",
+            {"message_id": message_id, "to": to_email,
+             "type": email_type, "subject": subject},
+        )
+
+    async def send(
+        self, tenant: Tenant, request: EmailSendRequest, client_ip: str = "unknown"
+    ) -> EmailSendResponse:
+        """Envoie synchrone (test dashboard, appels internes). Lève 429/502."""
+        to_email = str(request.to_email)
+        subject, text_body, html_body, limiter = await self.prepare_send(
+            tenant, request, client_ip
+        )
+        message_id = f"msg_{secrets.token_urlsafe(16)}"
+
+        try:
+            await self.deliver(
+                tenant, to_email, subject, text_body, html_body,
+                message_id, request.type.value, client_ip,
+            )
+        except EmailSendError as exc:
+            reason = str(exc)[:150]
             await limiter.release_email(to_email)
             logger.error(
                 "email_send_failed",
@@ -88,38 +146,30 @@ class EmailService:
                     "tenant_id": tenant.tenant_id,
                     "message_id": message_id,
                     "type": request.type.value,
-                    "to_email_hash": hash_code(str(request.to_email)),
+                    "to_email_hash": hash_code(to_email),
                 },
             )
             await log_event(
                 self.redis, tenant, "email_failed",
-                email=mask_email(str(request.to_email)),
+                email=mask_email(to_email),
                 email_type=request.type.value,
             )
-            detail = f"Failed to send email: {reason}" if reason else "Failed to send email"
-            raise HTTPException(status_code=502, detail=detail)
+            await enqueue_webhook(
+                self.redis, tenant, "email.failed",
+                {"message_id": message_id, "to": to_email,
+                 "type": request.type.value, "error": reason,
+                 "will_retry": False},
+            )
+            raise HTTPException(
+                status_code=502, detail=f"Failed to send email: {reason}"
+            ) from exc
 
-        await self.redis.incr(f"{tenant.key_prefix()}stats:emails_sent")
-        await incr_daily_stat(self.redis, tenant, "emails_sent")
-        await log_event(
-            self.redis, tenant, "email_sent",
-            email=mask_email(to_email),
-            email_type=request.type.value, message_id=message_id,
-            client_ip=client_ip,
+        await set_status(
+            self.redis, message_id, tenant.tenant_id, "sent",
+            to=to_email, type_=request.type.value, attempts=1,
         )
-
-        logger.info(
-            "email_sent",
-            extra={
-                "tenant_id": tenant.tenant_id,
-                "message_id": message_id,
-                "type": request.type.value,
-                "to_email_hash": hash_code(str(request.to_email)),
-            },
-        )
-
         return EmailSendResponse(
-            sent=True,
+            sent=True, status="sent",
             message_id=message_id,
             to_email=request.to_email,
         )

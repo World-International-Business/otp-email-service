@@ -11,9 +11,11 @@ from src.core.otp import OTPStore, verify_otp
 from src.core.security import hash_code, is_in_rollout
 from src.core.tenants import Tenant
 from src.email_providers.base import EmailProvider, EmailSendError, SenderIdentity
+from src.services.email_queue import set_status
 from src.services.email_templates import otp_html, resolve_logo_url
 from src.services.events import incr_daily_stat, log_event, mask_email
 from src.services.rate_limiter import RateLimiter
+from src.services.webhooks import enqueue_webhook
 
 logger = logging.getLogger(__name__)
 
@@ -144,9 +146,27 @@ class OTPService:
                 self.redis, tenant, "otp_send_failed",
                 email=mask_email(email), purpose=purpose,
             )
+            await set_status(
+                self.redis, request_id, tenant.tenant_id, "failed",
+                to=email, type_="otp", error=reason, attempts=1,
+            )
+            await enqueue_webhook(
+                self.redis, tenant, "otp.failed",
+                {"request_id": request_id, "to": email,
+                 "purpose": purpose, "error": reason},
+            )
             detail = f"Failed to send email: {reason}" if reason else "Failed to send email"
             raise HTTPException(status_code=502, detail=detail)
 
+        await set_status(
+            self.redis, request_id, tenant.tenant_id, "sent",
+            to=email, type_="otp", attempts=1,
+        )
+        await enqueue_webhook(
+            self.redis, tenant, "otp.sent",
+            {"request_id": request_id, "to": email,
+             "purpose": purpose, "expires_in": tenant.otp_ttl_seconds},
+        )
         await log_event(
             self.redis, tenant, "otp_sent",
             email=mask_email(email), purpose=purpose,
@@ -185,6 +205,11 @@ class OTPService:
         if verified:
             await self.redis.incr(f"{tenant.key_prefix()}stats:otps_verified")
             await incr_daily_stat(self.redis, tenant, "otps_verified")
+            await set_status(self.redis, request_id, tenant.tenant_id, "verified")
+            await enqueue_webhook(
+                self.redis, tenant, "otp.verified",
+                {"request_id": request_id},
+            )
 
         await log_event(
             self.redis, tenant,
