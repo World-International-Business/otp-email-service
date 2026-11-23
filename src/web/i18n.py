@@ -49,7 +49,7 @@ def safe_next(url: str | None) -> str:
 # attributs (placeholder, aria-label, title, alt) et les nœuds de texte.
 _TOKEN = re.compile(
     r'(?P<skip><script\b.*?</script>|<style\b.*?</style>)'
-    r'|\b(?P<attr>placeholder|aria-label|title|alt)="(?P<val>[^"]*)"'
+    r'|\b(?P<attr>placeholder|aria-label|title|alt|data-confirm|data-confirm-ok|data-confirm-title)="(?P<val>[^"]*)"'
     r'|(?<=>)(?P<text>[^<]+)(?=<)',
     re.S | re.I,
 )
@@ -109,7 +109,7 @@ _CHEVRON = (
     '<path stroke-linecap="round" stroke-linejoin="round" d="M6 9l6 6 6-6"/></svg>'
 )
 _CHECK = (
-    '<svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">'
+    '<svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">'
     '<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>'
 )
 

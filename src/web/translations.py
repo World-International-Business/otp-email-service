@@ -59,7 +59,7 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     "SHA-256 signé": ("SHA-256 signed", "SHA-256-signiert", "Firmado SHA-256", "موقّع بـ SHA-256"),
 
     # ---------------------------------------------------------- services
-    "NOS SERVICES": ("OUR SERVICES", "UNSERE LEISTUNGEN", "NUESTROS SERVICIOS", "خدماتنا"),
+    "Nos services": ("Our services", "Unsere Leistungen", "Nuestros servicios", "خدماتنا"),
     "Tout pour vos emails & OTP": (
         "Everything for your emails &amp; OTPs",
         "Alles für Ihre E-Mails &amp; OTPs",
@@ -185,7 +185,6 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     "Healthcheck Redis + version": ("Redis healthcheck + version", "Redis-Healthcheck + Version", "Healthcheck de Redis + versión", "فحص حالة Redis + الإصدار"),
 
     # ---------------------------------------------------------- tarifs
-    "TARIFS": ("PRICING", "PREISE", "PRECIOS", "الأسعار"),
     "Simple et transparent": ("Simple and transparent", "Einfach und transparent", "Simple y transparente", "بسيط وشفّاف"),
     "Commencez gratuitement, passez à l'échelle quand vous êtes prêt.": (
         "Start for free, scale when you're ready.",
@@ -407,14 +406,13 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
         "Prueba los endpoints en vivo. Los emails se registran en el servidor (proveedor de consola).",
         "اختبر نقاط النهاية مباشرة. تُسجَّل الرسائل في الخادم (مزوّد وحدة التحكم).",
     ),
-    "1. Envoyer un OTP": ("1. Send an OTP", "1. OTP senden", "1. Enviar un OTP", "1. إرسال OTP"),
+    "Vérifier le code": ("Verify the code", "Code prüfen", "Verificar el código", "التحقق من الرمز"),
     "Code pays": ("Country code", "Ländercode", "Código de país", "رمز الدولة"),
     "Langue": ("Language", "Sprache", "Idioma", "اللغة"),
     "Envoyer l'OTP": ("Send the OTP", "OTP senden", "Enviar el OTP", "إرسال OTP"),
-    "2. Vérifier le code": ("2. Verify the code", "2. Code prüfen", "2. Verificar el código", "2. التحقق من الرمز"),
+    "Email transactionnel": ("Transactional email", "Transaktions-E-Mail", "Email transaccional", "بريد معاملاتي"),
     "Code": ("Code", "Code", "Código", "الرمز"),
     "Vérifier": ("Verify", "Prüfen", "Verificar", "تحقق"),
-    "3. Email transactionnel": ("3. Transactional email", "3. Transaktions-E-Mail", "3. Email transaccional", "3. بريد معاملاتي"),
     "Destinataire": ("Recipient", "Empfänger", "Destinatario", "المستلم"),
     "Type": ("Type", "Typ", "Tipo", "النوع"),
     "Titre / Sujet": ("Title / Subject", "Titel / Betreff", "Título / Asunto", "العنوان / الموضوع"),
@@ -780,6 +778,8 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     "Créer le compte": ("Create the account", "Konto erstellen", "Crear la cuenta", "إنشاء الحساب"),
     "Compte dashboard du client": ("Client's dashboard account", "Dashboard-Konto des Kunden", "Cuenta de dashboard del cliente", "حساب لوحة تحكم العميل"),
     "Comptes dashboard existants": ("Existing dashboard accounts", "Vorhandene Dashboard-Konten", "Cuentas de dashboard existentes", "حسابات لوحة التحكم الموجودة"),
+    "Aucune activité pour le moment — vos envois apparaîtront ici.": ("No activity yet — your sends will appear here.", "Noch keine Aktivität — Ihre Sendungen erscheinen hier.", "Sin actividad por ahora — tus envíos aparecerán aquí.", "لا يوجد نشاط بعد — ستظهر إرسالاتك هنا."),
+    "Aucun tenant — créez le premier.": ("No tenant — create the first one.", "Kein Mandant — erstellen Sie den ersten.", "Ningún tenant — crea el primero.", "لا يوجد مستأجر — أنشئ الأول."),
     "Aucun compte dashboard.": ("No dashboard account.", "Kein Dashboard-Konto.", "Sin cuenta de dashboard.", "لا يوجد حساب لوحة تحكم."),
     "Aucune demande en cours.": ("No pending request.", "Keine ausstehende Anfrage.", "Ninguna solicitud en curso.", "لا يوجد طلب قيد الانتظار."),
     "Aucune interaction enregistrée.": ("No interaction recorded.", "Keine Interaktion aufgezeichnet.", "Ninguna interacción registrada.", "لا توجد تفاعلات مسجلة."),
@@ -997,13 +997,38 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     "Python — client complet": ("Python — complete client", "Python — vollständiger Client", "Python — cliente completo", "Python — عميل كامل"),
     "Page introuvable — MailHub": ("Page not found — MailHub", "Seite nicht gefunden — MailHub", "Página no encontrada — MailHub", "الصفحة غير موجودة — MailHub"),
     "Branding automatique : sans": ("Automatic branding: without", "Automatisches Branding: ohne", "Branding automático: sin", "العلامة التلقائية: بدون"),
-    "(ou avec un": ("(or with a", "(oder mit einem", "(o con un", "(أو مع"),
-    "HTML — sans balise": ("HTML — without an", "HTML — ohne Tag", "HTML — sin etiqueta", "HTML — بدون وسم"),
-    "), le contenu est mis en page avec votre branding (couleur, logo, pied de page). Un document HTML complet (": (
-        "), the content is laid out with your branding (color, logo, footer). A complete HTML document (",
-        ") wird der Inhalt mit Ihrem Branding (Farbe, Logo, Fußzeile) formatiert. Ein vollständiges HTML-Dokument (",
-        "), el contenido se maqueta con tu branding (color, logo, pie de página). Un documento HTML completo (",
-        ")، يُنسَّق المحتوى بهويتك البصرية (اللون، الشعار، التذييل). مستند HTML كامل (",
+    ", le texte est mis en page avec votre branding (couleur, logo, pied de page) et": (
+        ", the text is laid out with your branding (color, logo, footer) and",
+        ", wird der Text mit Ihrem Branding (Farbe, Logo, Fußzeile) formatiert und",
+        ", el texto se maqueta con tu branding (color, logo, pie de página) y",
+        "، يُنسَّق النص بهويتك البصرية (اللون، الشعار، التذييل) و",
+    ),
+    "devient le titre de l'email. Avec un": (
+        "becomes the email title. With an",
+        "wird zum E-Mail-Titel. Mit einem",
+        "se convierte en el título del email. Con un",
+        "يصبح عنوان البريد. مع",
+    ),
+    "fragment": ("fragment", "Fragment", "fragmento", "جزء"),
+    "HTML (sans balise": ("HTML (without an", "HTML (ohne Tag", "HTML (sin etiqueta", "HTML (بدون وسم"),
+    "), le fragment est enrobé du même branding": (
+        "), the fragment is wrapped in the same branding",
+        ") wird das Fragment in dasselbe Branding gehüllt",
+        "), el fragmento se envuelve con el mismo branding",
+        ")، يُغلَّف الجزء بنفس الهوية البصرية",
+    ),
+    "sans titre injecté": ("with no injected title", "ohne eingefügten Titel", "sin título inyectado", "بدون عنوان مُدرَج"),
+    "— incluez votre propre": (
+        "— include your own",
+        "— fügen Sie Ihre eigene",
+        "— incluye tu propio",
+        "— أدرج العنصر الخاص بك",
+    ),
+    "dans le fragment. Un document HTML complet (": (
+        "in the fragment. A complete HTML document (",
+        "im Fragment. Ein vollständiges HTML-Dokument (",
+        "en el fragmento. Un documento HTML completo (",
+        "في الجزء. مستند HTML كامل (",
     ),
     ") est envoyé tel quel — utilisez alors du CSS": (
         ") is sent as-is — then use",
@@ -1011,6 +1036,7 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
         ") se envía tal cual — usa entonces",
         ") يُرسَل كما هو — استخدم حينها",
     ),
+
 
     "Reset MDP": ("Reset password", "Passwort zurücksetzen", "Restablecer contraseña", "إعادة تعيين كلمة المرور"),
 
@@ -1025,13 +1051,61 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     "Purpose refusé": ("Purpose denied", "Purpose abgelehnt", "Purpose denegado", "الغرض مرفوض"),
     "Email envoyé": ("Email sent", "E-Mail gesendet", "Email enviado", "بريد مُرسل"),
     "Email échoué": ("Email failed", "E-Mail fehlgeschlagen", "Email fallido", "فشل البريد"),
-    "✓ Valider un paiement (+30 j)": ("✓ Validate a payment (+30 d)", "✓ Zahlung bestätigen (+30 T)", "✓ Validar un pago (+30 d)", "✓ تأكيد دفعة (+30 ي)"),
-
     "— « Valider un paiement » appliquera ce plan et ses quotas.": (
         "— « Validate a payment » will apply this plan and its quotas.",
         "— « Zahlung bestätigen » wendet diesen Plan und seine Quotas an.",
         "— « Validar un pago » aplicará este plan y sus cuotas.",
         "— «تأكيد دفعة» سيطبّق هذه الخطة وحصصها.",
+    ),
+    # ------------------------------------------------------------------
+    # Design system : modale de confirmation, attributs data-confirm
+    # ------------------------------------------------------------------
+    "Menu": ("Menu", "Menü", "Menú", "القائمة"),
+    "Compte": ("Account", "Konto", "Cuenta", "الحساب"),
+    "@Confirmation": ("Confirmation", "Bestätigung", "Confirmación", "تأكيد"),
+    "@Confirmer ?": ("Confirm?", "Bestätigen?", "¿Confirmar?", "تأكيد؟"),
+    "@Supprimer ce compte utilisateur ?": (
+        "Delete this user account?",
+        "Dieses Benutzerkonto löschen?",
+        "¿Eliminar esta cuenta de usuario?",
+        "حذف حساب المستخدم هذا؟",
+    ),
+    "@Supprimer définitivement ce tenant et ses comptes ?": (
+        "Permanently delete this tenant and its accounts?",
+        "Diesen Tenant und seine Konten endgültig löschen?",
+        "¿Eliminar definitivamente este tenant y sus cuentas?",
+        "حذف هذا المستأجر وحساباته نهائيًا؟",
+    ),
+    "@Refuser cette demande de plan ?": (
+        "Decline this plan request?",
+        "Diese Plan-Anfrage ablehnen?",
+        "¿Rechazar esta solicitud de plan?",
+        "رفض طلب الخطة هذا؟",
+    ),
+    "@Résilier ce client ?": (
+        "Terminate this client?",
+        "Diesen Kunden kündigen?",
+        "¿Dar de baja a este cliente?",
+        "إنهاء اشتراك هذا العميل؟",
+    ),
+    "@Régénérer vos clés API et HMAC ? Les anciennes seront invalidées immédiatement et les intégrations existantes cesseront de fonctionner.": (
+        "Regenerate your API and HMAC keys? The old ones will be invalidated immediately and existing integrations will stop working.",
+        "API- und HMAC-Schlüssel neu generieren? Die alten werden sofort ungültig und bestehende Integrationen funktionieren nicht mehr.",
+        "¿Regenerar tus claves API y HMAC? Las anteriores quedarán invalidadas de inmediato y las integraciones existentes dejarán de funcionar.",
+        "إعادة توليد مفاتيح API و HMAC؟ ستُبطل القديمة فورًا وستتوقف عمليات الدمج الحالية عن العمل.",
+    ),
+    "@Régénérer les clés": ("Regenerate keys", "Schlüssel neu generieren", "Regenerar claves", "إعادة توليد المفاتيح"),
+    "@Régénérer": ("Regenerate", "Neu generieren", "Regenerar", "إعادة توليد"),
+    "@Continuer": ("Continue", "Fortfahren", "Continuar", "متابعة"),
+    "@Supprimer": ("Delete", "Löschen", "Eliminar", "حذف"),
+    "@Refuser": ("Decline", "Ablehnen", "Rechazar", "رفض"),
+    "@Résilier": ("Terminate", "Kündigen", "Dar de baja", "إنهاء"),
+    "Enregistré": ("Saved", "Gespeichert", "Guardado", "تم الحفظ"),
+    "Votre demande a bien été envoyée.": (
+        "Your request has been sent.",
+        "Ihre Anfrage wurde gesendet.",
+        "Tu solicitud ha sido enviada.",
+        "تم إرسال طلبك.",
     ),
 }
 
@@ -1188,4 +1262,28 @@ RAW: dict[str, tuple[str, str, str, str]] = {
         "# te toca activar tu canal SMS (Twilio...)",
         "# يقع عليك تفعيل قناة SMS الخاصة بك (Twilio...)",
     ),
+    # ------------------------------------------------------------------
+    # Micro-lib UI (toasts / modale de confirmation)
+    # ------------------------------------------------------------------
+    "'Confirmer'": ("'Confirm'", "'Bestätigen'", "'Confirmar'", "'تأكيد'"),
+    "'Annuler'": ("'Cancel'", "'Abbrechen'", "'Cancelar'", "'إلغاء'"),
+    "'Copié !'": ("'Copied!'", "'Kopiert!'", "'¡Copiado!'", "'تم النسخ!'"),
+    "'Copie impossible'": (
+        "'Copy failed'",
+        "'Kopieren fehlgeschlagen'",
+        "'No se pudo copiar'",
+        "'فشل النسخ'",
+    ),
+    "'Confirmation'": ("'Confirmation'", "'Bestätigung'", "'Confirmación'", "'تأكيد'"),
+    "'Erreur réseau'": (
+        "'Network error'",
+        "'Netzwerkfehler'",
+        "'Error de red'",
+        "'خطأ في الشبكة'",
+    ),
+    "'OTP envoyé'": ("'OTP sent'", "'OTP gesendet'", "'OTP enviado'", "'تم إرسال OTP'"),
+    "'Code vérifié'": ("'Code verified'", "'Code verifiziert'", "'Código verificado'", "'تم التحقق من الرمز'"),
+    "'Code incorrect'": ("'Incorrect code'", "'Falscher Code'", "'Código incorrecto'", "'رمز خاطئ'"),
+    "'Email envoyé'": ("'Email sent'", "'E-Mail gesendet'", "'Email enviado'", "'تم إرسال البريد'"),
+    "'Erreur'": ("'Error'", "'Fehler'", "'Error'", "'خطأ'"),
 }

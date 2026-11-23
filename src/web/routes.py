@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import uuid
+from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
@@ -59,21 +60,127 @@ def _e(value) -> str:
 # Templates HTML — design moderne (Tailwind)
 # =====================================================================
 
-LOGO_SVG = """<svg class="w-9 h-9" viewBox="0 0 40 40" fill="none">
-<rect width="40" height="40" rx="10" fill="url(#g)"/>
-<path d="M10 14.5l10 7 10-7" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M11 13.5h18a1.5 1.5 0 011.5 1.5v10a1.5 1.5 0 01-1.5 1.5H11a1.5 1.5 0 01-1.5-1.5V15a1.5 1.5 0 011.5-1.5z" stroke="#fff" stroke-width="2.4"/>
-<defs><linearGradient id="g" x1="0" y1="0" x2="40" y2="40"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#a855f7"/></linearGradient></defs>
-</svg>"""
-
-
-FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="10" fill="#4f46e5"/><path d="M10 14.5l10 7 10-7" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M11 13.5h18a1.5 1.5 0 011.5 1.5v10a1.5 1.5 0 01-1.5 1.5H11a1.5 1.5 0 01-1.5-1.5V15a1.5 1.5 0 011.5-1.5z" stroke="#fff" stroke-width="2.4" fill="none"/></svg>"""
-
-FAVICON_URI = (
-    "data:image/svg+xml,"
-    + FAVICON_SVG.replace("\n", "").replace('"', "'").replace("<", "%3C").replace(">", "%3E")
-    .replace("#", "%23")
+LOGO_MARK = (
+    '<img src="/static/mailhub-mark.png?v=3" alt="MailHub" class="h-10 w-auto">'
 )
+LOGO_FULL = (
+    '<img src="/static/mailhub-logo.png?v=3" alt="MailHub" class="h-16 w-auto">'
+)
+LOGO_SVG = LOGO_MARK
+
+FAVICON_URI = "/static/mailhub-mark.png?v=3"
+
+# Micro-bibliothèque UI partagée par toutes les pages : toasts, modale de
+# confirmation, copie presse-papiers, états de chargement des formulaires.
+# Aucune dépendance — vanilla JS, < 3 Ko. Les chaînes FR sont traduites via
+# le mécanisme RAW d'i18n.
+UI_JS = """<script>
+(function () {
+  var T = {
+    confirm: 'Confirmer', cancel: 'Annuler', title: 'Confirmation',
+    copied: 'Copié !', copyfail: 'Copie impossible', neterr: 'Erreur réseau'
+  };
+  var ICONS = {
+    ok: '<svg fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>',
+    err: '<svg fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>',
+    warn: '<svg fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>',
+    info: '<svg fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M12 8h.01M12 11v5"/></svg>',
+    shield: '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linejoin="round" d="M12 3l7 3v5c0 4.4-3 8.4-7 10-4-1.6-7-5.6-7-10V6z"/></svg>'
+  };
+
+  function root() {
+    var r = document.querySelector('.toast-root');
+    if (!r) { r = document.createElement('div'); r.className = 'toast-root'; document.body.appendChild(r); }
+    return r;
+  }
+
+  window.toast = function (msg, type, ms) {
+    type = type || 'info'; ms = ms || 3800;
+    var t = document.createElement('div');
+    t.className = 'toast t-' + type;
+    t.innerHTML = ICONS[type === 'err' ? 'err' : type] || ICONS.info;
+    var span = document.createElement('span');
+    span.textContent = msg;
+    t.appendChild(span);
+    root().appendChild(t);
+    setTimeout(function () { t.classList.add('out'); setTimeout(function () { t.remove(); }, 240); }, ms);
+  };
+
+  window.uiConfirm = function (opts) {
+    return new Promise(function (resolve) {
+      var ov = document.createElement('div');
+      ov.className = 'modal-ov';
+      var danger = opts && opts.danger;
+      ov.innerHTML =
+        '<div class="modal-card" role="dialog" aria-modal="true">' +
+          '<div class="modal-ic' + (danger ? ' danger' : '') + '">' + (danger ? ICONS.warn : ICONS.shield) + '</div>' +
+          '<p class="font-bold text-base mb-1.5">' + (opts.title || T.title) + '</p>' +
+          '<p class="text-sm text-slate-500 leading-relaxed mb-6">' + opts.msg + '</p>' +
+          '<div class="flex gap-3 justify-end">' +
+            '<button type="button" class="btn-soft" data-x="0">' + T.cancel + '</button>' +
+            '<button type="button" class="' + (danger ? 'btn-danger' : 'btn-soft') + '" data-x="1" autofocus>' +
+              (opts.ok || T.confirm) + '</button>' +
+          '</div>' +
+        '</div>';
+      function done(v) { ov.remove(); document.removeEventListener('keydown', onKey); resolve(v); }
+      function onKey(e) { if (e.key === 'Escape') done(false); }
+      ov.addEventListener('click', function (e) {
+        if (e.target === ov) return done(false);
+        var b = e.target.closest('[data-x]');
+        if (b) done(b.getAttribute('data-x') === '1');
+      });
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(ov);
+      var b = ov.querySelector('[data-x="1"]'); if (b) b.focus();
+    });
+  };
+
+  window.copyText = function (text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(
+        function () { toast(T.copied, 'ok', 1800); },
+        function () { toast(T.copyfail, 'err'); }
+      );
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); toast(T.copied, 'ok', 1800); }
+      catch (e) { toast(T.copyfail, 'err'); }
+      ta.remove();
+    }
+  };
+
+  // data-confirm="message" sur un <form> -> modale avant soumission réelle.
+  // data-confirm-danger -> variante rouge pour les actions destructives.
+  document.addEventListener('submit', function (e) {
+    var f = e.target;
+    if (!(f instanceof HTMLFormElement)) return;
+    var msg = f.getAttribute('data-confirm');
+    if (msg && !f.dataset.confirmOk) {
+      e.preventDefault();
+      uiConfirm({
+        msg: msg,
+        danger: f.hasAttribute('data-confirm-danger'),
+        ok: f.getAttribute('data-confirm-ok') || undefined,
+        title: f.getAttribute('data-confirm-title') || undefined
+      }).then(function (ok) {
+        if (!ok) return;
+        f.dataset.confirmOk = '1';
+        if (f.requestSubmit) f.requestSubmit(); else f.submit();
+      });
+      return;
+    }
+    var btn = f.querySelector('button[type="submit"]:not([data-noload]), button:not([type]):not([data-noload])');
+    if (btn) { btn.classList.add('is-loading'); btn.disabled = true; }
+  }, true);
+
+  // data-copy="texte" -> copie + toast
+  document.addEventListener('click', function (e) {
+    var c = e.target.closest('[data-copy]');
+    if (c) { e.preventDefault(); copyText(c.getAttribute('data-copy')); }
+  });
+})();
+</script>"""
 
 
 def _head(title: str) -> str:
@@ -83,13 +190,38 @@ def _head(title: str) -> str:
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="description" content="MailHub — API d'emails transactionnels et de codes OTP. Multi-tenant, sécurisée HMAC, intégration en 5 minutes.">
-<link rel="icon" type="image/svg+xml" href="{FAVICON_URI}">
+<link rel="icon" type="image/png" href="{FAVICON_URI}">
 <title>{title} — MailHub</title>
 <style>{TAILWIND_CSS}</style>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+{UI_JS}
 </head>"""
+
+
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+_STATIC_TYPES = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml",
+    ".ico": "image/x-icon", ".woff": "font/woff", ".woff2": "font/woff2",
+}
+
+
+@router.get("/static/{path:path}")
+async def static_asset(path: str):
+    """Assets locaux (logo, polices) — whitelist extensions + anti-traversal."""
+    target = (_STATIC_DIR / path).resolve()
+    if (
+        not str(target).startswith(str(_STATIC_DIR))
+        or target.suffix.lower() not in _STATIC_TYPES
+        or not target.is_file()
+    ):
+        raise HTTPException(status_code=404, detail="Asset introuvable")
+    return Response(
+        target.read_bytes(),
+        media_type=_STATIC_TYPES[target.suffix.lower()],
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 def _footer(logged_in: bool = False) -> str:
@@ -100,10 +232,10 @@ def _footer(logged_in: bool = False) -> str:
         '        <a href="/login" class="hover:text-white transition">Connexion</a>'
     )
     return f"""
-<footer class="bg-slate-950 text-slate-400">
+<footer class="footer bg-[#0a0b14] text-slate-400">
   <div class="max-w-6xl mx-auto px-6 py-10 md:py-14 grid md:grid-cols-3 gap-8 md:gap-10">
     <div>
-      <div class="flex items-center gap-2.5 text-white font-extrabold mb-3">{LOGO_SVG} MailHub</div>
+      <div class="flex items-center gap-2.5 text-white font-extrabold mb-3">{LOGO_MARK}</div>
       <p class="text-sm leading-relaxed">API d'emails transactionnels et de codes OTP.
       Sécurisée, multi-tenant, self-hostable.</p>
     </div>
@@ -143,11 +275,10 @@ def _landing_page(content: str, logged_in: bool = False) -> HTMLResponse:
                        '      <a href="/register" class="btn-primary text-center text-sm my-3">Commencer</a>')
     return HTMLResponse(f"""{_head("Accueil")}
 <body class="bg-slate-50 text-slate-800">
-<nav class="bg-white/90 backdrop-blur border-b border-slate-200 sticky top-0 z-20">
+<nav class="bg-white/85 backdrop-blur-md border-b border-slate-200/80 sticky top-0 z-20 shadow-[0_1px_12px_rgba(13,15,30,.05)]">
   <div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
     <a href="/" class="flex items-center gap-2.5 font-extrabold text-lg text-slate-900">
       {LOGO_SVG}
-      MailHub
     </a>
     <div class="hidden md:flex items-center gap-6 text-sm">
       <a href="/#services" class="navlink">Services</a>
@@ -205,15 +336,14 @@ def _dashboard_page(user, tenant, content: str, active: str = "dashboard", debug
         ("demo", "Tester l'API", "/demo"),
     ]
     nav = "".join(
-        f'<a href="{url}" class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium '
-        f'{"bg-brand-600 text-white shadow-lg shadow-brand-600/30" if key == active else "text-slate-400 hover:bg-white/5 hover:text-white"} transition">'
-        f'{icons[key]}{label}</a>'
+        f'<a href="{url}" class="sb-link{" on" if key == active else ""}">'
+        f'{icons[key]}<span>{label}</span></a>'
         for key, label, url in items
     )
     return HTMLResponse(f"""{_head("Dashboard")}
 <body class="bg-slate-100 text-slate-800">
-<header class="md:hidden fixed top-0 inset-x-0 h-14 bg-slate-900 text-white flex items-center justify-between px-4 z-20">
-  <a href="/dashboard" class="flex items-center gap-2 font-extrabold">{LOGO_SVG} MailHub</a>
+<header class="md:hidden fixed top-0 inset-x-0 h-14 bg-[#0d0f1e] text-white flex items-center justify-between px-4 z-20">
+  <a href="/dashboard" class="flex items-center gap-2 font-extrabold">{LOGO_SVG}</a>
   <div class="flex items-center gap-1">
     __LANG_SWITCH_HEADER__
     <button type="button" aria-label="Menu"
@@ -226,17 +356,18 @@ def _dashboard_page(user, tenant, content: str, active: str = "dashboard", debug
 <div id="sbOverlay" class="hidden fixed inset-0 bg-black/50 z-20 md:hidden"
      onclick="document.getElementById('sidebar').classList.add('-translate-x-full');this.classList.add('hidden')"></div>
 <div class="flex min-h-screen">
-  <aside id="sidebar" class="w-64 bg-slate-900 text-white flex flex-col fixed inset-y-0 z-30 overflow-y-auto transform -translate-x-full md:translate-x-0 transition-transform duration-200">
+  <aside id="sidebar" class="w-64 bg-[#0d0f1e] text-white flex flex-col fixed inset-y-0 z-30 overflow-y-auto transform -translate-x-full md:translate-x-0 transition-transform duration-200">
     <div class="h-16 flex items-center gap-2.5 px-6 border-b border-white/10 shrink-0">
       {LOGO_SVG}
-      <span class="font-extrabold">MailHub</span>
       <button type="button" aria-label="Fermer" class="ml-auto md:hidden p-1.5 rounded-lg hover:bg-white/10"
               onclick="document.getElementById('sidebar').classList.add('-translate-x-full');document.getElementById('sbOverlay').classList.add('hidden')">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </div>
-    <nav class="flex-1 px-3 py-5 space-y-1">{nav}
-      <a href="/documentation" class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-white/5 hover:text-white transition">{icons['docs']}Documentation</a>
+    <nav class="flex-1 px-3 py-5 space-y-1">
+      <p class="sb-cap">Menu</p>{nav}
+      <p class="sb-cap mt-6">Compte</p>
+      <a href="/documentation" class="sb-link">{icons['docs']}<span>Documentation</span></a>
     </nav>
     <div class="px-5 py-5 border-t border-white/10">
       <div class="mb-4">__LANG_SWITCH_SIDEBAR__</div>
@@ -303,12 +434,12 @@ async def _require_user(request: Request):
 # =====================================================================
 
 ICON = {
-    "lock": """<svg class="w-6 h-6" fill="none" stroke="#6366f1" stroke-width="2" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 118 0v3"/></svg>""",
-    "mail": """<svg class="w-6 h-6" fill="none" stroke="#6366f1" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>""",
-    "layers": """<svg class="w-6 h-6" fill="none" stroke="#6366f1" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2l9 5-9 5-9-5 9-5z"/><path d="M3 12l9 5 9-5"/><path d="M3 17l9 5 9-5"/></svg>""",
-    "shield": """<svg class="w-6 h-6" fill="none" stroke="#6366f1" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"/><path d="M9 12l2 2 4-4"/></svg>""",
-    "gauge": """<svg class="w-6 h-6" fill="none" stroke="#6366f1" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>""",
-    "code": """<svg class="w-6 h-6" fill="none" stroke="#6366f1" stroke-width="2" viewBox="0 0 24 24"><path d="M8 6l-6 6 6 6M16 6l6 6-6 6"/></svg>""",
+    "lock": """<svg class="w-6 h-6" fill="none" stroke="#5060a8" stroke-width="2" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 118 0v3"/></svg>""",
+    "mail": """<svg class="w-6 h-6" fill="none" stroke="#5060a8" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>""",
+    "layers": """<svg class="w-6 h-6" fill="none" stroke="#5060a8" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2l9 5-9 5-9-5 9-5z"/><path d="M3 12l9 5 9-5"/><path d="M3 17l9 5 9-5"/></svg>""",
+    "shield": """<svg class="w-6 h-6" fill="none" stroke="#5060a8" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"/><path d="M9 12l2 2 4-4"/></svg>""",
+    "gauge": """<svg class="w-6 h-6" fill="none" stroke="#5060a8" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>""",
+    "code": """<svg class="w-6 h-6" fill="none" stroke="#5060a8" stroke-width="2" viewBox="0 0 24 24"><path d="M8 6l-6 6 6 6M16 6l6 6-6 6"/></svg>""",
     "globe": """<svg class="w-6 h-6" fill="none" stroke="#8b5cf6" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/></svg>""",
     "chart": """<svg class="w-6 h-6" fill="none" stroke="#10b981" stroke-width="2" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg>""",
 }
@@ -319,6 +450,8 @@ UI_ICONS = {
     "error": '<svg class="w-4 h-4 inline-block -mt-0.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M9 9l6 6M15 9l-6 6"/></svg>',
     "clock": '<svg class="w-4 h-4 inline-block -mt-0.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 7v5l3.5 2"/></svg>',
     "warn": '<svg class="w-4 h-4 inline-block -mt-0.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v5m0 3.5v.01M10.3 3.9L2.6 17a2 2 0 001.7 3h15.4a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>',
+    "inbox": '<svg fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13l3-8h12l3 8v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5z"/><path stroke-linecap="round" d="M3 13h5l1.5 3h5L16 13h5"/></svg>',
+    "users": '<svg fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path stroke-linecap="round" d="M3.5 19c.5-3 2.8-5 5.5-5s5 2 5.5 5M16 8.5a3 3 0 100-6M17.5 14.2c2 .6 3.4 2.3 3.9 4.8"/></svg>',
 }
 
 
@@ -349,7 +482,7 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
          "border-brand-200"),
         (ICON["mail"], "Emails transactionnels",
          "Bienvenue, notifications, confirmations de transaction ou email 100 % libre — FR & EN.",
-         "border-violet-200"),
+         "border-accent-200"),
         (ICON["layers"], "Multi-tenant",
          "Chaque application cliente : clés propres, branding, quotas et données isolées dans Redis.",
          "border-blue-200"),
@@ -365,7 +498,7 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
     ]
     services_html = "".join(
         f"""<div class="card card-lift p-6 transition-all border-t-4 {bc}">
-          <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-50 to-violet-100 border border-brand-100 flex items-center justify-center mb-4">{icon}</div>
+          <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-50 to-accent-100 border border-brand-100 flex items-center justify-center mb-4">{icon}</div>
           <h3 class="font-bold mb-1.5">{t}</h3>
           <p class="text-sm text-slate-500 leading-relaxed">{d}</p>
         </div>"""
@@ -390,7 +523,7 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
           <p class="text-3xl font-black mt-2">{price}</p>
           <p class="text-sm text-slate-500 mt-1 mb-5">{desc}</p>
           <ul class="space-y-2.5 text-sm text-slate-600">
-            {''.join(f'<li class="flex gap-2"><span class="text-emerald-500 font-bold">✓</span>{f_}</li>' for f_ in feats)}
+            {''.join(f'<li class="flex gap-2"><span class="check"></span>{f_}</li>' for f_ in feats)}
           </ul>
           <a href="/register" class="{'btn-primary' if hot else 'btn-outline'} w-full text-center mt-6 block">Choisir</a>
         </div>"""
@@ -401,11 +534,11 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
 <section class="hero-bg text-white relative overflow-hidden">
   <div class="absolute inset-0 grid-pattern"></div>
   <div class="orb w-96 h-96 bg-brand-500 -top-20 -left-20"></div>
-  <div class="orb w-80 h-80 bg-violet-500 top-40 -right-16"></div>
+  <div class="orb w-80 h-80 bg-accent-500 top-40 -right-16"></div>
   <div class="max-w-6xl mx-auto px-6 py-16 md:py-28 relative">
     <div class="grid lg:grid-cols-2 gap-14 items-center">
       <div class="text-left">
-        <span class="badge bg-white/10 text-indigo-200 border border-white/20 backdrop-blur fade-up">
+        <span class="badge bg-white/10 text-brand-200 border border-white/20 backdrop-blur fade-up">
           API OTP & Emails transactionnels
         </span>
         <h1 class="mt-7 text-4xl sm:text-5xl md:text-[3.6rem] font-black tracking-tight leading-[1.06] fade-up fade-up-1">
@@ -422,14 +555,14 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
           {'<a href="/demo" class="btn-ghost text-base text-center">Essayer la console</a>' if settings.demo_enabled else '<a href="/docs" class="btn-ghost text-base text-center">Documentation API</a>'}
         </div>
         <div class="mt-10 flex flex-wrap gap-x-7 gap-y-2 text-xs text-slate-400 fade-up fade-up-3">
-          <span class="inline-flex items-center gap-1.5"><span class="text-emerald-400">✓</span> Sans carte bancaire</span>
-          <span class="inline-flex items-center gap-1.5"><span class="text-emerald-400">✓</span> Self-hostable</span>
-          <span class="inline-flex items-center gap-1.5"><span class="text-emerald-400">✓</span> Sécurité HMAC-SHA256</span>
+          <span class="inline-flex items-center gap-1.5"><span class="check check-dark"></span> Sans carte bancaire</span>
+          <span class="inline-flex items-center gap-1.5"><span class="check check-dark"></span> Self-hostable</span>
+          <span class="inline-flex items-center gap-1.5"><span class="check check-dark"></span> Sécurité HMAC-SHA256</span>
         </div>
       </div>
       <div class="relative fade-up fade-up-2 hidden lg:block">
         <div class="glass rounded-2xl p-1.5 shadow-2xl">
-          <div class="bg-slate-950/80 rounded-xl overflow-hidden">
+          <div class="bg-[#0a0b14]/80 rounded-xl overflow-hidden">
             <div class="flex items-center gap-2 px-4 py-3 border-b border-white/10">
               <span class="w-3 h-3 rounded-full bg-rose-400"></span>
               <span class="w-3 h-3 rounded-full bg-amber-400"></span>
@@ -437,7 +570,7 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
               <span class="text-xs text-slate-400 ml-2 font-mono">api.sh</span>
             </div>
             <pre class="p-5 text-[13px] leading-relaxed font-mono text-slate-300"><span class="text-slate-500"># Envoyer un OTP</span>
-<span class="text-violet-400">curl</span> -X POST {str('/v1/otp/send')} \\
+<span class="text-accent-400">curl</span> -X POST {str('/v1/otp/send')} \\
   -H <span class="text-emerald-300">"X-API-Key: ••••"</span> \\
   -d <span class="text-amber-300">'{{"email":"client@ex.com","purpose":"login_2fa"}}'</span>
 
@@ -452,7 +585,7 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
             <p class="text-[11px] text-slate-400">il y a 0,4 s — boîte de réception</p>
           </div>
         </div>
-        <div class="floaty floaty-2 absolute -bottom-7 -left-5 bg-slate-900 rounded-xl shadow-xl border border-white/10 px-4 py-3 flex items-center gap-3">
+        <div class="floaty floaty-2 absolute -bottom-7 -left-5 bg-[#0d0f1e] rounded-xl shadow-xl border border-white/10 px-4 py-3 flex items-center gap-3">
           <span class="w-9 h-9 rounded-lg bg-brand-600/20 text-brand-300 flex items-center justify-center font-mono text-[10px] font-bold">OTP</span>
           <div>
             <p class="text-[11px] text-slate-400">Code de vérification</p>
@@ -467,16 +600,16 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
 
 <section class="max-w-6xl mx-auto px-6 -mt-8 relative z-10 pb-4">
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-    <div class="card p-5 text-center"><p class="text-2xl font-black text-brand-600">6</p><p class="text-xs text-slate-500 mt-1">Endpoints sécurisés</p></div>
-    <div class="card p-5 text-center"><p class="text-2xl font-black text-brand-600">&lt;30ms</p><p class="text-xs text-slate-500 mt-1">Latence API</p></div>
-    <div class="card p-5 text-center"><p class="text-2xl font-black text-brand-600">∞</p><p class="text-xs text-slate-500 mt-1">Tenants</p></div>
-    <div class="card p-5 text-center"><p class="text-2xl font-black text-brand-600">HMAC</p><p class="text-xs text-slate-500 mt-1">SHA-256 signé</p></div>
+    <div class="card kpi p-5 text-center"><p class="text-2xl font-black text-brand-600">6</p><p class="text-xs text-slate-500 mt-1">Endpoints sécurisés</p></div>
+    <div class="card kpi p-5 text-center"><p class="text-2xl font-black text-brand-600">&lt;30ms</p><p class="text-xs text-slate-500 mt-1">Latence API</p></div>
+    <div class="card kpi p-5 text-center"><p class="text-2xl font-black text-brand-600">∞</p><p class="text-xs text-slate-500 mt-1">Tenants</p></div>
+    <div class="card kpi p-5 text-center"><p class="text-2xl font-black text-brand-600">HMAC</p><p class="text-xs text-slate-500 mt-1">SHA-256 signé</p></div>
   </div>
 </section>
 
 <section id="services" class="max-w-6xl mx-auto px-6 py-14 md:py-20">
   <div class="text-center mb-12">
-    <span class="badge bg-brand-50 text-brand-700 border border-brand-100">NOS SERVICES</span>
+    <span class="eyebrow">Nos services</span>
     <h2 class="text-3xl md:text-4xl font-extrabold mt-4">Tout pour vos emails & OTP</h2>
     <p class="text-slate-500 mt-3 max-w-xl mx-auto">Une plateforme complète, pensée pour les développeurs et les produits qui grandissent.</p>
   </div>
@@ -490,17 +623,17 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
   </div>
   <div class="grid md:grid-cols-3 gap-6">
     <div class="card card-lift p-7 text-center transition-all">
-      <div class="w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-violet-600 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">1</div>
+      <div class="w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-accent-600 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">1</div>
       <h3 class="font-bold mb-2">Créez votre compte</h3>
       <p class="text-sm text-slate-500">Un tenant + une clé API + un secret HMAC sont générés instantanément.</p>
     </div>
     <div class="card card-lift p-7 text-center transition-all">
-      <div class="w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-violet-600 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">2</div>
+      <div class="w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-accent-600 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">2</div>
       <h3 class="font-bold mb-2">Configurez votre expéditeur</h3>
       <p class="text-sm text-slate-500">Votre adresse email et votre SMTP dans le dashboard — test intégré.</p>
     </div>
     <div class="card card-lift p-7 text-center transition-all">
-      <div class="w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-violet-600 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">3</div>
+      <div class="w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-accent-600 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">3</div>
       <h3 class="font-bold mb-2">Intégrez en un appel</h3>
       <p class="text-sm text-slate-500">POST signé HMAC vers <code>/v1/otp/send</code> ou <code>/v1/email/send</code>.</p>
     </div>
@@ -516,13 +649,13 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
       </div>
     </div>
     <div class="overflow-x-auto">
-    <table class="w-full text-sm min-w-[620px]">
-      <thead><tr class="text-left text-slate-400 text-xs uppercase tracking-wider border-b bg-slate-50">
-        <th class="py-3 pl-5 sm:pl-8 pr-4 font-semibold">Méthode</th>
-        <th class="py-3 pr-4 font-semibold">Endpoint</th>
-        <th class="py-3 pr-5 sm:pr-8 font-semibold">Description</th>
+    <table class="dt min-w-[620px]">
+      <thead><tr>
+        <th class="pl-5 sm:pl-8">Méthode</th>
+        <th>Endpoint</th>
+        <th class="pr-5 sm:pr-8">Description</th>
       </tr></thead>
-      <tbody class="divide-y divide-slate-100">{rows}</tbody>
+      <tbody>{rows}</tbody>
     </table>
     </div>
   </div>
@@ -530,7 +663,7 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
 
 <section id="pricing" class="max-w-6xl mx-auto px-6 py-14 md:py-20">
   <div class="text-center mb-12">
-    <span class="badge bg-brand-50 text-brand-700 border border-brand-100">TARIFS</span>
+    <span class="eyebrow">Tarifs</span>
     <h2 class="text-3xl md:text-4xl font-extrabold mt-4">Simple et transparent</h2>
     <p class="text-slate-500 mt-3">Commencez gratuitement, passez à l'échelle quand vous êtes prêt.</p>
   </div>
@@ -539,7 +672,7 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
 
 <section class="max-w-6xl mx-auto px-6 pb-24">
   <div class="hero-bg rounded-3xl p-8 sm:p-12 md:p-16 text-center text-white relative overflow-hidden">
-    <div class="orb w-72 h-72 bg-violet-500 -top-10 -right-10"></div>
+    <div class="orb w-72 h-72 bg-accent-500 -top-10 -right-10"></div>
     <h2 class="text-3xl md:text-4xl font-extrabold relative">Prêt à envoyer votre premier email ?</h2>
     <p class="text-slate-300 mt-4 relative">Compte gratuit, clés instantanées, aucune carte requise.</p>
     <a href="/register" class="btn-primary inline-block mt-8 relative px-8 py-3.5">Commencer maintenant →</a>
@@ -554,7 +687,7 @@ def _auth_form(title: str, action: str, fields: str, link: str) -> HTMLResponse:
 <div class="min-h-[80vh] flex items-center justify-center px-4 sm:px-6 py-10 sm:py-16">
   <div class="w-full max-w-md fade-up">
     <div class="text-center mb-6">
-      <a href="/" class="inline-flex items-center gap-2 font-extrabold text-lg">{LOGO_SVG} MailHub</a>
+      <a href="/" class="inline-flex items-center gap-2 font-extrabold text-lg">{LOGO_FULL}</a>
     </div>
     <div class="card p-6 sm:p-8 shadow-lg">
       <h1 class="text-2xl font-extrabold mb-1">{title}</h1>
@@ -581,7 +714,7 @@ async def register_page(
         return RedirectResponse("/dashboard", status_code=303)
     if not settings.web_signup_enabled:
         raise HTTPException(status_code=404)
-    err = f'<p class="text-sm text-red-600">{_e(error)}</p>' if error else ""
+    err = f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>{_e(error)}</span></div>' if error else ""
     invite_field = ""
     if settings.signup_invite_code:
         invite_field = """
@@ -597,7 +730,7 @@ async def register_page(
       <div><label class="text-xs font-semibold text-slate-600">Mot de passe</label>
       <input name="password" type="password" class="input mt-1" minlength="8" required></div>
     """ + invite_field
-    link = 'Déjà un compte ? <a href="/login" class="text-indigo-600 font-semibold">Se connecter</a>'
+    link = 'Déjà un compte ? <a href="/login" class="text-brand-600 font-semibold">Se connecter</a>'
     return _auth_form("Créer un compte", "/register", fields, link)
 
 
@@ -622,20 +755,20 @@ async def register(
     ):
         return _auth_form(
             "Créer un compte", "/register",
-            '<p class="text-sm text-red-600">Code d\'invitation invalide.</p>',
-            '<a href="/login" class="text-indigo-600">Se connecter</a>',
+            f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>Code d\'invitation invalide.</span></div>',
+            '<a href="/login" class="text-brand-600">Se connecter</a>',
         )
     if len(password) < 8:
         return _auth_form(
             "Créer un compte", "/register",
-            '<p class="text-sm text-red-600">Le mot de passe doit contenir au moins 8 caractères.</p>',
-            '<a href="/login" class="text-indigo-600">Se connecter</a>',
+            f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>Le mot de passe doit contenir au moins 8 caractères.</span></div>',
+            '<a href="/login" class="text-brand-600">Se connecter</a>',
         )
     if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
         return _auth_form(
             "Créer un compte", "/register",
-            '<p class="text-sm text-red-600">Adresse email invalide.</p>',
-            '<a href="/login" class="text-indigo-600">Se connecter</a>',
+            f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>Adresse email invalide.</span></div>',
+            '<a href="/login" class="text-brand-600">Se connecter</a>',
         )
 
     redis = request.app.state.redis
@@ -643,8 +776,8 @@ async def register(
     if await users.get_by_email(email):
         return _auth_form(
             "Créer un compte", "/register",
-            '<p class="text-sm text-red-600">Cet email est déjà utilisé.</p>',
-            '<a href="/login" class="text-indigo-600">Se connecter</a>',
+            f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>Cet email est déjà utilisé.</span></div>',
+            '<a href="/login" class="text-brand-600">Se connecter</a>',
         )
 
     # Si une inscription est déjà en attente pour cet email, on renvoie
@@ -717,7 +850,7 @@ def _verify_email_page(
     attempts: int | None = None,
     debug_code: str | None = None,
 ) -> HTMLResponse:
-    err = f'<p class="text-sm text-red-600">{_e(error)}</p>' if error else ""
+    err = f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>{_e(error)}</span></div>' if error else ""
     att = (
         f'<p class="text-xs text-slate-500 mt-1">Tentatives restantes : {attempts}</p>'
         if attempts is not None else ""
@@ -725,8 +858,8 @@ def _verify_email_page(
     dbg = ""
     if debug_code:
         dbg = (
-            '<p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 '
-            f'rounded-lg p-2.5">Mode debug — code : <b>{_e(debug_code)}</b></p>'
+            '<div class="alert alert-warn mt-3">'
+            f"{UI_ICONS['warn']}<span>Mode debug — code : <b>{_e(debug_code)}</b></span></div>"
         )
     fields = f"""
       <input type="hidden" name="t" value="{_e(t)}">
@@ -741,9 +874,9 @@ def _verify_email_page(
     link = (
         '<form method="post" action="/register/resend" class="inline">'
         f'<input type="hidden" name="t" value="{_e(t)}">'
-        '<button type="submit" class="text-indigo-600 font-semibold bg-transparent border-0 '
+        '<button type="submit" class="text-brand-600 font-semibold bg-transparent border-0 '
         'p-0 cursor-pointer text-xs">Renvoyer le code</button></form>'
-        ' · <a href="/register" class="text-indigo-600 font-semibold">Recommencer</a>'
+        ' · <a href="/register" class="text-brand-600 font-semibold">Recommencer</a>'
     )
     return _auth_form("Vérifier mon email", "/register/verify", fields, link)
 
@@ -800,8 +933,8 @@ async def register_verify(
         await redis.delete(f"reg:{t}", regidx_key)
         return _auth_form(
             "Créer un compte", "/register",
-            '<p class="text-sm text-red-600">Cet email est déjà utilisé.</p>',
-            '<a href="/login" class="text-indigo-600">Se connecter</a>',
+            f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>Cet email est déjà utilisé.</span></div>',
+            '<a href="/login" class="text-brand-600">Se connecter</a>',
         )
     await redis.delete(f"reg:{t}", regidx_key)
 
@@ -908,7 +1041,7 @@ async def login_page(request: Request) -> HTMLResponse:
       <div><label class="text-xs font-semibold text-slate-600">Mot de passe</label>
       <input name="password" type="password" class="input mt-1" required></div>
     """
-    link = 'Pas de compte ? <a href="/register" class="text-indigo-600 font-semibold">Créer un compte</a>'
+    link = 'Pas de compte ? <a href="/register" class="text-brand-600 font-semibold">Créer un compte</a>'
     return _auth_form("Connexion", "/login", fields, link)
 
 
@@ -934,8 +1067,8 @@ async def login(
     if not user:
         return _auth_form(
             "Connexion", "/login",
-            '<p class="text-sm text-red-600">Email ou mot de passe incorrect.</p>',
-            '<a href="/register" class="text-indigo-600">Créer un compte</a>',
+            f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>Email ou mot de passe incorrect.</span></div>',
+            '<a href="/register" class="text-brand-600">Créer un compte</a>',
         )
     # Succès : reset du compteur anti brute-force pour cette IP
     await redis.delete(rl_key)
@@ -983,14 +1116,14 @@ async def dashboard(
 
     banner = ""
     if test == "ok":
-        banner = f"""<div class="mb-4 text-sm font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-          {UI_ICONS['check']} Email de test envoyé — vérifiez la boîte de réception (et les spams).</div>"""
+        banner = f"""<div class="alert alert-ok mb-5">{UI_ICONS['check']}
+          <span>Email de test envoyé — vérifiez la boîte de réception (et les spams).</span></div>"""
     elif test:
-        banner = f"""<div class="mb-4 text-sm font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
-          {UI_ICONS['error']} Échec de l'envoi test : {_e(test)}<br>
-          <span class="font-normal text-red-600">Vérifiez SMTP Host / Port / User / Password. Rappel : smtp.gmail.com n'accepte
+        banner = f"""<div class="alert alert-err mb-5">{UI_ICONS['error']}
+          <span>Échec de l'envoi test : {_e(test)}<br>
+          <span class="font-normal opacity-80">Vérifiez SMTP Host / Port / User / Password. Rappel : smtp.gmail.com n'accepte
           que les comptes Google — pour une adresse pro, utilisez le serveur SMTP de son hébergeur
-          (ex. IONOS : smtp.ionos.fr).</span></div>"""
+          (ex. IONOS : smtp.ionos.fr).</span></span></div>"""
 
     # Credentials (affichés si encore en cache — sinon régénérables)
     creds = await redis.get(f"webuser:creds:{tenant.tenant_id}")
@@ -1001,34 +1134,42 @@ async def dashboard(
           <div>
             <p class="text-xs font-semibold text-slate-500 mb-1">Clé API (header <code>X-API-Key</code>)</p>
             <div class="flex flex-col sm:flex-row gap-2"><code class="flex-1 min-w-0 text-xs break-all bg-slate-50 p-2 rounded">{api_key}</code>
-            <button onclick="navigator.clipboard.writeText('{api_key}')" class="text-xs btn-primary">Copier</button></div>
+            <button data-copy="{api_key}" class="btn-soft">Copier</button></div>
           </div>
           <div>
             <p class="text-xs font-semibold text-slate-500 mb-1">Secret HMAC (signature des requêtes)</p>
             <div class="flex flex-col sm:flex-row gap-2"><code class="flex-1 min-w-0 text-xs break-all bg-slate-50 p-2 rounded">{hmac_secret}</code>
-            <button onclick="navigator.clipboard.writeText('{hmac_secret}')" class="text-xs btn-primary">Copier</button></div>
+            <button data-copy="{hmac_secret}" class="btn-soft">Copier</button></div>
           </div>
         </div>"""
     else:
-        creds_html = """
-        <p class="mt-4 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-          Vos clés sont masquées pour sécurité (affichées 24 h après génération).
+        creds_html = f"""
+        <div class="alert alert-warn mt-4">{UI_ICONS['warn']}
+          <span>Vos clés sont masquées pour sécurité (affichées 24 h après génération).
           Pour obtenir une nouvelle clé API + secret, cliquez sur <b>« Régénérer mes clés »</b>
-          ci-dessous — elles s'afficheront immédiatement ici.
-        </p>"""
+          ci-dessous — elles s'afficheront immédiatement ici.</span></div>"""
 
     stats_keys = [
-        ("Emails envoyés", "stats:emails_sent"),
-        ("OTP envoyés", "stats:otps_sent"),
-        ("OTP vérifiés", "stats:otps_verified"),
+        ("Emails envoyés", "stats:emails_sent",
+         '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linejoin="round" d="M3 8l9 6 9-6M4 6h16a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V7a1 1 0 011-1z"/></svg>',
+         "bg-brand-50 text-brand-600"),
+        ("OTP envoyés", "stats:otps_sent",
+         '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M12 19l7-7-7-7M5 12h14"/></svg>',
+         "bg-amber-50 text-amber-600"),
+        ("OTP vérifiés", "stats:otps_verified",
+         '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
+         "bg-emerald-50 text-emerald-600"),
     ]
     stats_cards = ""
-    for label, key in stats_keys:
+    for label, key, ic, icc in stats_keys:
         val = await redis.get(f"{tenant.key_prefix()}{key}") or "0"
         stats_cards += f"""
-        <div class="card p-5">
-          <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">{label}</p>
-          <p class="text-3xl font-extrabold mt-1">{_e(val)}</p>
+        <div class="card kpi p-5 flex items-center gap-4">
+          <span class="kpi-ic {icc}">{ic}</span>
+          <div class="min-w-0">
+            <p class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">{label}</p>
+            <p class="kpi-num mt-0.5">{_e(val)}</p>
+          </div>
         </div>"""
 
     # Graphique 7 derniers jours (OTP envoyés/vérifiés + emails transactionnels)
@@ -1048,7 +1189,7 @@ async def dashboard(
         bars += f"""
         <div class="flex-1 flex flex-col items-center gap-1.5">
           <div class="w-full flex items-end justify-center gap-1 h-28">
-            <div class="w-4 rounded-t bg-gradient-to-t from-brand-500 to-violet-500" style="height:{max(h_sent,4) if series['otps_sent'][i] else 2}%" title="{series['otps_sent'][i]} OTP envoyés"></div>
+            <div class="w-4 rounded-t bg-gradient-to-t from-brand-500 to-accent-500" style="height:{max(h_sent,4) if series['otps_sent'][i] else 2}%" title="{series['otps_sent'][i]} OTP envoyés"></div>
             <div class="w-4 rounded-t bg-emerald-400" style="height:{max(h_ver,4) if series['otps_verified'][i] else 2}%" title="{series['otps_verified'][i]} OTP vérifiés"></div>
             <div class="w-4 rounded-t bg-amber-400" style="height:{max(h_em,4) if series['emails_sent'][i] else 2}%" title="{series['emails_sent'][i]} emails envoyés"></div>
           </div>
@@ -1074,7 +1215,7 @@ async def dashboard(
         "otp_verify_failed": ("Vérif. échouée", "bg-rose-100 text-rose-700"),
         "otp_send_failed": ("Envoi OTP échoué", "bg-rose-100 text-rose-700"),
         "otp_rate_limited": ("Rate limit", "bg-amber-100 text-amber-700"),
-        "otp_sms_fallback": ("Fallback SMS", "bg-violet-100 text-violet-700"),
+        "otp_sms_fallback": ("Fallback SMS", "bg-accent-100 text-accent-700"),
         "otp_purpose_denied": ("Purpose refusé", "bg-slate-200 text-slate-600"),
         "email_sent": ("Email envoyé", "bg-emerald-100 text-emerald-700"),
         "email_failed": ("Email échoué", "bg-rose-100 text-rose-700"),
@@ -1099,7 +1240,12 @@ async def dashboard(
   </table></div>
 </div>"""
     else:
-        activity_html = ""
+        activity_html = f"""
+<div id="sec-activity" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
+  <h2 class="font-bold mb-4">Activité récente</h2>
+  <div class="empty"><span class="empty-ic">{UI_ICONS['inbox']}</span>
+    <p>Aucune activité pour le moment — vos envois apparaîtront ici.</p></div>
+</div>"""
 
     base_url = _e(str(request.base_url).rstrip("/"))
 
@@ -1107,10 +1253,10 @@ async def dashboard(
     pending_plan = tenant.plan_requested if tenant else None
     plan_cards = "".join(
         f'<div class="border rounded-xl p-4 flex flex-col '
-        f'{"border-indigo-500 ring-1 ring-indigo-500" if pid == cur_plan else "border-slate-200"}">'
+        f'{"border-brand-500 ring-1 ring-brand-500" if pid == cur_plan else "border-slate-200"}">'
         f'<div class="flex items-center justify-between">'
         f"<p class=\"font-bold\">{_e(p['label'])}</p>"
-        + ('<span class="badge bg-indigo-100 text-indigo-700">ACTUEL</span>' if pid == cur_plan else "")
+        + ('<span class="badge bg-brand-100 text-brand-700">ACTUEL</span>' if pid == cur_plan else "")
         + "</div>"
         f"<p class=\"text-2xl font-black mt-1\">{_e(p['price'])}</p>"
         f"<p class=\"text-xs text-slate-500 mt-1\">{_e(p['desc'])}</p>"
@@ -1122,12 +1268,12 @@ async def dashboard(
         f'<form method="post" action="/dashboard/plan" class="mt-auto pt-4">'
         f'<input type="hidden" name="plan" value="{_e(pid)}">'
         + (
-            '<button disabled class="w-full text-xs font-bold text-slate-400 border border-slate-200 rounded-lg px-4 py-2 cursor-default">Plan actuel</button>'
+            '<button disabled class="btn-soft w-full opacity-50 cursor-default" data-noload>Plan actuel</button>'
             if pid == cur_plan
             else (
-                f'<button disabled class="w-full text-xs font-bold text-amber-600 border border-amber-200 bg-amber-50 rounded-lg px-4 py-2 cursor-default inline-flex items-center justify-center gap-1.5">{UI_ICONS["clock"]} Demande en attente</button>'
+                f'<button disabled class="btn-soft w-full !bg-amber-50 !text-amber-700 !border-amber-200 cursor-default justify-center" data-noload>{UI_ICONS["clock"]} Demande en attente</button>'
                 if pid == pending_plan
-                else '<button class="w-full text-xs font-bold text-indigo-600 border border-indigo-200 rounded-lg px-4 py-2 hover:bg-indigo-50">Choisir ce plan</button>'
+                else '<button class="btn-soft w-full justify-center">Choisir ce plan</button>'
             )
         )
         + "</form></div>"
@@ -1136,10 +1282,10 @@ async def dashboard(
     pending_banner = ""
     if pending_plan and pending_plan in PLANS:
         pending_banner = f"""
-  <div class="mb-4 text-sm font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-    {UI_ICONS['clock']} Demande <b>{_e(PLANS[pending_plan]['label'])}</b> en attente — votre plan sera
+  <div class="alert alert-warn mb-4">{UI_ICONS['clock']}
+    <span>Demande <b>{_e(PLANS[pending_plan]['label'])}</b> en attente — votre plan sera
     activé dès validation du paiement (Stripe, PayPal, mobile money ou virement).
-    Questions ? Utilisez le support ci-dessous.</div>"""
+    Questions ? Utilisez le support ci-dessous.</span></div>"""
     plan_card_html = f"""
 <div id="sec-plan" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
   <h2 class="font-bold mb-1">Votre abonnement</h2>
@@ -1179,8 +1325,11 @@ async def dashboard(
   </div>
   <p class="text-sm text-slate-500">Tenant ID : <code>{_e(tenant.tenant_id)}</code> — URL de base : <code>{base_url}</code></p>
   {creds_html}
-  <form method="post" action="/dashboard/regenerate-keys" class="mt-4">
-    <button class="text-xs font-semibold text-rose-600 border border-rose-200 rounded-lg px-4 py-2 hover:bg-rose-50">
+  <form method="post" action="/dashboard/regenerate-keys" class="mt-4"
+        data-confirm-title="Régénérer les clés"
+        data-confirm="Régénérer vos clés API et HMAC ? Les anciennes seront invalidées immédiatement et les intégrations existantes cesseront de fonctionner."
+        data-confirm-ok="Régénérer" data-confirm-danger>
+    <button class="btn-danger">
       Régénérer mes clés (invalide les anciennes)
     </button>
   </form>
@@ -1191,7 +1340,7 @@ async def dashboard(
 <div id="sec-smtp" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
   <h2 class="font-bold mb-1">Configuration de votre expéditeur email</h2>
   <p class="text-sm text-slate-500 mb-4">Configurez l'adresse email utilisée pour envoyer VOS emails
-  (Gmail : utilisez un <a class="text-indigo-600 underline" href="https://myaccount.google.com/apppasswords" target="_blank">mot de passe d'application</a>).</p>
+  (Gmail : utilisez un <a class="text-brand-600 underline" href="https://myaccount.google.com/apppasswords" target="_blank">mot de passe d'application</a>).</p>
   <form method="post" action="/dashboard/config" class="grid md:grid-cols-2 gap-4">
     <div><label class="text-xs font-semibold text-slate-600">Marque affichée</label>
     <input name="brand_name" class="input mt-1" value="{_e(tenant.brand_name)}"></div>
@@ -1217,7 +1366,7 @@ async def dashboard(
   </form>
   <form method="post" action="/dashboard/test-email" class="mt-3 flex flex-col sm:flex-row gap-2 sm:items-center">
     <input name="test_to" type="email" class="input sm:max-w-xs" placeholder="envoyer un email de test à..." required>
-    <button class="text-xs font-semibold text-indigo-600 border border-blue-200 rounded-lg px-4 py-2.5 hover:bg-blue-50 whitespace-nowrap">Tester l'envoi</button>
+    <button class="text-xs font-semibold text-brand-600 border border-blue-200 rounded-lg px-4 py-2.5 hover:bg-blue-50 whitespace-nowrap">Tester l'envoi</button>
   </form>
 </div>
 
@@ -1287,7 +1436,7 @@ async def dashboard(
 <div id="sec-integration" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
   <h2 class="font-bold mb-1">Intégrer l'API dans votre projet</h2>
   <p class="text-sm text-slate-500 mb-4">Chaque requête doit être signée : <code>HMAC-SHA256(body + timestamp, votre secret)</code>.</p>
-  <div class="bg-slate-900 text-slate-100 rounded-lg p-5 text-xs overflow-auto font-mono">
+  <div class="bg-[#0d0f1e] text-slate-100 rounded-lg p-5 text-xs overflow-auto font-mono">
 <pre># Python — client prêt à l'emploi (pip install requests)
 import hashlib, hmac, json, time, requests
 
@@ -1312,7 +1461,7 @@ body = json.dumps({{"request_id":"req_...","code":"123456"}}).encode()
 r = requests.post(BASE_URL+"/v1/otp/verify", data=body, headers=sign(body))
 print(r.json())   # {{"verified":true,"attempts_remaining":0}}</pre>
   </div>
-  <p class="text-xs text-slate-500 mt-3">Node.js / PHP / cURL : voir <a href="/docs" class="text-indigo-600 underline">la documentation Swagger</a>.</p>
+  <p class="text-xs text-slate-500 mt-3">Node.js / PHP / cURL : voir <a href="/docs" class="text-brand-600 underline">la documentation Swagger</a>.</p>
 </div>
 
 <div id="sec-support" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
@@ -1437,7 +1586,7 @@ async def dashboard_branding(
 ):
     user = await _require_user(request)
     form = await request.form()
-    color = str(form.get("brand_color") or "#6366f1").strip()
+    color = str(form.get("brand_color") or "#5060a8").strip()
     if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
         raise HTTPException(status_code=422, detail="Couleur invalide (format #rrggbb)")
     logo = str(form.get("email_logo_url") or "").strip()
@@ -1643,7 +1792,7 @@ def _demo_page(default_tenant: str = "default") -> str:
   <p class="text-sm text-slate-500 mb-8">Testez les endpoints en direct. Les emails sont loggés côté serveur (provider console).</p>
 
   <div class="card p-4 sm:p-6 mb-6">
-    <h2 class="font-bold mb-4">1. Envoyer un OTP</h2>
+    <h2 class="font-bold mb-4 flex items-center gap-2.5"><span class="step-n">1</span>Envoyer un OTP</h2>
     <div class="grid md:grid-cols-2 gap-4">
       <div><label class="text-xs font-semibold text-slate-600">Tenant <span class="font-normal text-slate-400">(id, nom ou marque)</span></label>
       <input id="otpTenant" class="input mt-1" value="__TENANT__"></div>
@@ -1654,25 +1803,25 @@ def _demo_page(default_tenant: str = "default") -> str:
       <div><label class="text-xs font-semibold text-slate-600">Langue</label>
       <select id="language" class="input mt-1"><option value="fr">Français</option><option value="en">English</option></select></div>
     </div>
-    <button onclick="sendOtp()" class="btn-primary mt-4">Envoyer l'OTP</button>
-    <pre id="sendResult" class="mt-4 text-xs bg-slate-900 text-emerald-300 rounded-lg p-4 hidden overflow-auto"></pre>
-    <div id="otpCode" class="mt-3 text-center text-3xl font-extrabold tracking-[.4em] text-indigo-600 hidden"></div>
+    <button onclick="sendOtp(this)" class="btn-primary mt-4">Envoyer l'OTP</button>
+    <pre id="sendResult" class="mt-4 text-xs bg-[#0d0f1e] text-emerald-300 rounded-lg p-4 hidden overflow-auto"></pre>
+    <div id="otpCode" class="mt-3 text-center text-3xl font-extrabold tracking-[.4em] text-brand-600 hidden"></div>
   </div>
 
   <div class="card p-4 sm:p-6 mb-6">
-    <h2 class="font-bold mb-4">2. Vérifier le code</h2>
+    <h2 class="font-bold mb-4 flex items-center gap-2.5"><span class="step-n">2</span>Vérifier le code</h2>
     <div class="grid md:grid-cols-2 gap-4">
       <div><label class="text-xs font-semibold text-slate-600">Request ID</label>
       <input id="requestId" class="input mt-1" placeholder="req_..."></div>
       <div><label class="text-xs font-semibold text-slate-600">Code</label>
       <input id="code" class="input mt-1" maxlength="6" placeholder="123456"></div>
     </div>
-    <button onclick="verifyOtp()" class="btn-primary mt-4">Vérifier</button>
-    <pre id="verifyResult" class="mt-4 text-xs bg-slate-900 text-emerald-300 rounded-lg p-4 hidden overflow-auto"></pre>
+    <button onclick="verifyOtp(this)" class="btn-primary mt-4">Vérifier</button>
+    <pre id="verifyResult" class="mt-4 text-xs bg-[#0d0f1e] text-emerald-300 rounded-lg p-4 hidden overflow-auto"></pre>
   </div>
 
   <div class="card p-6">
-    <h2 class="font-bold mb-4">3. Email transactionnel</h2>
+    <h2 class="font-bold mb-4 flex items-center gap-2.5"><span class="step-n">3</span>Email transactionnel</h2>
     <div class="grid md:grid-cols-2 gap-4">
       <div><label class="text-xs font-semibold text-slate-600">Tenant</label>
       <input id="emailTenant" class="input mt-1" value="__TENANT__"></div>
@@ -1690,8 +1839,8 @@ def _demo_page(default_tenant: str = "default") -> str:
       <div class="md:col-span-2"><label class="text-xs font-semibold text-slate-600">Message</label>
       <input id="emailMessage" class="input mt-1" value="Votre colis arrive dans 48h."></div>
     </div>
-    <button onclick="sendEmail()" class="btn-primary mt-4">Envoyer l'email</button>
-    <pre id="emailResult" class="mt-4 text-xs bg-slate-900 text-emerald-300 rounded-lg p-4 hidden overflow-auto"></pre>
+    <button onclick="sendEmail(this)" class="btn-primary mt-4">Envoyer l'email</button>
+    <pre id="emailResult" class="mt-4 text-xs bg-[#0d0f1e] text-emerald-300 rounded-lg p-4 hidden overflow-auto"></pre>
   </div>
 </div>
 
@@ -1702,33 +1851,50 @@ function show(id, data, ok) {
   el.className = el.className.replace(/text-(emerald|rose)-300/, ok ? 'text-emerald-300' : 'text-rose-300');
   el.textContent = JSON.stringify(data, null, 2);
 }
-async function sendOtp() {
-  const res = await fetch("/demo/send", {method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({email: email.value, country_code: country.value, language: language.value,
-      purpose: "login_2fa", tenant_id: otpTenant.value || "default"})});
-  const data = await res.json(); show("sendResult", data, res.ok);
-  if (data.request_id) requestId.value = data.request_id;
-  if (data.debug_code) { const c = document.getElementById("otpCode");
-    c.classList.remove("hidden"); c.textContent = "Code : " + data.debug_code; code.value = data.debug_code; }
+async function call(btn, fn) {
+  btn.classList.add('is-loading'); btn.disabled = true;
+  try { await fn(); }
+  catch (e) { toast('Erreur réseau', 'err'); }
+  finally { btn.classList.remove('is-loading'); btn.disabled = false; }
 }
-async function verifyOtp() {
-  const res = await fetch("/demo/verify", {method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({request_id: requestId.value, code: code.value,
-      tenant_id: otpTenant.value || "default"})});
-  const data = await res.json();
-  show("verifyResult", data, res.ok && data.verified);
+async function sendOtp(btn) {
+  await call(btn, async () => {
+    const res = await fetch("/demo/send", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({email: email.value, country_code: country.value, language: language.value,
+        purpose: "login_2fa", tenant_id: otpTenant.value || "default"})});
+    const data = await res.json(); show("sendResult", data, res.ok);
+    if (!res.ok) { toast(data.detail || 'Erreur', 'err'); return; }
+    if (data.request_id) requestId.value = data.request_id;
+    if (data.debug_code) { const c = document.getElementById("otpCode");
+      c.classList.remove("hidden"); c.textContent = "Code : " + data.debug_code; code.value = data.debug_code; }
+    toast('OTP envoyé', 'ok');
+  });
 }
-async function sendEmail() {
-  const t = emailType.value;
-  const payload = {to_email: emailTo.value, type: t, language: emailLang.value,
-    tenant_id: emailTenant.value || "default", data: {}};
-  if (t === "welcome") payload.data = {name: "John Doe"};
-  else if (t === "custom") { payload.subject = emailTitle.value; payload.text_body = emailMessage.value; }
-  else payload.data = t === "notification" ? {title: emailTitle.value, message: emailMessage.value}
-                    : {amount: "149,90", currency: "EUR", status: "confirmée"};
-  const res = await fetch("/demo/email", {method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify(payload)});
-  show("emailResult", await res.json(), res.ok);
+async function verifyOtp(btn) {
+  await call(btn, async () => {
+    const res = await fetch("/demo/verify", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({request_id: requestId.value, code: code.value,
+        tenant_id: otpTenant.value || "default"})});
+    const data = await res.json();
+    show("verifyResult", data, res.ok && data.verified);
+    if (res.ok && data.verified) toast('Code vérifié', 'ok');
+    else toast(data.detail || 'Code incorrect', 'err');
+  });
+}
+async function sendEmail(btn) {
+  await call(btn, async () => {
+    const t = emailType.value;
+    const payload = {to_email: emailTo.value, type: t, language: emailLang.value,
+      tenant_id: emailTenant.value || "default", data: {}};
+    if (t === "welcome") payload.data = {name: "John Doe"};
+    else if (t === "custom") { payload.subject = emailTitle.value; payload.text_body = emailMessage.value; }
+    else payload.data = t === "notification" ? {title: emailTitle.value, message: emailMessage.value}
+                      : {amount: "149,90", currency: "EUR", status: "confirmée"};
+    const res = await fetch("/demo/email", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(payload)});
+    const data = await res.json(); show("emailResult", data, res.ok);
+    if (res.ok) toast('Email envoyé', 'ok'); else toast(data.detail || 'Erreur', 'err');
+  });
 }
 </script>
 """.replace("__TENANT__", _e(default_tenant))

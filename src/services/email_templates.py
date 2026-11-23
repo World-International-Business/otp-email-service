@@ -18,7 +18,7 @@ def _sanitize_color(color: str) -> str:
         ch in "0123456789abcdefABCDEF" for ch in c[1:]
     ):
         return c
-    return "#6366f1"
+    return "#5060a8"
 
 
 def resolve_logo_url(logo_url: str | None, public_base_url: str) -> str | None:
@@ -32,7 +32,7 @@ def email_layout(
     brand: str,
     content_html: str,
     preheader: str = "",
-    color: str = "#6366f1",
+    color: str = "#5060a8",
     logo_url: str | None = None,
     footer: str | None = None,
 ) -> str:
@@ -105,7 +105,7 @@ def otp_html(
     language: str = "fr",
     magic_url: str | None = None,
     ttl_minutes: int = 5,
-    color: str = "#6366f1",
+    color: str = "#5060a8",
     logo_url: str | None = None,
     footer: str | None = None,
 ) -> str:
@@ -162,17 +162,24 @@ def otp_html(
 
 
 def generic_html(
-    title: str,
+    title: str | None,
     content_html: str,
     brand: str,
-    color: str = "#6366f1",
+    color: str = "#5060a8",
     logo_url: str | None = None,
     footer: str | None = None,
 ) -> str:
-    """Wrapper pour welcome / notification / transaction / custom."""
-    t = _esc(title)
+    """Wrapper pour welcome / notification / transaction / custom.
+
+    `title=None` : pas de <h1> injecté — utilisé quand le client envoie un
+    fragment HTML déjà titré (évite le double titre)."""
+    t = _esc(title) if title else ""
+    h1 = (
+        f'<h1 style="margin:0 0 16px; font-size:22px; font-weight:800; color:#111827;">{t}</h1>'
+        if t else ""
+    )
     content = f"""
-      <h1 style="margin:0 0 16px; font-size:22px; font-weight:800; color:#111827;">{t}</h1>
+      {h1}
       <div style="color:#4b5563; font-size:15px; line-height:1.7;">{content_html}</div>
     """
-    return email_layout(brand, content, t, color, logo_url, footer)
+    return email_layout(brand, content, t or brand, color, logo_url, footer)

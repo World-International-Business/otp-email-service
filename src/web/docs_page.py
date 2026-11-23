@@ -10,10 +10,10 @@ router = APIRouter(tags=["web"], include_in_schema=False, route_class=I18nRoute)
 
 
 def _code_block(code: str) -> str:
-    return f"""<div class="bg-slate-950 rounded-xl overflow-hidden">
+    return f"""<div class="bg-[#0a0b14] rounded-xl overflow-hidden">
 <div class="flex items-center justify-between px-4 py-2.5 border-b border-white/10">
   <div class="flex gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-rose-400"></span><span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span><span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span></div>
-  <button onclick="navigator.clipboard.writeText(this.closest('div').nextElementSibling.textContent)" class="text-[11px] font-semibold text-slate-400 hover:text-white transition">Copier</button>
+  <button onclick="copyText(this.closest('div').nextElementSibling.textContent)" class="text-[11px] font-semibold text-slate-400 hover:text-white transition">Copier</button>
 </div>
 <pre class="p-5 text-[13px] leading-relaxed font-mono text-slate-300 overflow-auto">{code}</pre>
 </div>"""
@@ -154,7 +154,7 @@ curl_close($ch);""".replace("<", "&lt;").replace(">", "&gt;")
         '  "subject": "Confirmez votre compte",\n'
         '  "text_body": "Cliquez pour activer votre compte : https://app.exemple.com/confirm?token=abc",\n'
         '  "html_body": "<p>Activez votre compte :</p><p><a href=\\"https://app.exemple.com/confirm?token=abc\\" '
-        'style=\\"background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none\\">'
+        'style=\\"background:#5060a8;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none\\">'
         'Confirmer mon compte</a></p>"\n}'
     )
     confirm_url = base + "/v1/otp/confirm?request_id=req_...&code=123456&t=<tenant_id>"
@@ -248,12 +248,15 @@ curl_close($ch);""".replace("<", "&lt;").replace(">", "&gt;")
         ])}</div>
         <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mt-5 mb-3">Exemple custom — lien de confirmation avec bouton</p>
         {_code_block(custom_body)}
-        <p class="text-xs text-slate-400 mt-3">Branding automatique : sans <code>html_body</code>
-        (ou avec un <strong>fragment</strong> HTML — sans balise <code>&lt;html&gt;</code>),
-        le contenu est mis en page avec votre branding (couleur, logo, pied de page).
-        Un document HTML complet (<code>&lt;html&gt;…&lt;/html&gt;</code>) est envoyé
-        tel quel — utilisez alors du CSS <em>inline</em> et des liens en
-        <code>https://</code> pour la compatibilité des clients mail.</p>
+        <p class="text-xs text-slate-400 mt-3">Branding automatique : sans <code>html_body</code>,
+        le texte est mis en page avec votre branding (couleur, logo, pied de page)
+        et <code>subject</code> devient le titre de l'email. Avec un
+        <strong>fragment</strong> HTML (sans balise <code>&lt;html&gt;</code>), le fragment
+        est enrobé du même branding <em>sans titre injecté</em> — incluez votre propre
+        <code>&lt;h1&gt;</code> dans le fragment. Un document HTML complet
+        (<code>&lt;html&gt;…&lt;/html&gt;</code>) est envoyé tel quel — utilisez alors du CSS
+        <em>inline</em> et des liens en <code>https://</code> pour la compatibilité
+        des clients mail.</p>
         <p class="text-sm text-slate-500 mt-4">Réponse : <code>{{"sent": true, "message_id": "msg_...", "to_email": "..."}}</code>
         — <code>sent</code> = accepté par le SMTP, pas « livré ».</p>
       """)

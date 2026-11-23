@@ -38,7 +38,7 @@ class Tenant(BaseModel):
     paid_until: str | None = None     # date ISO de fin de période payée
     payment_provider: str | None = None  # stripe | paypal | mobile | manual
     payment_ref: str | None = None    # customer id / subscription id
-    brand_color: str = "#6366f1"
+    brand_color: str = "#5060a8"
     email_logo_url: str | None = None
     email_footer: str | None = None
     max_sends_per_user_per_10min: int = 3
@@ -208,6 +208,13 @@ async def seed_default_tenant(redis, settings) -> Tenant:
         if existing.api_key_hash != api_key_hash:
             await redis.delete(store._bykey(existing.api_key_hash))
             await redis.set(store._bykey(api_key_hash), existing.tenant_id)
+        patch = {}
+        if not existing.email_logo_url:
+            patch["email_logo_url"] = "/static/mailhub-mark.png?v=3"
+        if existing.brand_color.lower() in ("#6366f1", "#5b63c8"):
+            patch["brand_color"] = "#5060a8"
+        if patch:
+            await store.update(existing.tenant_id, patch)
         await store.update(
             existing.tenant_id,
             {
@@ -235,6 +242,8 @@ async def seed_default_tenant(redis, settings) -> Tenant:
         api_key_hash=api_key_hash,
         hmac_secret=hmac_secret,
         brand_name=settings.from_name,
+        brand_color="#5060a8",
+        email_logo_url="/static/mailhub-mark.png?v=3",
         from_email=settings.from_email,
         from_name=settings.from_name,
         smtp_user=settings.smtp_user,
