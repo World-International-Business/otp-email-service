@@ -77,7 +77,7 @@ def _admin_page(title: str, content: str) -> HTMLResponse:
 <nav class="bg-[#0d0f1e] text-white sticky top-0 z-20">
   <div class="max-w-7xl mx-auto px-4 sm:px-6 min-h-14 py-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
     <a href="/admin" class="flex items-center gap-2.5 font-extrabold">{LOGO_MARK}
-      MailHub <span class="badge bg-rose-500 text-white">ADMIN</span>
+      <span class="badge bg-rose-500 text-white">ADMIN</span>
     </a>
     <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
       <a href="/admin" class="text-slate-300 hover:text-white font-medium">Tenants</a>

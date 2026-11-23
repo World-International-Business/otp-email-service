@@ -61,10 +61,10 @@ def _e(value) -> str:
 # =====================================================================
 
 LOGO_MARK = (
-    '<img src="/static/mailhub-mark.png" alt="MailHub" class="h-9 w-auto">'
+    '<img src="/static/mailhub-mark.png" alt="MailHub" class="h-10 w-auto">'
 )
 LOGO_FULL = (
-    '<img src="/static/mailhub-logo.png" alt="MailHub" class="h-14 w-auto">'
+    '<img src="/static/mailhub-logo.png" alt="MailHub" class="h-16 w-auto">'
 )
 LOGO_SVG = LOGO_MARK
 
@@ -235,7 +235,7 @@ def _footer(logged_in: bool = False) -> str:
 <footer class="bg-[#0a0b14] text-slate-400">
   <div class="max-w-6xl mx-auto px-6 py-10 md:py-14 grid md:grid-cols-3 gap-8 md:gap-10">
     <div>
-      <div class="flex items-center gap-2.5 text-white font-extrabold mb-3">{LOGO_MARK} MailHub</div>
+      <div class="flex items-center gap-2.5 text-white font-extrabold mb-3">{LOGO_MARK}</div>
       <p class="text-sm leading-relaxed">API d'emails transactionnels et de codes OTP.
       Sécurisée, multi-tenant, self-hostable.</p>
     </div>
@@ -279,7 +279,6 @@ def _landing_page(content: str, logged_in: bool = False) -> HTMLResponse:
   <div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
     <a href="/" class="flex items-center gap-2.5 font-extrabold text-lg text-slate-900">
       {LOGO_SVG}
-      MailHub
     </a>
     <div class="hidden md:flex items-center gap-6 text-sm">
       <a href="/#services" class="navlink">Services</a>
@@ -344,7 +343,7 @@ def _dashboard_page(user, tenant, content: str, active: str = "dashboard", debug
     return HTMLResponse(f"""{_head("Dashboard")}
 <body class="bg-slate-100 text-slate-800">
 <header class="md:hidden fixed top-0 inset-x-0 h-14 bg-[#0d0f1e] text-white flex items-center justify-between px-4 z-20">
-  <a href="/dashboard" class="flex items-center gap-2 font-extrabold">{LOGO_SVG} MailHub</a>
+  <a href="/dashboard" class="flex items-center gap-2 font-extrabold">{LOGO_SVG}</a>
   <div class="flex items-center gap-1">
     __LANG_SWITCH_HEADER__
     <button type="button" aria-label="Menu"
@@ -360,7 +359,6 @@ def _dashboard_page(user, tenant, content: str, active: str = "dashboard", debug
   <aside id="sidebar" class="w-64 bg-[#0d0f1e] text-white flex flex-col fixed inset-y-0 z-30 overflow-y-auto transform -translate-x-full md:translate-x-0 transition-transform duration-200">
     <div class="h-16 flex items-center gap-2.5 px-6 border-b border-white/10 shrink-0">
       {LOGO_SVG}
-      <span class="font-extrabold">MailHub</span>
       <button type="button" aria-label="Fermer" class="ml-auto md:hidden p-1.5 rounded-lg hover:bg-white/10"
               onclick="document.getElementById('sidebar').classList.add('-translate-x-full');document.getElementById('sbOverlay').classList.add('hidden')">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>
