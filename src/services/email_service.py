@@ -149,11 +149,18 @@ class EmailService:
                 status_code=422,
                 detail="subject and text_body are required when type=custom",
             )
-        html = request.html_body or self._wrap_html(
-            request.subject,
-            escape(request.text_body).replace("\n", "<br>"),
-            tenant,
-        )
+        html = request.html_body
+        if html and "<html" in html.lower():
+            # Document HTML complet : envoyé tel quel (le client gère tout).
+            pass
+        else:
+            # Fragment HTML ou texte : enrobé dans le template de marque
+            # (couleur, logo, pied de page du tenant).
+            html = self._wrap_html(
+                request.subject,
+                html if html else escape(request.text_body).replace("\n", "<br>"),
+                tenant,
+            )
         return request.subject, request.text_body, html
 
     def _welcome(
