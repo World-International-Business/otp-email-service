@@ -525,12 +525,6 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     "Plan actuel :": ("Current plan:", "Aktueller Plan:", "Plan actual:", "الخطة الحالية:"),
     "Choisir ce plan": ("Choose this plan", "Diesen Plan wählen", "Elegir este plan", "اختيار هذه الخطة"),
     "Demande en attente": ("Request pending", "Anfrage ausstehend", "Solicitud pendiente", "الطلب قيد الانتظار"),
-    "en attente — votre plan sera activé dès validation du paiement (Stripe, PayPal, mobile money ou virement). Questions ? Utilisez le support ci-dessous.": (
-        "pending — your plan will be activated once payment is validated (Stripe, PayPal, mobile money or bank transfer). Questions? Use the support section below.",
-        "ausstehend — Ihr Plan wird nach Zahlungsbestätigung aktiviert (Stripe, PayPal, Mobile Money oder Überweisung). Fragen? Nutzen Sie den Support unten.",
-        "pendiente — tu plan se activará tras la validación del pago (Stripe, PayPal, mobile money o transferencia). ¿Dudas? Usa el soporte más abajo.",
-        "قيد الانتظار — سيتم تفعيل خطتك بعد التحقق من الدفع (Stripe أو PayPal أو Mobile Money أو التحويل البنكي). أسئلة؟ استخدم الدعم أدناه.",
-    ),
     "Laisser vide pour conserver le mot de passe actuel.": ("Leave empty to keep the current password.", "Leer lassen, um das aktuelle Passwort zu behalten.", "Déjalo vacío para conservar la contraseña actual.", "اتركه فارغًا للاحتفاظ بكلمة المرور الحالية."),
     "envoyer un email de test à...": ("send a test email to...", "Test-E-Mail senden an...", "enviar un email de prueba a...", "إرسال بريد تجريبي إلى..."),
     "Personnalisation des emails": ("Email customization", "E-Mail-Anpassung", "Personalización de emails", "تخصيص البريد الإلكتروني"),
@@ -1101,11 +1095,29 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     ),
 
     # ---------------------------------------------------------- paiements
-    "Payer en ligne — activation immédiate après validation :": (
+    "Payer en ligne — activation immédiate après confirmation :": (
         "Pay online — activated immediately after validation:",
         "Online bezahlen — sofortige Aktivierung nach Bestätigung:",
         "Pagar en línea — activación inmediata tras la validación:",
         "ادفع عبر الإنترنت — التفعيل فوري بعد التأكيد:",
+    ),
+    "Finaliser le paiement —": (
+        "Complete payment —", "Zahlung abschließen —", "Finalizar el pago —", "إتمام الدفع —",
+    ),
+    "Virement, cash ou autre moyen ? Votre demande reste en attente — l’administrateur l’activera manuellement après réception du paiement.": (
+        "Bank transfer, cash or another method? Your request stays pending — the administrator will activate it manually once payment is received.",
+        "Überweisung, Barzahlung oder andere Methode? Ihre Anfrage bleibt ausstehend — der Administrator aktiviert sie manuell nach Zahlungseingang.",
+        "Transferencia, efectivo u otro medio? Tu solicitud queda pendiente — el administrador la activará manualmente al recibir el pago.",
+        "تحويل بنكي أو نقدًا أو وسيلة أخرى؟ يبقى طلبك معلقًا — سيفعّله المسؤول يدويًا عند استلام الدفع.",
+    ),
+    "Le paiement en ligne n’est pas activé sur cette instance. Votre demande sera validée manuellement par l’administrateur dès réception du paiement — contactez le support ci-dessous pour les modalités.": (
+        "Online payment is not enabled on this instance. Your request will be validated manually by the administrator once payment is received — contact support below for details.",
+        "Online-Zahlung ist auf dieser Instanz nicht aktiviert. Ihre Anfrage wird nach Zahlungseingang manuell vom Administrator bestätigt — Details erhalten Sie über den Support unten.",
+        "El pago en línea no está activado en esta instancia. Tu solicitud será validada manualmente por el administrador al recibir el pago — contacta con el soporte abajo para más detalles.",
+        "الدفع عبر الإنترنت غير مفعّل على هذه النسخة. سيتم تأكيد طلبك يدويًا من المسؤول عند استلام الدفع — تواصل مع الدعم أدناه للتفاصيل.",
+    ),
+    "Annuler la demande": (
+        "Cancel request", "Anfrage stornieren", "Cancelar solicitud", "إلغاء الطلب",
     ),
     "Carte bancaire": ("Card", "Bankkarte", "Tarjeta bancaria", "بطاقة بنكية"),
     "Mobile Money": ("Mobile Money", "Mobile Money", "Dinero móvil", "الدفع عبر الهاتف"),
