@@ -758,18 +758,30 @@ async def admin_edit_tenant(
         _pst = {"paid": ("Payé", "bg-emerald-100 text-emerald-700"),
                 "created": ("En attente", "bg-amber-100 text-amber-700"),
                 "pending_manual": ("En attente", "bg-amber-100 text-amber-700"),
+                "pending_verification": ("À vérifier", "bg-sky-100 text-sky-700"),
                 "failed": ("Échoué", "bg-rose-100 text-rose-700")}
-        _prow = "".join(
-            f'<tr class="border-t border-slate-100">'
-            f'<td class="py-2 pr-3 text-xs text-slate-500 whitespace-nowrap">{_e(p.get("date") or "—")}</td>'
-            f'<td class="py-2 pr-3 text-xs font-semibold">{_e((p.get("plan") or "—").upper())}</td>'
-            f'<td class="py-2 pr-3 text-xs whitespace-nowrap">{_e(str(p.get("amount") or "—"))} {_e(p.get("currency") or "")}</td>'
-            f'<td class="py-2 pr-3 text-xs text-slate-500">{_e(p.get("method") or p.get("provider") or "—")}</td>'
-            f'<td class="py-2 pr-3"><span class="badge {_pst.get(p.get("status"), ("?", "bg-slate-100 text-slate-500"))[1]}">'
-            f'{_pst.get(p.get("status"), ("?", ""))[0]}</span></td>'
-            f'<td class="py-2 text-right"><code class="text-[10px] text-slate-400">{_e(p.get("tx_id") or "")}</code></td></tr>'
-            for p in payments
-        )
+        _rows = []
+        for p in payments:
+            ref_cell = ""
+            if p.get("payer_ref"):
+                ref_cell = (
+                    '<br><code class="text-[10px] text-brand-600">réf : '
+                    + _e(p["payer_ref"]) + '</code>'
+                    + (f'<br><span class="text-[10px] text-slate-400">{_e(p["payer_info"])}</span>'
+                       if p.get("payer_info") else "")
+                )
+            _rows.append(
+                f'<tr class="border-t border-slate-100">'
+                f'<td class="py-2 pr-3 text-xs text-slate-500 whitespace-nowrap">{_e(p.get("date") or "—")}</td>'
+                f'<td class="py-2 pr-3 text-xs font-semibold">{_e((p.get("plan") or "—").upper())}</td>'
+                f'<td class="py-2 pr-3 text-xs whitespace-nowrap">{_e(str(p.get("amount") or "—"))} {_e(p.get("currency") or "")}</td>'
+                f'<td class="py-2 pr-3 text-xs text-slate-500">{_e(p.get("method") or p.get("provider") or "—")}</td>'
+                f'<td class="py-2 pr-3"><span class="badge {_pst.get(p.get("status"), ("?", "bg-slate-100 text-slate-500"))[1]}">'
+                f'{_pst.get(p.get("status"), ("?", ""))[0]}</span></td>'
+                f'<td class="py-2 text-right"><code class="text-[10px] text-slate-400">{_e(p.get("tx_id") or "")}</code>'
+                f'{ref_cell}</td></tr>'
+            )
+        _prow = "".join(_rows)
         payments_html = f"""
   <div class="mt-4 pt-4 border-t border-slate-100">
     <p class="text-xs font-semibold text-slate-600 mb-2">Transactions en ligne</p>
@@ -945,15 +957,36 @@ async def admin_billing_action(
         raise HTTPException(status_code=404, detail="Tenant introuvable")
     if action == "paid":
         from datetime import date, timedelta
+
+        from src.services.payments import PERIODS, set_tx_status
+        # Période de la demande en attente (mensuel 30 j / annuel 365 j)
+        pendings = await list_payments(request.app.state.redis, tenant_id, limit=5)
+        pending_tx = next(
+            (
+                t for t in pendings
+                if t.get("status") in ("pending_manual", "pending_verification", "created")
+            ),
+            None,
+        )
+        period = (pending_tx or {}).get("period", "monthly")
+        days = PERIODS.get(period, PERIODS["monthly"])["days"]
+        base = date.today()
+        # Renouvellement : prolonge depuis la fin de période restante
+        if tenant.paid_until and tenant.paid_until > base.isoformat():
+            base = date.fromisoformat(tenant.paid_until)
         updates = {
             "billing_status": "active",
-            "paid_until": (date.today() + timedelta(days=30)).isoformat(),
+            "paid_until": (base + timedelta(days=days)).isoformat(),
             "payment_provider": tenant.payment_provider or "manual",
         }
+        if pending_tx:
+            await set_tx_status(request.app.state.redis, pending_tx["tx_id"], "paid")
+            updates["payment_ref"] = pending_tx["tx_id"]
         # Une demande de plan en attente est appliquée avec le paiement.
         if tenant.plan_requested and tenant.plan_requested in PLANS:
             updates["plan"] = tenant.plan_requested
             updates["plan_requested"] = None
+            updates["plan_scheduled"] = None
             updates.update(plan_quota_updates(tenant.plan_requested))
         await store.update(tenant_id, updates)
     elif action == "reject_plan":
