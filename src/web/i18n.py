@@ -49,7 +49,7 @@ def safe_next(url: str | None) -> str:
 # attributs (placeholder, aria-label, title, alt) et les nœuds de texte.
 _TOKEN = re.compile(
     r'(?P<skip><script\b.*?</script>|<style\b.*?</style>)'
-    r'|\b(?P<attr>placeholder|aria-label|title|alt)="(?P<val>[^"]*)"'
+    r'|\b(?P<attr>placeholder|aria-label|title|alt|data-confirm|data-confirm-ok|data-confirm-title)="(?P<val>[^"]*)"'
     r'|(?<=>)(?P<text>[^<]+)(?=<)',
     re.S | re.I,
 )

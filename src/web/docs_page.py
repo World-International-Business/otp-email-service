@@ -13,7 +13,7 @@ def _code_block(code: str) -> str:
     return f"""<div class="bg-[#0a0b14] rounded-xl overflow-hidden">
 <div class="flex items-center justify-between px-4 py-2.5 border-b border-white/10">
   <div class="flex gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-rose-400"></span><span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span><span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span></div>
-  <button onclick="navigator.clipboard.writeText(this.closest('div').nextElementSibling.textContent)" class="text-[11px] font-semibold text-slate-400 hover:text-white transition">Copier</button>
+  <button onclick="copyText(this.closest('div').nextElementSibling.textContent)" class="text-[11px] font-semibold text-slate-400 hover:text-white transition">Copier</button>
 </div>
 <pre class="p-5 text-[13px] leading-relaxed font-mono text-slate-300 overflow-auto">{code}</pre>
 </div>"""

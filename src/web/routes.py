@@ -7,13 +7,13 @@ import json
 import logging
 import re
 import uuid
+from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel, EmailStr
 from starlette.datastructures import UploadFile
-from pathlib import Path
 
 from src.api.dependencies import (
     get_client_ip,
@@ -67,6 +67,118 @@ LOGO_SVG = (
 
 FAVICON_URI = "/static/mailhub-logo.png"
 
+# Micro-bibliothèque UI partagée par toutes les pages : toasts, modale de
+# confirmation, copie presse-papiers, états de chargement des formulaires.
+# Aucune dépendance — vanilla JS, < 3 Ko. Les chaînes FR sont traduites via
+# le mécanisme RAW d'i18n.
+UI_JS = """<script>
+(function () {
+  var T = {
+    confirm: 'Confirmer', cancel: 'Annuler', title: 'Confirmation',
+    copied: 'Copié !', copyfail: 'Copie impossible', neterr: 'Erreur réseau'
+  };
+  var ICONS = {
+    ok: '<svg fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>',
+    err: '<svg fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>',
+    warn: '<svg fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>',
+    info: '<svg fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M12 8h.01M12 11v5"/></svg>',
+    shield: '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linejoin="round" d="M12 3l7 3v5c0 4.4-3 8.4-7 10-4-1.6-7-5.6-7-10V6z"/></svg>'
+  };
+
+  function root() {
+    var r = document.querySelector('.toast-root');
+    if (!r) { r = document.createElement('div'); r.className = 'toast-root'; document.body.appendChild(r); }
+    return r;
+  }
+
+  window.toast = function (msg, type, ms) {
+    type = type || 'info'; ms = ms || 3800;
+    var t = document.createElement('div');
+    t.className = 'toast t-' + type;
+    t.innerHTML = ICONS[type === 'err' ? 'err' : type] || ICONS.info;
+    var span = document.createElement('span');
+    span.textContent = msg;
+    t.appendChild(span);
+    root().appendChild(t);
+    setTimeout(function () { t.classList.add('out'); setTimeout(function () { t.remove(); }, 240); }, ms);
+  };
+
+  window.uiConfirm = function (opts) {
+    return new Promise(function (resolve) {
+      var ov = document.createElement('div');
+      ov.className = 'modal-ov';
+      var danger = opts && opts.danger;
+      ov.innerHTML =
+        '<div class="modal-card" role="dialog" aria-modal="true">' +
+          '<div class="modal-ic' + (danger ? ' danger' : '') + '">' + (danger ? ICONS.warn : ICONS.shield) + '</div>' +
+          '<p class="font-bold text-base mb-1.5">' + (opts.title || T.title) + '</p>' +
+          '<p class="text-sm text-slate-500 leading-relaxed mb-6">' + opts.msg + '</p>' +
+          '<div class="flex gap-3 justify-end">' +
+            '<button type="button" class="btn-soft" data-x="0">' + T.cancel + '</button>' +
+            '<button type="button" class="' + (danger ? 'btn-danger' : 'btn-soft') + '" data-x="1" autofocus>' +
+              (opts.ok || T.confirm) + '</button>' +
+          '</div>' +
+        '</div>';
+      function done(v) { ov.remove(); document.removeEventListener('keydown', onKey); resolve(v); }
+      function onKey(e) { if (e.key === 'Escape') done(false); }
+      ov.addEventListener('click', function (e) {
+        if (e.target === ov) return done(false);
+        var b = e.target.closest('[data-x]');
+        if (b) done(b.getAttribute('data-x') === '1');
+      });
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(ov);
+      var b = ov.querySelector('[data-x="1"]'); if (b) b.focus();
+    });
+  };
+
+  window.copyText = function (text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(
+        function () { toast(T.copied, 'ok', 1800); },
+        function () { toast(T.copyfail, 'err'); }
+      );
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); toast(T.copied, 'ok', 1800); }
+      catch (e) { toast(T.copyfail, 'err'); }
+      ta.remove();
+    }
+  };
+
+  // data-confirm="message" sur un <form> -> modale avant soumission réelle.
+  // data-confirm-danger -> variante rouge pour les actions destructives.
+  document.addEventListener('submit', function (e) {
+    var f = e.target;
+    if (!(f instanceof HTMLFormElement)) return;
+    var msg = f.getAttribute('data-confirm');
+    if (msg && !f.dataset.confirmOk) {
+      e.preventDefault();
+      uiConfirm({
+        msg: msg,
+        danger: f.hasAttribute('data-confirm-danger'),
+        ok: f.getAttribute('data-confirm-ok') || undefined,
+        title: f.getAttribute('data-confirm-title') || undefined
+      }).then(function (ok) {
+        if (!ok) return;
+        f.dataset.confirmOk = '1';
+        if (f.requestSubmit) f.requestSubmit(); else f.submit();
+      });
+      return;
+    }
+    var btn = f.querySelector('button[type="submit"]:not([data-noload]), button:not([type]):not([data-noload])');
+    if (btn) { btn.classList.add('is-loading'); btn.disabled = true; }
+  }, true);
+
+  // data-copy="texte" -> copie + toast
+  document.addEventListener('click', function (e) {
+    var c = e.target.closest('[data-copy]');
+    if (c) { e.preventDefault(); copyText(c.getAttribute('data-copy')); }
+  });
+})();
+</script>"""
+
 
 def _head(title: str) -> str:
     return f"""<!DOCTYPE html>
@@ -81,6 +193,7 @@ def _head(title: str) -> str:
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+{UI_JS}
 </head>"""
 
 
@@ -159,7 +272,7 @@ def _landing_page(content: str, logged_in: bool = False) -> HTMLResponse:
                        '      <a href="/register" class="btn-primary text-center text-sm my-3">Commencer</a>')
     return HTMLResponse(f"""{_head("Accueil")}
 <body class="bg-slate-50 text-slate-800">
-<nav class="bg-white/90 backdrop-blur border-b border-slate-200 sticky top-0 z-20">
+<nav class="bg-white/85 backdrop-blur-md border-b border-slate-200/80 sticky top-0 z-20 shadow-[0_1px_12px_rgba(13,15,30,.05)]">
   <div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
     <a href="/" class="flex items-center gap-2.5 font-extrabold text-lg text-slate-900">
       {LOGO_SVG}
@@ -221,9 +334,8 @@ def _dashboard_page(user, tenant, content: str, active: str = "dashboard", debug
         ("demo", "Tester l'API", "/demo"),
     ]
     nav = "".join(
-        f'<a href="{url}" class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium '
-        f'{"bg-brand-600 text-white shadow-lg shadow-brand-600/30" if key == active else "text-slate-400 hover:bg-white/5 hover:text-white"} transition">'
-        f'{icons[key]}{label}</a>'
+        f'<a href="{url}" class="sb-link{" on" if key == active else ""}">'
+        f'{icons[key]}<span>{label}</span></a>'
         for key, label, url in items
     )
     return HTMLResponse(f"""{_head("Dashboard")}
@@ -251,8 +363,10 @@ def _dashboard_page(user, tenant, content: str, active: str = "dashboard", debug
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </div>
-    <nav class="flex-1 px-3 py-5 space-y-1">{nav}
-      <a href="/documentation" class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-white/5 hover:text-white transition">{icons['docs']}Documentation</a>
+    <nav class="flex-1 px-3 py-5 space-y-1">
+      <p class="sb-cap">Menu</p>{nav}
+      <p class="sb-cap mt-6">Compte</p>
+      <a href="/documentation" class="sb-link">{icons['docs']}<span>Documentation</span></a>
     </nav>
     <div class="px-5 py-5 border-t border-white/10">
       <div class="mb-4">__LANG_SWITCH_SIDEBAR__</div>
@@ -483,16 +597,16 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
 
 <section class="max-w-6xl mx-auto px-6 -mt-8 relative z-10 pb-4">
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-    <div class="card p-5 text-center"><p class="text-2xl font-black text-brand-600">6</p><p class="text-xs text-slate-500 mt-1">Endpoints sécurisés</p></div>
-    <div class="card p-5 text-center"><p class="text-2xl font-black text-brand-600">&lt;30ms</p><p class="text-xs text-slate-500 mt-1">Latence API</p></div>
-    <div class="card p-5 text-center"><p class="text-2xl font-black text-brand-600">∞</p><p class="text-xs text-slate-500 mt-1">Tenants</p></div>
-    <div class="card p-5 text-center"><p class="text-2xl font-black text-brand-600">HMAC</p><p class="text-xs text-slate-500 mt-1">SHA-256 signé</p></div>
+    <div class="card kpi p-5 text-center"><p class="text-2xl font-black text-brand-600">6</p><p class="text-xs text-slate-500 mt-1">Endpoints sécurisés</p></div>
+    <div class="card kpi p-5 text-center"><p class="text-2xl font-black text-brand-600">&lt;30ms</p><p class="text-xs text-slate-500 mt-1">Latence API</p></div>
+    <div class="card kpi p-5 text-center"><p class="text-2xl font-black text-brand-600">∞</p><p class="text-xs text-slate-500 mt-1">Tenants</p></div>
+    <div class="card kpi p-5 text-center"><p class="text-2xl font-black text-brand-600">HMAC</p><p class="text-xs text-slate-500 mt-1">SHA-256 signé</p></div>
   </div>
 </section>
 
 <section id="services" class="max-w-6xl mx-auto px-6 py-14 md:py-20">
   <div class="text-center mb-12">
-    <span class="badge bg-brand-50 text-brand-700 border border-brand-100">NOS SERVICES</span>
+    <span class="eyebrow">Nos services</span>
     <h2 class="text-3xl md:text-4xl font-extrabold mt-4">Tout pour vos emails & OTP</h2>
     <p class="text-slate-500 mt-3 max-w-xl mx-auto">Une plateforme complète, pensée pour les développeurs et les produits qui grandissent.</p>
   </div>
@@ -532,13 +646,13 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
       </div>
     </div>
     <div class="overflow-x-auto">
-    <table class="w-full text-sm min-w-[620px]">
-      <thead><tr class="text-left text-slate-400 text-xs uppercase tracking-wider border-b bg-slate-50">
-        <th class="py-3 pl-5 sm:pl-8 pr-4 font-semibold">Méthode</th>
-        <th class="py-3 pr-4 font-semibold">Endpoint</th>
-        <th class="py-3 pr-5 sm:pr-8 font-semibold">Description</th>
+    <table class="dt min-w-[620px]">
+      <thead><tr>
+        <th class="pl-5 sm:pl-8">Méthode</th>
+        <th>Endpoint</th>
+        <th class="pr-5 sm:pr-8">Description</th>
       </tr></thead>
-      <tbody class="divide-y divide-slate-100">{rows}</tbody>
+      <tbody>{rows}</tbody>
     </table>
     </div>
   </div>
@@ -546,7 +660,7 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
 
 <section id="pricing" class="max-w-6xl mx-auto px-6 py-14 md:py-20">
   <div class="text-center mb-12">
-    <span class="badge bg-brand-50 text-brand-700 border border-brand-100">TARIFS</span>
+    <span class="eyebrow">Tarifs</span>
     <h2 class="text-3xl md:text-4xl font-extrabold mt-4">Simple et transparent</h2>
     <p class="text-slate-500 mt-3">Commencez gratuitement, passez à l'échelle quand vous êtes prêt.</p>
   </div>
@@ -597,7 +711,7 @@ async def register_page(
         return RedirectResponse("/dashboard", status_code=303)
     if not settings.web_signup_enabled:
         raise HTTPException(status_code=404)
-    err = f'<p class="text-sm text-red-600">{_e(error)}</p>' if error else ""
+    err = f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>{_e(error)}</span></div>' if error else ""
     invite_field = ""
     if settings.signup_invite_code:
         invite_field = """
@@ -638,19 +752,19 @@ async def register(
     ):
         return _auth_form(
             "Créer un compte", "/register",
-            '<p class="text-sm text-red-600">Code d\'invitation invalide.</p>',
+            f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>Code d\'invitation invalide.</span></div>',
             '<a href="/login" class="text-brand-600">Se connecter</a>',
         )
     if len(password) < 8:
         return _auth_form(
             "Créer un compte", "/register",
-            '<p class="text-sm text-red-600">Le mot de passe doit contenir au moins 8 caractères.</p>',
+            f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>Le mot de passe doit contenir au moins 8 caractères.</span></div>',
             '<a href="/login" class="text-brand-600">Se connecter</a>',
         )
     if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
         return _auth_form(
             "Créer un compte", "/register",
-            '<p class="text-sm text-red-600">Adresse email invalide.</p>',
+            f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>Adresse email invalide.</span></div>',
             '<a href="/login" class="text-brand-600">Se connecter</a>',
         )
 
@@ -659,7 +773,7 @@ async def register(
     if await users.get_by_email(email):
         return _auth_form(
             "Créer un compte", "/register",
-            '<p class="text-sm text-red-600">Cet email est déjà utilisé.</p>',
+            f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>Cet email est déjà utilisé.</span></div>',
             '<a href="/login" class="text-brand-600">Se connecter</a>',
         )
 
@@ -733,7 +847,7 @@ def _verify_email_page(
     attempts: int | None = None,
     debug_code: str | None = None,
 ) -> HTMLResponse:
-    err = f'<p class="text-sm text-red-600">{_e(error)}</p>' if error else ""
+    err = f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>{_e(error)}</span></div>' if error else ""
     att = (
         f'<p class="text-xs text-slate-500 mt-1">Tentatives restantes : {attempts}</p>'
         if attempts is not None else ""
@@ -741,8 +855,8 @@ def _verify_email_page(
     dbg = ""
     if debug_code:
         dbg = (
-            '<p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 '
-            f'rounded-lg p-2.5">Mode debug — code : <b>{_e(debug_code)}</b></p>'
+            '<div class="alert alert-warn mt-3">'
+            f"{UI_ICONS['warn']}<span>Mode debug — code : <b>{_e(debug_code)}</b></span></div>"
         )
     fields = f"""
       <input type="hidden" name="t" value="{_e(t)}">
@@ -816,7 +930,7 @@ async def register_verify(
         await redis.delete(f"reg:{t}", regidx_key)
         return _auth_form(
             "Créer un compte", "/register",
-            '<p class="text-sm text-red-600">Cet email est déjà utilisé.</p>',
+            f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>Cet email est déjà utilisé.</span></div>',
             '<a href="/login" class="text-brand-600">Se connecter</a>',
         )
     await redis.delete(f"reg:{t}", regidx_key)
@@ -950,7 +1064,7 @@ async def login(
     if not user:
         return _auth_form(
             "Connexion", "/login",
-            '<p class="text-sm text-red-600">Email ou mot de passe incorrect.</p>',
+            f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>Email ou mot de passe incorrect.</span></div>',
             '<a href="/register" class="text-brand-600">Créer un compte</a>',
         )
     # Succès : reset du compteur anti brute-force pour cette IP
@@ -999,14 +1113,14 @@ async def dashboard(
 
     banner = ""
     if test == "ok":
-        banner = f"""<div class="mb-4 text-sm font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-          {UI_ICONS['check']} Email de test envoyé — vérifiez la boîte de réception (et les spams).</div>"""
+        banner = f"""<div class="alert alert-ok mb-5">{UI_ICONS['check']}
+          <span>Email de test envoyé — vérifiez la boîte de réception (et les spams).</span></div>"""
     elif test:
-        banner = f"""<div class="mb-4 text-sm font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
-          {UI_ICONS['error']} Échec de l'envoi test : {_e(test)}<br>
-          <span class="font-normal text-red-600">Vérifiez SMTP Host / Port / User / Password. Rappel : smtp.gmail.com n'accepte
+        banner = f"""<div class="alert alert-err mb-5">{UI_ICONS['error']}
+          <span>Échec de l'envoi test : {_e(test)}<br>
+          <span class="font-normal opacity-80">Vérifiez SMTP Host / Port / User / Password. Rappel : smtp.gmail.com n'accepte
           que les comptes Google — pour une adresse pro, utilisez le serveur SMTP de son hébergeur
-          (ex. IONOS : smtp.ionos.fr).</span></div>"""
+          (ex. IONOS : smtp.ionos.fr).</span></span></div>"""
 
     # Credentials (affichés si encore en cache — sinon régénérables)
     creds = await redis.get(f"webuser:creds:{tenant.tenant_id}")
@@ -1017,34 +1131,42 @@ async def dashboard(
           <div>
             <p class="text-xs font-semibold text-slate-500 mb-1">Clé API (header <code>X-API-Key</code>)</p>
             <div class="flex flex-col sm:flex-row gap-2"><code class="flex-1 min-w-0 text-xs break-all bg-slate-50 p-2 rounded">{api_key}</code>
-            <button onclick="navigator.clipboard.writeText('{api_key}')" class="text-xs btn-primary">Copier</button></div>
+            <button data-copy="{api_key}" class="btn-soft">Copier</button></div>
           </div>
           <div>
             <p class="text-xs font-semibold text-slate-500 mb-1">Secret HMAC (signature des requêtes)</p>
             <div class="flex flex-col sm:flex-row gap-2"><code class="flex-1 min-w-0 text-xs break-all bg-slate-50 p-2 rounded">{hmac_secret}</code>
-            <button onclick="navigator.clipboard.writeText('{hmac_secret}')" class="text-xs btn-primary">Copier</button></div>
+            <button data-copy="{hmac_secret}" class="btn-soft">Copier</button></div>
           </div>
         </div>"""
     else:
-        creds_html = """
-        <p class="mt-4 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-          Vos clés sont masquées pour sécurité (affichées 24 h après génération).
+        creds_html = f"""
+        <div class="alert alert-warn mt-4">{UI_ICONS['warn']}
+          <span>Vos clés sont masquées pour sécurité (affichées 24 h après génération).
           Pour obtenir une nouvelle clé API + secret, cliquez sur <b>« Régénérer mes clés »</b>
-          ci-dessous — elles s'afficheront immédiatement ici.
-        </p>"""
+          ci-dessous — elles s'afficheront immédiatement ici.</span></div>"""
 
     stats_keys = [
-        ("Emails envoyés", "stats:emails_sent"),
-        ("OTP envoyés", "stats:otps_sent"),
-        ("OTP vérifiés", "stats:otps_verified"),
+        ("Emails envoyés", "stats:emails_sent",
+         '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linejoin="round" d="M3 8l9 6 9-6M4 6h16a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V7a1 1 0 011-1z"/></svg>',
+         "bg-brand-50 text-brand-600"),
+        ("OTP envoyés", "stats:otps_sent",
+         '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M12 19l7-7-7-7M5 12h14"/></svg>',
+         "bg-amber-50 text-amber-600"),
+        ("OTP vérifiés", "stats:otps_verified",
+         '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
+         "bg-emerald-50 text-emerald-600"),
     ]
     stats_cards = ""
-    for label, key in stats_keys:
+    for label, key, ic, icc in stats_keys:
         val = await redis.get(f"{tenant.key_prefix()}{key}") or "0"
         stats_cards += f"""
-        <div class="card p-5">
-          <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">{label}</p>
-          <p class="text-3xl font-extrabold mt-1">{_e(val)}</p>
+        <div class="card kpi p-5 flex items-center gap-4">
+          <span class="kpi-ic {icc}">{ic}</span>
+          <div class="min-w-0">
+            <p class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">{label}</p>
+            <p class="kpi-num mt-0.5">{_e(val)}</p>
+          </div>
         </div>"""
 
     # Graphique 7 derniers jours (OTP envoyés/vérifiés + emails transactionnels)
@@ -1138,12 +1260,12 @@ async def dashboard(
         f'<form method="post" action="/dashboard/plan" class="mt-auto pt-4">'
         f'<input type="hidden" name="plan" value="{_e(pid)}">'
         + (
-            '<button disabled class="w-full text-xs font-bold text-slate-400 border border-slate-200 rounded-lg px-4 py-2 cursor-default">Plan actuel</button>'
+            '<button disabled class="btn-soft w-full opacity-50 cursor-default" data-noload>Plan actuel</button>'
             if pid == cur_plan
             else (
-                f'<button disabled class="w-full text-xs font-bold text-amber-600 border border-amber-200 bg-amber-50 rounded-lg px-4 py-2 cursor-default inline-flex items-center justify-center gap-1.5">{UI_ICONS["clock"]} Demande en attente</button>'
+                f'<button disabled class="btn-soft w-full !bg-amber-50 !text-amber-700 !border-amber-200 cursor-default justify-center" data-noload>{UI_ICONS["clock"]} Demande en attente</button>'
                 if pid == pending_plan
-                else '<button class="w-full text-xs font-bold text-brand-600 border border-brand-200 rounded-lg px-4 py-2 hover:bg-brand-50">Choisir ce plan</button>'
+                else '<button class="btn-soft w-full justify-center">Choisir ce plan</button>'
             )
         )
         + "</form></div>"
@@ -1152,10 +1274,10 @@ async def dashboard(
     pending_banner = ""
     if pending_plan and pending_plan in PLANS:
         pending_banner = f"""
-  <div class="mb-4 text-sm font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-    {UI_ICONS['clock']} Demande <b>{_e(PLANS[pending_plan]['label'])}</b> en attente — votre plan sera
+  <div class="alert alert-warn mb-4">{UI_ICONS['clock']}
+    <span>Demande <b>{_e(PLANS[pending_plan]['label'])}</b> en attente — votre plan sera
     activé dès validation du paiement (Stripe, PayPal, mobile money ou virement).
-    Questions ? Utilisez le support ci-dessous.</div>"""
+    Questions ? Utilisez le support ci-dessous.</span></div>"""
     plan_card_html = f"""
 <div id="sec-plan" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
   <h2 class="font-bold mb-1">Votre abonnement</h2>
@@ -1195,8 +1317,11 @@ async def dashboard(
   </div>
   <p class="text-sm text-slate-500">Tenant ID : <code>{_e(tenant.tenant_id)}</code> — URL de base : <code>{base_url}</code></p>
   {creds_html}
-  <form method="post" action="/dashboard/regenerate-keys" class="mt-4">
-    <button class="text-xs font-semibold text-rose-600 border border-rose-200 rounded-lg px-4 py-2 hover:bg-rose-50">
+  <form method="post" action="/dashboard/regenerate-keys" class="mt-4"
+        data-confirm-title="Régénérer les clés"
+        data-confirm="Régénérer vos clés API et HMAC ? Les anciennes seront invalidées immédiatement et les intégrations existantes cesseront de fonctionner."
+        data-confirm-ok="Régénérer" data-confirm-danger>
+    <button class="btn-danger">
       Régénérer mes clés (invalide les anciennes)
     </button>
   </form>
@@ -1670,7 +1795,7 @@ def _demo_page(default_tenant: str = "default") -> str:
       <div><label class="text-xs font-semibold text-slate-600">Langue</label>
       <select id="language" class="input mt-1"><option value="fr">Français</option><option value="en">English</option></select></div>
     </div>
-    <button onclick="sendOtp()" class="btn-primary mt-4">Envoyer l'OTP</button>
+    <button onclick="sendOtp(this)" class="btn-primary mt-4">Envoyer l'OTP</button>
     <pre id="sendResult" class="mt-4 text-xs bg-[#0d0f1e] text-emerald-300 rounded-lg p-4 hidden overflow-auto"></pre>
     <div id="otpCode" class="mt-3 text-center text-3xl font-extrabold tracking-[.4em] text-brand-600 hidden"></div>
   </div>
@@ -1683,7 +1808,7 @@ def _demo_page(default_tenant: str = "default") -> str:
       <div><label class="text-xs font-semibold text-slate-600">Code</label>
       <input id="code" class="input mt-1" maxlength="6" placeholder="123456"></div>
     </div>
-    <button onclick="verifyOtp()" class="btn-primary mt-4">Vérifier</button>
+    <button onclick="verifyOtp(this)" class="btn-primary mt-4">Vérifier</button>
     <pre id="verifyResult" class="mt-4 text-xs bg-[#0d0f1e] text-emerald-300 rounded-lg p-4 hidden overflow-auto"></pre>
   </div>
 
@@ -1706,7 +1831,7 @@ def _demo_page(default_tenant: str = "default") -> str:
       <div class="md:col-span-2"><label class="text-xs font-semibold text-slate-600">Message</label>
       <input id="emailMessage" class="input mt-1" value="Votre colis arrive dans 48h."></div>
     </div>
-    <button onclick="sendEmail()" class="btn-primary mt-4">Envoyer l'email</button>
+    <button onclick="sendEmail(this)" class="btn-primary mt-4">Envoyer l'email</button>
     <pre id="emailResult" class="mt-4 text-xs bg-[#0d0f1e] text-emerald-300 rounded-lg p-4 hidden overflow-auto"></pre>
   </div>
 </div>
@@ -1718,33 +1843,50 @@ function show(id, data, ok) {
   el.className = el.className.replace(/text-(emerald|rose)-300/, ok ? 'text-emerald-300' : 'text-rose-300');
   el.textContent = JSON.stringify(data, null, 2);
 }
-async function sendOtp() {
-  const res = await fetch("/demo/send", {method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({email: email.value, country_code: country.value, language: language.value,
-      purpose: "login_2fa", tenant_id: otpTenant.value || "default"})});
-  const data = await res.json(); show("sendResult", data, res.ok);
-  if (data.request_id) requestId.value = data.request_id;
-  if (data.debug_code) { const c = document.getElementById("otpCode");
-    c.classList.remove("hidden"); c.textContent = "Code : " + data.debug_code; code.value = data.debug_code; }
+async function call(btn, fn) {
+  btn.classList.add('is-loading'); btn.disabled = true;
+  try { await fn(); }
+  catch (e) { toast('Erreur réseau', 'err'); }
+  finally { btn.classList.remove('is-loading'); btn.disabled = false; }
 }
-async function verifyOtp() {
-  const res = await fetch("/demo/verify", {method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({request_id: requestId.value, code: code.value,
-      tenant_id: otpTenant.value || "default"})});
-  const data = await res.json();
-  show("verifyResult", data, res.ok && data.verified);
+async function sendOtp(btn) {
+  await call(btn, async () => {
+    const res = await fetch("/demo/send", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({email: email.value, country_code: country.value, language: language.value,
+        purpose: "login_2fa", tenant_id: otpTenant.value || "default"})});
+    const data = await res.json(); show("sendResult", data, res.ok);
+    if (!res.ok) { toast(data.detail || 'Erreur', 'err'); return; }
+    if (data.request_id) requestId.value = data.request_id;
+    if (data.debug_code) { const c = document.getElementById("otpCode");
+      c.classList.remove("hidden"); c.textContent = "Code : " + data.debug_code; code.value = data.debug_code; }
+    toast('OTP envoyé', 'ok');
+  });
 }
-async function sendEmail() {
-  const t = emailType.value;
-  const payload = {to_email: emailTo.value, type: t, language: emailLang.value,
-    tenant_id: emailTenant.value || "default", data: {}};
-  if (t === "welcome") payload.data = {name: "John Doe"};
-  else if (t === "custom") { payload.subject = emailTitle.value; payload.text_body = emailMessage.value; }
-  else payload.data = t === "notification" ? {title: emailTitle.value, message: emailMessage.value}
-                    : {amount: "149,90", currency: "EUR", status: "confirmée"};
-  const res = await fetch("/demo/email", {method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify(payload)});
-  show("emailResult", await res.json(), res.ok);
+async function verifyOtp(btn) {
+  await call(btn, async () => {
+    const res = await fetch("/demo/verify", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({request_id: requestId.value, code: code.value,
+        tenant_id: otpTenant.value || "default"})});
+    const data = await res.json();
+    show("verifyResult", data, res.ok && data.verified);
+    if (res.ok && data.verified) toast('Code vérifié', 'ok');
+    else toast(data.detail || 'Code incorrect', 'err');
+  });
+}
+async function sendEmail(btn) {
+  await call(btn, async () => {
+    const t = emailType.value;
+    const payload = {to_email: emailTo.value, type: t, language: emailLang.value,
+      tenant_id: emailTenant.value || "default", data: {}};
+    if (t === "welcome") payload.data = {name: "John Doe"};
+    else if (t === "custom") { payload.subject = emailTitle.value; payload.text_body = emailMessage.value; }
+    else payload.data = t === "notification" ? {title: emailTitle.value, message: emailMessage.value}
+                      : {amount: "149,90", currency: "EUR", status: "confirmée"};
+    const res = await fetch("/demo/email", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(payload)});
+    const data = await res.json(); show("emailResult", data, res.ok);
+    if (res.ok) toast('Email envoyé', 'ok'); else toast(data.detail || 'Erreur', 'err');
+  });
 }
 </script>
 """.replace("__TENANT__", _e(default_tenant))

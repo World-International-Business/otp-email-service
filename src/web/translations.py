@@ -59,7 +59,7 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     "SHA-256 signé": ("SHA-256 signed", "SHA-256-signiert", "Firmado SHA-256", "موقّع بـ SHA-256"),
 
     # ---------------------------------------------------------- services
-    "NOS SERVICES": ("OUR SERVICES", "UNSERE LEISTUNGEN", "NUESTROS SERVICIOS", "خدماتنا"),
+    "Nos services": ("Our services", "Unsere Leistungen", "Nuestros servicios", "خدماتنا"),
     "Tout pour vos emails & OTP": (
         "Everything for your emails &amp; OTPs",
         "Alles für Ihre E-Mails &amp; OTPs",
@@ -185,7 +185,6 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     "Healthcheck Redis + version": ("Redis healthcheck + version", "Redis-Healthcheck + Version", "Healthcheck de Redis + versión", "فحص حالة Redis + الإصدار"),
 
     # ---------------------------------------------------------- tarifs
-    "TARIFS": ("PRICING", "PREISE", "PRECIOS", "الأسعار"),
     "Simple et transparent": ("Simple and transparent", "Einfach und transparent", "Simple y transparente", "بسيط وشفّاف"),
     "Commencez gratuitement, passez à l'échelle quand vous êtes prêt.": (
         "Start for free, scale when you're ready.",
@@ -1033,6 +1032,56 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
         "— « Validar un pago » aplicará este plan y sus cuotas.",
         "— «تأكيد دفعة» سيطبّق هذه الخطة وحصصها.",
     ),
+    # ------------------------------------------------------------------
+    # Design system : modale de confirmation, attributs data-confirm
+    # ------------------------------------------------------------------
+    "Menu": ("Menu", "Menü", "Menú", "القائمة"),
+    "Compte": ("Account", "Konto", "Cuenta", "الحساب"),
+    "@Confirmation": ("Confirmation", "Bestätigung", "Confirmación", "تأكيد"),
+    "@Confirmer ?": ("Confirm?", "Bestätigen?", "¿Confirmar?", "تأكيد؟"),
+    "@Supprimer ce compte utilisateur ?": (
+        "Delete this user account?",
+        "Dieses Benutzerkonto löschen?",
+        "¿Eliminar esta cuenta de usuario?",
+        "حذف حساب المستخدم هذا؟",
+    ),
+    "@Supprimer définitivement ce tenant et ses comptes ?": (
+        "Permanently delete this tenant and its accounts?",
+        "Diesen Tenant und seine Konten endgültig löschen?",
+        "¿Eliminar definitivamente este tenant y sus cuentas?",
+        "حذف هذا المستأجر وحساباته نهائيًا؟",
+    ),
+    "@Refuser cette demande de plan ?": (
+        "Decline this plan request?",
+        "Diese Plan-Anfrage ablehnen?",
+        "¿Rechazar esta solicitud de plan?",
+        "رفض طلب الخطة هذا؟",
+    ),
+    "@Résilier ce client ?": (
+        "Terminate this client?",
+        "Diesen Kunden kündigen?",
+        "¿Dar de baja a este cliente?",
+        "إنهاء اشتراك هذا العميل؟",
+    ),
+    "@Régénérer vos clés API et HMAC ? Les anciennes seront invalidées immédiatement et les intégrations existantes cesseront de fonctionner.": (
+        "Regenerate your API and HMAC keys? The old ones will be invalidated immediately and existing integrations will stop working.",
+        "API- und HMAC-Schlüssel neu generieren? Die alten werden sofort ungültig und bestehende Integrationen funktionieren nicht mehr.",
+        "¿Regenerar tus claves API y HMAC? Las anteriores quedarán invalidadas de inmediato y las integraciones existentes dejarán de funcionar.",
+        "إعادة توليد مفاتيح API و HMAC؟ ستُبطل القديمة فورًا وستتوقف عمليات الدمج الحالية عن العمل.",
+    ),
+    "@Régénérer les clés": ("Regenerate keys", "Schlüssel neu generieren", "Regenerar claves", "إعادة توليد المفاتيح"),
+    "@Régénérer": ("Regenerate", "Neu generieren", "Regenerar", "إعادة توليد"),
+    "@Continuer": ("Continue", "Fortfahren", "Continuar", "متابعة"),
+    "@Supprimer": ("Delete", "Löschen", "Eliminar", "حذف"),
+    "@Refuser": ("Decline", "Ablehnen", "Rechazar", "رفض"),
+    "@Résilier": ("Terminate", "Kündigen", "Dar de baja", "إنهاء"),
+    "Enregistré": ("Saved", "Gespeichert", "Guardado", "تم الحفظ"),
+    "Votre demande a bien été envoyée.": (
+        "Your request has been sent.",
+        "Ihre Anfrage wurde gesendet.",
+        "Tu solicitud ha sido enviada.",
+        "تم إرسال طلبك.",
+    ),
 }
 
 # Textes contenant une partie dynamique (nom de l'utilisateur, etc.).
@@ -1188,4 +1237,28 @@ RAW: dict[str, tuple[str, str, str, str]] = {
         "# te toca activar tu canal SMS (Twilio...)",
         "# يقع عليك تفعيل قناة SMS الخاصة بك (Twilio...)",
     ),
+    # ------------------------------------------------------------------
+    # Micro-lib UI (toasts / modale de confirmation)
+    # ------------------------------------------------------------------
+    "'Confirmer'": ("'Confirm'", "'Bestätigen'", "'Confirmar'", "'تأكيد'"),
+    "'Annuler'": ("'Cancel'", "'Abbrechen'", "'Cancelar'", "'إلغاء'"),
+    "'Copié !'": ("'Copied!'", "'Kopiert!'", "'¡Copiado!'", "'تم النسخ!'"),
+    "'Copie impossible'": (
+        "'Copy failed'",
+        "'Kopieren fehlgeschlagen'",
+        "'No se pudo copiar'",
+        "'فشل النسخ'",
+    ),
+    "'Confirmation'": ("'Confirmation'", "'Bestätigung'", "'Confirmación'", "'تأكيد'"),
+    "'Erreur réseau'": (
+        "'Network error'",
+        "'Netzwerkfehler'",
+        "'Error de red'",
+        "'خطأ في الشبكة'",
+    ),
+    "'OTP envoyé'": ("'OTP sent'", "'OTP gesendet'", "'OTP enviado'", "'تم إرسال OTP'"),
+    "'Code vérifié'": ("'Code verified'", "'Code verifiziert'", "'Código verificado'", "'تم التحقق من الرمز'"),
+    "'Code incorrect'": ("'Incorrect code'", "'Falscher Code'", "'Código incorrecto'", "'رمز خاطئ'"),
+    "'Email envoyé'": ("'Email sent'", "'E-Mail gesendet'", "'Email enviado'", "'تم إرسال البريد'"),
+    "'Erreur'": ("'Error'", "'Fehler'", "'Error'", "'خطأ'"),
 }

@@ -111,8 +111,8 @@ async def _require_admin(request: Request, settings: Settings) -> None:
 @router.get("/login", response_class=HTMLResponse)
 async def admin_login_page(request: Request, error: str = "") -> HTMLResponse:
     err = (
-        '<p class="text-sm text-red-600 bg-red-50 rounded-lg p-3 mb-4">'
-        "Clé administrateur invalide.</p>"
+        '<div class="alert alert-err mb-4"><svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M9 9l6 6M15 9l-6 6"/></svg>'
+        "<span>Clé administrateur invalide.</span></div>"
         if error else ""
     )
     return HTMLResponse(f"""{_head("Administration")}
@@ -242,10 +242,6 @@ async def admin_dashboard(
             '<span class="badge bg-rose-100 text-rose-700">DÉSACTIVÉ</span>'
         )
         toggle_label = "Désactiver" if t.is_active else "Réactiver"
-        toggle_cls = (
-            "text-rose-600 border-rose-200 hover:bg-rose-50" if t.is_active
-            else "text-emerald-600 border-emerald-200 hover:bg-emerald-50"
-        )
         partner_badge = (
             ' <span class="badge bg-amber-100 text-amber-700">PARTENAIRE ∞</span>'
             if t.unlimited else ""
@@ -273,11 +269,10 @@ async def admin_dashboard(
     rollout {t.rollout_percentage}% · {len(t.allowed_purposes)} purpose(s)
   </td>
   <td class="py-4 pr-5 whitespace-nowrap text-right">
-    <a href="/admin/tenants/{_e(t.tenant_id)}"
-       class="text-xs font-semibold text-brand-600 border border-brand-200 rounded-lg px-3 py-1.5 hover:bg-brand-50">Gérer</a>
+    <a href="/admin/tenants/{_e(t.tenant_id)}" class="btn-soft">Gérer</a>
     <form method="post" action="/admin/tenants/{_e(t.tenant_id)}/toggle" class="inline"
-          onsubmit="return confirm('Confirmer ?')">
-      <button class="text-xs font-semibold {toggle_cls} border rounded-lg px-3 py-1.5 ml-1">{toggle_label}</button>
+          data-confirm="Confirmer ?" data-confirm-ok="Confirmer">
+      <button class="{"btn-danger" if t.is_active else "btn-soft"} ml-1.5">{toggle_label}</button>
     </form>
   </td>
 </tr>"""
@@ -319,22 +314,22 @@ async def admin_dashboard(
 
 <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
 
-  <div class="card p-4">
+  <div class="card kpi p-4">
     <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Tenants</p>
-    <p class="text-2xl font-extrabold mt-1">{len(tenants)}
+    <p class="kpi-num mt-1" style="font-size:1.5rem">{len(tenants)}
       <span class="text-xs font-semibold text-emerald-600">{active_count} actifs</span></p>
   </div>
-  <div class="card p-4">
+  <div class="card kpi p-4">
     <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">OTP aujourd'hui</p>
-    <p class="text-2xl font-extrabold mt-1">{today_otps}</p>
+    <p class="kpi-num mt-1" style="font-size:1.5rem">{today_otps}</p>
   </div>
-  <div class="card p-4">
+  <div class="card kpi p-4">
     <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Emails aujourd'hui</p>
-    <p class="text-2xl font-extrabold mt-1">{today_emails}</p>
+    <p class="kpi-num mt-1" style="font-size:1.5rem">{today_emails}</p>
   </div>
-  <div class="card p-4">
+  <div class="card kpi p-4">
     <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Support</p>
-    <p class="text-2xl font-extrabold mt-1">{open_support}
+    <p class="kpi-num mt-1" style="font-size:1.5rem">{open_support}
       <a href="/admin/support" class="text-xs font-semibold text-brand-600">voir →</a></p>
   </div>
 </div>
@@ -342,15 +337,15 @@ async def admin_dashboard(
 <div class="card overflow-hidden mb-8">
   <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-bold">Tenants</h2></div>
   <div class="overflow-x-auto">
-  <table class="w-full text-sm min-w-[860px]">
-    <thead><tr class="text-left text-slate-400 text-xs uppercase tracking-wider border-b bg-slate-50">
-      <th class="py-3 pl-5 pr-4 font-semibold">Tenant</th>
-      <th class="py-3 pr-4 font-semibold">Statut</th>
-      <th class="py-3 pr-4 font-semibold">Statistiques</th>
-      <th class="py-3 pr-4 font-semibold">Limites</th>
-      <th class="py-3 pr-5 font-semibold"></th>
+  <table class="dt min-w-[860px]">
+    <thead><tr>
+      <th class="pl-5">Tenant</th>
+      <th>Statut</th>
+      <th>Statistiques</th>
+      <th>Limites</th>
+      <th class="pr-5"></th>
     </tr></thead>
-    <tbody class="divide-y divide-slate-100">{rows}</tbody>
+    <tbody>{rows}</tbody>
   </table>
   </div>
 </div>
@@ -631,9 +626,9 @@ async def admin_create_tenant(
                 f"webuser:creds:{tenant_id}", f"{api_key}|{hmac_secret}", ex=86400
             )
             account_msg = (
-                '<p class="mt-3 text-sm text-emerald-700 bg-emerald-50 rounded-lg p-3">'
+                f'<div class="alert alert-ok mt-3">{UI_ICONS["check"]}<span>'
                 f"Compte dashboard créé : <code>{_e(user_email)}</code> — "
-                "il peut se connecter sur /login.</p>"
+                "il peut se connecter sur /login.</span></div>"
             )
 
     content = f"""
@@ -680,14 +675,14 @@ async def admin_edit_tenant(
 
     flash = ""
     if saved:
-        flash = ('<p class="text-sm text-emerald-700 bg-emerald-50 rounded-lg p-3 mb-4">'
-                 "Configuration enregistrée.</p>")
+        flash = (f'<div class="alert alert-ok mb-4">{UI_ICONS["check"]}'
+                 "<span>Configuration enregistrée.</span></div>")
     elif request.query_params.get("account"):
-        flash = ('<p class="text-sm text-emerald-700 bg-emerald-50 rounded-lg p-3 mb-4">'
-                 "Compte dashboard créé — le client peut se connecter sur /login.</p>")
+        flash = (f'<div class="alert alert-ok mb-4">{UI_ICONS["check"]}'
+                 "<span>Compte dashboard créé — le client peut se connecter sur /login.</span></div>")
     elif request.query_params.get("error") == "email":
-        flash = ('<p class="text-sm text-red-600 bg-red-50 rounded-lg p-3 mb-4">'
-                 "Cet email possède déjà un compte dashboard.</p>")
+        flash = (f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}'
+                 "<span>Cet email possède déjà un compte dashboard.</span></div>")
     info = f"""
 <div class="grid md:grid-cols-4 gap-4 mb-6 text-sm">
   <div class="card p-4"><p class="text-xs font-semibold text-slate-500">Statut</p>
@@ -710,7 +705,7 @@ async def admin_edit_tenant(
       <button class="text-xs font-semibold text-brand-600 border border-brand-200 rounded-lg px-3 py-1.5 hover:bg-brand-50">Reset MDP</button>
     </form>
     <form method="post" action="/admin/tenants/{_e(tenant_id)}/users/{_e(u.user_id)}/delete" class="inline ml-1"
-          onsubmit="return confirm('Supprimer ce compte utilisateur ?')">
+          data-confirm="Supprimer ce compte utilisateur ?" data-confirm-danger data-confirm-ok="Supprimer">
       <button class="text-xs font-semibold text-rose-600 border border-rose-200 rounded-lg px-3 py-1.5 hover:bg-rose-50">Supprimer</button>
     </form>
   </td>
@@ -724,7 +719,7 @@ async def admin_edit_tenant(
   <p class="text-sm text-slate-500 mb-4">Supprime le tenant, ses clés API, ses statistiques
   et ses comptes utilisateurs. <b>Action irréversible.</b></p>
   <form method="post" action="/admin/tenants/{_e(tenant_id)}/delete"
-        onsubmit="return confirm('Supprimer définitivement ce tenant et ses comptes ?')">
+        data-confirm="Supprimer définitivement ce tenant et ses comptes ?" data-confirm-danger data-confirm-ok="Supprimer">
     <button class="text-sm font-bold text-white bg-rose-600 rounded-lg px-5 py-2.5 hover:bg-rose-700">Supprimer le tenant</button>
   </form>
 </div>"""
@@ -739,12 +734,12 @@ async def admin_edit_tenant(
     reject_plan_form = ""
     if tenant.plan_requested:
         plan_request_html = f"""
-  <p class="text-sm font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
-    {UI_ICONS['clock']} Ce client demande le plan <b>{_e(tenant.plan_requested.upper())}</b> —
-    « Valider un paiement » appliquera ce plan et ses quotas.</p>"""
+  <div class="alert alert-warn mb-4">{UI_ICONS['clock']}
+    <span>Ce client demande le plan <b>{_e(tenant.plan_requested.upper())}</b> —
+    « Valider un paiement » appliquera ce plan et ses quotas.</span></div>"""
         reject_plan_form = f"""
     <form method="post" action="/admin/tenants/{_e(tenant_id)}/billing"
-          onsubmit="return confirm('Refuser cette demande de plan ?')">
+          data-confirm="Refuser cette demande de plan ?" data-confirm-danger data-confirm-ok="Refuser">
       <input type="hidden" name="action" value="reject_plan">
       <button class="text-xs font-semibold text-slate-600 border border-slate-200 rounded-lg px-4 py-2 hover:bg-slate-50">Refuser la demande</button>
     </form>"""
@@ -755,7 +750,7 @@ async def admin_edit_tenant(
     <p class="text-sm text-slate-500">Configuration, quotas et SMTP.</p>
   </div>
   <form method="post" action="/admin/tenants/{_e(tenant_id)}/toggle"
-        onsubmit="return confirm('Confirmer ?')">
+        data-confirm="Confirmer ?" data-confirm-ok="Confirmer">
     <button class="text-xs font-semibold {'text-rose-600 border-rose-200 hover:bg-rose-50' if tenant.is_active else 'text-emerald-600 border-emerald-200 hover:bg-emerald-50'} border rounded-lg px-4 py-2">
       {'Désactiver' if tenant.is_active else 'Réactiver'}</button>
   </form>
@@ -783,7 +778,7 @@ async def admin_edit_tenant(
       <button class="text-xs font-semibold text-amber-700 border border-amber-200 rounded-lg px-4 py-2 hover:bg-amber-50">Marquer en retard</button>
     </form>
     <form method="post" action="/admin/tenants/{_e(tenant_id)}/billing"
-          onsubmit="return confirm('Résilier ce client ?')">
+          data-confirm="Résilier ce client ?" data-confirm-danger data-confirm-ok="Résilier">
       <input type="hidden" name="action" value="canceled">
       <button class="text-xs font-semibold text-rose-600 border border-rose-200 rounded-lg px-4 py-2 hover:bg-rose-50">Résilier</button>
     </form>
