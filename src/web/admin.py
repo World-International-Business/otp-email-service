@@ -444,7 +444,7 @@ def _tenant_form(action: str, t: Tenant | None, include_account: bool) -> str:
   <div class="md:col-span-2"><label class="text-xs font-semibold text-slate-600">Pied de page emails</label>
   <input name="email_footer" class="input mt-1" value="{g('email_footer')}" placeholder="Vide = texte par défaut"></div>
 
-  <h3 class="font-bold text-sm text-slate-700 md:col-span-2 mt-2">SMTP du client <span class="font-normal text-slate-400">(vide = config globale du serveur ; IONOS : smtp.ionos.fr:587)</span></h3>
+  <h3 class="font-bold text-sm text-slate-700 md:col-span-2 mt-2">SMTP du client <span class="font-normal text-slate-400">(vide = config globale ; tout serveur SMTP : Gmail, Yahoo, iCloud, Outlook, IONOS, OVH, Zoho…)</span></h3>
   <div><label class="text-xs font-semibold text-slate-600">SMTP Host</label>
   <input name="smtp_host" class="input mt-1" value="{g('smtp_host')}" placeholder="smtp.ionos.fr"></div>
   <div><label class="text-xs font-semibold text-slate-600">SMTP Port</label>

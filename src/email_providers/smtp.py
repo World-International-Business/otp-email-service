@@ -1,8 +1,9 @@
-"""Implémentation SMTP du provider d'email — supporte le sender par tenant.
+"""Provider d'email SMTP universel — supporte le sender par tenant.
 
-Fonctionne avec tout serveur SMTP (Gmail, Google Workspace, OVH, Zoho,
-IONOS, cPanel, serveur auto-hébergé…) : STARTTLS par défaut, SSL implicite
-sur port 465 ou via smtp_use_ssl.
+Fonctionne avec TOUT serveur SMTP : Gmail, Google Workspace, Yahoo Mail,
+iCloud (smtp.mail.me.com), Outlook / Office 365, IONOS, OVH, Zoho, cPanel,
+serveur auto-hébergé… STARTTLS automatique quand le serveur l'annonce,
+SSL implicite sur port 465 ou via smtp_use_ssl.
 """
 
 import asyncio
@@ -18,7 +19,7 @@ from src.email_providers.base import EmailProvider, EmailSendError, SenderIdenti
 logger = logging.getLogger(__name__)
 
 
-class GmailSMTPProvider(EmailProvider):
+class SMTPProvider(EmailProvider):
     def __init__(self, settings: Settings):
         self.settings = settings
 

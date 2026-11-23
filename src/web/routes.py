@@ -1401,22 +1401,23 @@ async def dashboard(
 {pay_history}
 <div id="sec-smtp" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
   <h2 class="font-bold mb-1">Configuration de votre expéditeur email</h2>
-  <p class="text-sm text-slate-500 mb-4">Configurez l'adresse email utilisée pour envoyer VOS emails
-  (Gmail : utilisez un <a class="text-brand-600 underline" href="https://myaccount.google.com/apppasswords" target="_blank">mot de passe d'application</a>).</p>
+  <p class="text-sm text-slate-500 mb-4">Configurez l'adresse email utilisée pour envoyer VOS emails —
+  tout serveur SMTP est supporté (Gmail, Yahoo, iCloud, Outlook, IONOS, OVH, Zoho…).
+  Gmail, Yahoo et iCloud exigent un <a class="text-brand-600 underline" href="https://myaccount.google.com/apppasswords" target="_blank">mot de passe d'application</a>.</p>
   <form method="post" action="/dashboard/config" class="grid md:grid-cols-2 gap-4">
     <div><label class="text-xs font-semibold text-slate-600">Marque affichée</label>
     <input name="brand_name" class="input mt-1" value="{_e(tenant.brand_name)}"></div>
     <div><label class="text-xs font-semibold text-slate-600">Adresse expéditrice</label>
     <input name="from_email" type="email" class="input mt-1" value="{_e(tenant.from_email or '')}" placeholder="no-reply@votredomaine.com">
-    <p class="text-[11px] text-amber-600 mt-1">Avec Gmail, doit correspondre au SMTP User (ou à un alias « Envoyer en tant que » vérifié) — sinon Google réécrit l'expéditeur.</p></div>
+    <p class="text-[11px] text-amber-600 mt-1">Doit généralement correspondre au SMTP User (ou à un alias vérifié) — sinon le fournisseur réécrit l'expéditeur.</p></div>
     <div><label class="text-xs font-semibold text-slate-600">Nom expéditeur</label>
     <input name="from_name" class="input mt-1" value="{_e(tenant.from_name or '')}" placeholder="{_e(tenant.brand_name)}"></div>
     <div><label class="text-xs font-semibold text-slate-600">SMTP Host</label>
     <input name="smtp_host" class="input mt-1" value="{_e(_cfg(tenant,'smtp_host') or '')}" placeholder="{_e(settings.smtp_host)}">
-    <p class="text-[11px] text-slate-400 mt-1">Vide = config globale (.env) · Gmail : smtp.gmail.com · IONOS : smtp.ionos.fr (ou .com selon région) · OVH : ssl0.ovh.net · Zoho : smtp.zoho.com</p></div>
+    <p class="text-[11px] text-slate-400 mt-1">Vide = config globale (.env) · Gmail : smtp.gmail.com · Yahoo : smtp.mail.yahoo.com · iCloud : smtp.mail.me.com · Outlook : smtp.office365.com · IONOS : smtp.ionos.fr · OVH : ssl0.ovh.net · Zoho : smtp.zoho.com</p></div>
     <div><label class="text-xs font-semibold text-slate-600">SMTP Port</label>
     <input name="smtp_port" type="number" min="1" max="65535" class="input mt-1" value="{_e(str(_cfg(tenant,'smtp_port') or ''))}" placeholder="{settings.smtp_port}">
-    <p class="text-[11px] text-slate-400 mt-1">587 = STARTTLS (Gmail, IONOS) · 465 = SSL (OVH, Zoho, cPanel) — détection automatique.</p></div>
+    <p class="text-[11px] text-slate-400 mt-1">587 = STARTTLS (la plupart des fournisseurs) · 465 = SSL — détection automatique selon le port.</p></div>
     <div><label class="text-xs font-semibold text-slate-600">SMTP User</label>
     <input name="smtp_user" class="input mt-1" value="{_e(tenant.smtp_user or '')}" placeholder="votre.email@gmail.com"></div>
     <div><label class="text-xs font-semibold text-slate-600">SMTP Password (app password)</label>

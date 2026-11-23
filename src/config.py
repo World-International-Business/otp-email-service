@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     signup_invite_code: str | None = None  # si défini, requis à l'inscription
     web_login_max_attempts: int = 5        # par IP / 10 min
 
-    email_provider: str = "gmail"
+    email_provider: str = "smtp"  # smtp | brevo | resend | console (« gmail » = alias legacy)
     from_email: EmailStr
     from_name: str = "SendBID"
 
