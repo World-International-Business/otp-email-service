@@ -1142,6 +1142,26 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
         "No se pudo iniciar el pago — inténtalo de nuevo o contacta con soporte.",
         "تعذّر بدء عملية الدفع — حاول مرة أخرى أو تواصل مع الدعم.",
     ),
+
+    # ---------------------------------------------------------- webhooks
+    "Webhook de notification (URL)": (
+        "Notification webhook (URL)", "Benachrichtigungs-Webhook (URL)", "Webhook de notificación (URL)", "ويب هوك الإشعارات (URL)",
+    ),
+    "Votre endpoint reçoit les statuts d'envoi en temps réel : email.sent, email.failed, email.dead, otp.sent, otp.verified — POST JSON signé X-MailHub-Signature avec votre secret HMAC.": (
+        "Your endpoint receives delivery statuses in real time: email.sent, email.failed, email.dead, otp.sent, otp.verified — signed JSON POST via X-MailHub-Signature with your HMAC secret.",
+        "Ihr Endpunkt empfängt Sendestatus in Echtzeit: email.sent, email.failed, email.dead, otp.sent, otp.verified — signierter JSON-POST via X-MailHub-Signature mit Ihrem HMAC-Secret.",
+        "Tu endpoint recibe los estados de envío en tiempo real: email.sent, email.failed, email.dead, otp.sent, otp.verified — POST JSON firmado con X-MailHub-Signature y tu secreto HMAC.",
+        "تستقبل نقطة النهاية حالات الإرسال في الوقت الفعلي: email.sent، email.failed، email.dead، otp.sent، otp.verified — طلب POST JSON موقّع عبر X-MailHub-Signature بسرّك HMAC.",
+    ),
+    "Webhook sortant (URL)": (
+        "Outgoing webhook (URL)", "Ausgehender Webhook (URL)", "Webhook saliente (URL)", "ويب هوك صادر (URL)",
+    ),
+    "Reçoit les événements email.sent / email.failed / email.dead / otp.* — body JSON signé par X-MailHub-Signature (HMAC du tenant).": (
+        "Receives email.sent / email.failed / email.dead / otp.* events — JSON body signed via X-MailHub-Signature (tenant HMAC).",
+        "Empfängt die Ereignisse email.sent / email.failed / email.dead / otp.* — JSON-Body signiert via X-MailHub-Signature (Tenant-HMAC).",
+        "Recibe los eventos email.sent / email.failed / email.dead / otp.* — cuerpo JSON firmado con X-MailHub-Signature (HMAC del tenant).",
+        "يستقبل أحداث email.sent / email.failed / email.dead / otp.* — جسم JSON موقّع عبر X-MailHub-Signature (HMAC الخاص بالمستأجر).",
+    ),
 }
 
 # Textes contenant une partie dynamique (nom de l'utilisateur, etc.).

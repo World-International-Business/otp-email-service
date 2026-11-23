@@ -1423,6 +1423,9 @@ async def dashboard(
     <div><label class="text-xs font-semibold text-slate-600">SMTP Password (app password)</label>
     <input name="smtp_password" type="password" class="input mt-1" placeholder="16 caractères">
     <p class="text-[11px] text-slate-400 mt-1">Laisser vide pour conserver le mot de passe actuel.</p></div>
+    <div class="md:col-span-2"><label class="text-xs font-semibold text-slate-600">Webhook de notification (URL)</label>
+    <input name="webhook_url" type="url" class="input mt-1" value="{_e(tenant.webhook_url or '')}" placeholder="https://votreapp.com/webhooks/mailhub">
+    <p class="text-[11px] text-slate-400 mt-1">Votre endpoint reçoit les statuts d'envoi en temps réel : email.sent, email.failed, email.dead, otp.sent, otp.verified — POST JSON signé X-MailHub-Signature avec votre secret HMAC.</p></div>
     <div class="md:col-span-2 flex gap-3">
       <button class="btn-primary">Sauvegarder</button>
     </div>
@@ -1564,6 +1567,7 @@ async def dashboard_config(
     smtp_port: str = Form(""),
     smtp_user: str = Form(""),
     smtp_password: str = Form(""),
+    webhook_url: str = Form(""),
     _: None = Depends(require_same_origin),
 ):
     user = await _require_user(request)
@@ -1588,6 +1592,8 @@ async def dashboard_config(
         "smtp_port": port,
         "smtp_user": smtp_user.strip() or None,
     }
+    wh = webhook_url.strip()
+    updates["webhook_url"] = wh if wh.startswith(("http://", "https://")) else None
     if smtp_password.strip():
         updates["smtp_password"] = smtp_password.strip()
     await store.update(user.tenant_id, updates)

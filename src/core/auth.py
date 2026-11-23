@@ -21,13 +21,23 @@ api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 admin_key_header = APIKeyHeader(name="X-Admin-Key", auto_error=False)
 
 
-def _signature_for_body_and_timestamp(body: bytes, timestamp: str, secret: str) -> str:
+def _signature_for_body_and_timestamp(
+    body: bytes, timestamp: str, secret: str, nonce: str = ""
+) -> str:
+    # X-Nonce (optionnel, rétrocompatible) : sans lui, deux requêtes au
+    # corps identique dans la même seconde produisent la même signature
+    # et la seconde est rejetée comme replay — ex. un client qui poll un
+    # statut GET. Un nonce unique par requête lève cette contrainte.
     message = body + timestamp.encode("utf-8")
+    if nonce:
+        message += b"|" + nonce.encode("utf-8")
     return hmac.new(secret.encode("utf-8"), message, hashlib.sha256).hexdigest()
 
 
-def _verify_hmac(body: bytes, timestamp: str, signature: str, secret: str) -> bool:
-    expected = _signature_for_body_and_timestamp(body, timestamp, secret)
+def _verify_hmac(
+    body: bytes, timestamp: str, signature: str, secret: str, nonce: str = ""
+) -> bool:
+    expected = _signature_for_body_and_timestamp(body, timestamp, secret, nonce)
     return hmac.compare_digest(expected, signature)
 
 
@@ -36,6 +46,7 @@ async def resolve_tenant(request: Request) -> Tenant:
     api_key = request.headers.get("X-API-Key", "")
     timestamp = request.headers.get("X-Timestamp", "")
     signature = request.headers.get("X-HMAC-Signature", "")
+    nonce = request.headers.get("X-Nonce", "")
 
     if not api_key or not timestamp or not signature:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -55,7 +66,7 @@ async def resolve_tenant(request: Request) -> Tenant:
         raise HTTPException(status_code=403, detail="Timestamp too old")
 
     body = await request.body()
-    if not _verify_hmac(body, timestamp, signature, tenant.hmac_secret):
+    if not _verify_hmac(body, timestamp, signature, tenant.hmac_secret, nonce):
         raise HTTPException(status_code=403, detail="Invalid signature")
 
     # Anti-rejeu : une signature n'est utilisable qu'une seule fois dans la

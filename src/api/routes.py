@@ -9,13 +9,16 @@ from src.core.auth import get_tenant
 from src.core.models import (
     EmailSendRequest,
     EmailSendResponse,
+    EmailStatusResponse,
     OTPSendRequest,
     OTPSendResponse,
     OTPVerifyRequest,
     OTPVerifyResponse,
 )
 from src.core.tenants import Tenant
+from src.services.email_queue import enqueue, get_status
 from src.services.email_service import EmailService
+from src.services.idempotency import idem_get, idem_store
 from src.services.otp_service import OTPService
 
 router = APIRouter(prefix="/v1/otp")
@@ -36,7 +39,15 @@ async def send_otp(
     service: OTPService = Depends(get_otp_service),
     client_ip: str = Depends(get_client_ip),
 ) -> OTPSendResponse:
-    return await service.send_otp(
+    redis = request.app.state.redis
+    idem_key = request.headers.get("idempotency-key")
+    if idem_key:
+        # Un retry rejoue la MÊME réponse — sinon un nouveau code serait
+        # généré à chaque retry et invaliderait le précédent.
+        cached = await idem_get(redis, tenant.tenant_id, idem_key)
+        if cached:
+            return OTPSendResponse(**cached)
+    resp = await service.send_otp(
         tenant=tenant,
         user_id=str(payload.user_id),
         email=str(payload.email),
@@ -46,6 +57,9 @@ async def send_otp(
         client_ip=client_ip,
         magic_link=payload.magic_link,
     )
+    if idem_key:
+        await idem_store(redis, tenant.tenant_id, idem_key, resp.model_dump(mode="json"))
+    return resp
 
 
 @router.post(
@@ -108,7 +122,7 @@ Demandez un nouveau code.</p>"""
     "/send",
     response_model=EmailSendResponse,
     summary="Envoyer un email transactionnel",
-    response_description="message_id de l'envoi",
+    response_description="message_id de l'envoi (status=queued : livraison async + retries)",
 )
 async def send_email(
     payload: EmailSendRequest,
@@ -117,4 +131,55 @@ async def send_email(
     service: EmailService = Depends(get_email_service),
     client_ip: str = Depends(get_client_ip),
 ) -> EmailSendResponse:
-    return await service.send(tenant, payload, client_ip=client_ip)
+    redis = request.app.state.redis
+    idem_key = request.headers.get("idempotency-key")
+    if idem_key:
+        cached = await idem_get(redis, tenant.tenant_id, idem_key)
+        if cached:
+            return EmailSendResponse(**cached)
+
+    if service.settings.email_queue_enabled:
+        # Validation + quota à la réception (422/429 immédiat), livraison
+        # ensuite par le worker avec retries — l'email n'est jamais perdu.
+        subject, text_body, html_body, _limiter = await service.prepare_send(
+            tenant, payload, client_ip
+        )
+        message_id = await enqueue(
+            redis, tenant.tenant_id, str(payload.to_email), payload.type.value,
+            subject, text_body, html_body, client_ip=client_ip,
+        )
+        resp = EmailSendResponse(
+            sent=True, status="queued",
+            message_id=message_id, to_email=payload.to_email,
+        )
+    else:
+        resp = await service.send(tenant, payload, client_ip=client_ip)
+
+    if idem_key:
+        await idem_store(redis, tenant.tenant_id, idem_key, resp.model_dump(mode="json"))
+    return resp
+
+
+@email_router.get(
+    "/status/{message_id}",
+    response_model=EmailStatusResponse,
+    summary="Statut d'un envoi (queued/retry/sent/dead)",
+    response_description="État courant du message, visible au tenant émetteur uniquement",
+)
+async def email_status(
+    message_id: str,
+    request: Request,
+    tenant: Tenant = Depends(get_tenant),
+) -> EmailStatusResponse:
+    st = await get_status(request.app.state.redis, message_id)
+    if not st or st.get("tenant_id") != tenant.tenant_id:
+        raise HTTPException(status_code=404, detail="message_id introuvable")
+    return EmailStatusResponse(
+        message_id=message_id,
+        status=st.get("status", "queued"),
+        to=st.get("to"),
+        type=st.get("type"),
+        attempts=st.get("attempts", 0),
+        error=st.get("error"),
+        updated=st.get("updated", 0),
+    )

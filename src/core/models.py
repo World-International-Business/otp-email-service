@@ -97,9 +97,25 @@ class EmailSendRequest(BaseModel):
 
 
 class EmailSendResponse(BaseModel):
-    sent: bool
+    sent: bool = Field(..., description="True = accepté par le service (voir status)")
     message_id: str = Field(..., description="Identifiant de l'envoi")
     to_email: str = Field(..., description="Destinataire (masqué dans les logs)")
+    status: str = Field(
+        default="sent",
+        description="queued (file+retry) | sent — consulter GET /v1/emails/status/{message_id}",
+    )
+
+
+class EmailStatusResponse(BaseModel):
+    message_id: str
+    status: str = Field(
+        ..., description="queued | retry | sent | dead | failed"
+    )
+    to: str | None = None
+    type: str | None = None
+    attempts: int = 0
+    error: str | None = None
+    updated: int = 0
 
 
 # ------------------------------------------------------------------

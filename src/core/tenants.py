@@ -41,6 +41,7 @@ class Tenant(BaseModel):
     brand_color: str = "#5060a8"
     email_logo_url: str | None = None
     email_footer: str | None = None
+    webhook_url: str | None = None  # POST signé HMAC : email.sent/failed/dead, otp.*
     max_sends_per_user_per_10min: int = 3
     max_sends_per_ip_per_10min: int = 3
     cooldown_seconds: int = 60

@@ -19,8 +19,11 @@ from src.api.dependencies import get_email_provider, get_redis_client, get_setti
 from src.api.middleware import JSONLogMiddleware, SecurityHeadersMiddleware
 from src.api.routes import email_router, router
 from src.core.tenants import TenantStore, plan_quota_updates, seed_default_tenant
+from src.services.billing_reminders import notify_plan_expired, run_billing_reminders
+from src.services.email_queue import process_email_queue_once
 from src.services.email_service import EmailService
 from src.services.otp_service import OTPService
+from src.services.webhooks import process_webhook_queue_once
 from src.web.admin import router as admin_web_router
 from src.web.docs_page import router as docs_router
 from src.web.i18n import get_lang, translate_html
@@ -42,7 +45,7 @@ def setup_logging(log_level: str) -> None:
     root.setLevel(getattr(logging, log_level.upper(), logging.INFO))
 
 
-async def _expire_billing_once(redis) -> int:
+async def _expire_billing_once(redis, email_provider=None, public_base_url: str = "") -> int:
     """Rétrograde les tenants dont la période payée est terminée.
 
     `paid_until` est une date ISO (YYYY-MM-DD) — comparaison lexicale sûre.
@@ -59,6 +62,7 @@ async def _expire_billing_once(redis) -> int:
             and not t.unlimited
             and t.plan != "free"
         ):
+            old_plan = t.plan
             await store.update(
                 t.tenant_id,
                 {
@@ -72,17 +76,47 @@ async def _expire_billing_once(redis) -> int:
                 "billing_expired_downgrade",
                 extra={"tenant_id": t.tenant_id, "paid_until": t.paid_until},
             )
+            if email_provider:
+                try:
+                    await notify_plan_expired(
+                        redis, email_provider, t.tenant_id, old_plan, public_base_url
+                    )
+                except Exception:
+                    logging.getLogger(__name__).warning(
+                        "billing_expired_notify_failed",
+                        extra={"tenant_id": t.tenant_id},
+                    )
     return downgraded
 
 
-async def _expire_billing_loop(redis, interval: int) -> None:
-    """Boucle périodique de résiliation automatique des abonnements expirés."""
+async def _expire_billing_loop(redis, settings, email_provider) -> None:
+    """Rétrogradation des expirés + rappels J-7/J-3/J-1 aux clients."""
     while True:
-        await asyncio.sleep(interval)
+        await asyncio.sleep(settings.billing_check_interval_seconds)
         try:
-            await _expire_billing_once(redis)
+            await _expire_billing_once(
+                redis, email_provider, settings.public_base_url or ""
+            )
+            await run_billing_reminders(
+                redis, email_provider, settings.public_base_url or ""
+            )
         except Exception:
             logging.getLogger(__name__).exception("billing_expiry_loop_error")
+
+
+async def _queue_worker_loop(app: FastAPI, poll_seconds: float) -> None:
+    """Worker de fond : livraison des emails en file + webhooks sortants."""
+    log = logging.getLogger(__name__)
+    while True:
+        try:
+            await process_email_queue_once(
+                app.state.redis, app.state.email_service,
+                max_attempts=app.state.settings.email_max_attempts,
+            )
+            await process_webhook_queue_once(app.state.redis)
+        except Exception:
+            log.exception("queue_worker_error")
+        await asyncio.sleep(poll_seconds)
 
 
 @asynccontextmanager
@@ -103,15 +137,19 @@ async def lifespan(app: FastAPI):
     await seed_default_tenant(redis, settings)
 
     billing_task = asyncio.create_task(
-        _expire_billing_loop(redis, settings.billing_check_interval_seconds)
+        _expire_billing_loop(redis, settings, email_provider)
+    )
+    queue_task = asyncio.create_task(
+        _queue_worker_loop(app, settings.email_queue_poll_seconds)
     )
 
     logging.getLogger(__name__).info("service_started", extra={"version": settings.app_version})
     yield
-    billing_task.cancel()
-    with suppress(asyncio.CancelledError):
-        await billing_task
-    await redis.close()
+    for task in (billing_task, queue_task):
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+    await redis.aclose()
     logging.getLogger(__name__).info("service_stopped")
 
 

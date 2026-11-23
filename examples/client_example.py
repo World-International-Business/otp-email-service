@@ -15,11 +15,15 @@ BASE_URL = "http://localhost:8001"
 
 def sign_body(body: bytes) -> dict[str, str]:
     timestamp = str(int(time.time()))
-    message = body + timestamp.encode("utf-8")
+    # X-Nonce : unique par requête — évite que deux appels identiques dans
+    # la même seconde partagent la même signature (rejetée anti-replay).
+    nonce = uuid.uuid4().hex
+    message = body + timestamp.encode("utf-8") + b"|" + nonce.encode("utf-8")
     signature = hmac.new(HMAC_SECRET, message, hashlib.sha256).hexdigest()
     return {
         "X-API-Key": API_KEY,
         "X-Timestamp": timestamp,
+        "X-Nonce": nonce,
         "X-HMAC-Signature": signature,
     }
 

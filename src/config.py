@@ -83,6 +83,11 @@ class Settings(BaseSettings):
     # Résiliation automatique des abonnements expirés (secondes entre chaque balayage)
     billing_check_interval_seconds: int = 3600
 
+    # File d'envoi d'emails (livraison asynchrone + retries) et webhooks sortants
+    email_queue_enabled: bool = True      # False = envoi synchrone comme avant
+    email_queue_poll_seconds: float = 1.0  # intervalle de poll du worker
+    email_max_attempts: int = 4            # 1 essai + 3 retries (60s, 5min, 15min) puis dead
+
     risky_countries: str = "CN,RU,BY,IR,KP"
     rollout_percentage: int = Field(default=100, ge=0, le=100)
 

@@ -443,6 +443,9 @@ def _tenant_form(action: str, t: Tenant | None, include_account: bool) -> str:
   <input name="email_logo_url" type="url" class="input mt-1" value="{g('email_logo_url')}" placeholder="https://…"></div>
   <div class="md:col-span-2"><label class="text-xs font-semibold text-slate-600">Pied de page emails</label>
   <input name="email_footer" class="input mt-1" value="{g('email_footer')}" placeholder="Vide = texte par défaut"></div>
+  <div class="md:col-span-2"><label class="text-xs font-semibold text-slate-600">Webhook sortant (URL)</label>
+  <input name="webhook_url" type="url" class="input mt-1" value="{g('webhook_url')}" placeholder="https://client.com/webhooks/mailhub">
+  <p class="text-[11px] text-slate-400 mt-1">Reçoit les événements email.sent / email.failed / email.dead / otp.* — body JSON signé par X-MailHub-Signature (HMAC du tenant).</p></div>
 
   <h3 class="font-bold text-sm text-slate-700 md:col-span-2 mt-2">SMTP du client <span class="font-normal text-slate-400">(vide = config globale ; tout serveur SMTP : Gmail, Yahoo, iCloud, Outlook, IONOS, OVH, Zoho…)</span></h3>
   <div><label class="text-xs font-semibold text-slate-600">SMTP Host</label>
@@ -550,6 +553,7 @@ async def admin_create_tenant(
     brand_color: str = Form("#5060a8"),
     email_logo_url: str = Form(""),
     email_footer: str = Form(""),
+    webhook_url: str = Form(""),
     smtp_host: str = Form(""),
     smtp_port: str = Form(""),
     smtp_user: str = Form(""),
@@ -597,6 +601,7 @@ async def admin_create_tenant(
         brand_color=brand_color.strip() or "#5060a8",
         email_logo_url=email_logo_url.strip() or None,
         email_footer=email_footer.strip() or None,
+        webhook_url=webhook_url.strip() or None,
         smtp_host=smtp_host.strip() or None,
         smtp_port=_int_or_none(smtp_port),
         smtp_user=smtp_user.strip() or None,
@@ -853,6 +858,7 @@ async def admin_update_tenant(
     brand_color: str = Form("#5060a8"),
     email_logo_url: str = Form(""),
     email_footer: str = Form(""),
+    webhook_url: str = Form(""),
     smtp_host: str = Form(""),
     smtp_port: str = Form(""),
     smtp_user: str = Form(""),
@@ -888,6 +894,7 @@ async def admin_update_tenant(
         "brand_color": brand_color.strip() or "#5060a8",
         "email_logo_url": _opt(email_logo_url),
         "email_footer": _opt(email_footer),
+        "webhook_url": _opt(webhook_url),
         "smtp_host": _opt(smtp_host),
         "smtp_port": _int_or_none(smtp_port),
         "smtp_user": _opt(smtp_user),

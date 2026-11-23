@@ -70,24 +70,63 @@ signe avant de la transférer.
 
 ## 3. Authentification — signature HMAC-SHA256
 
-Chaque appel à `/v1/otp/*` et `/v1/email/*` exige **3 headers** :
+Chaque appel à `/v1/otp/*` et `/v1/email/*` exige **3 headers** (+1 recommandé) :
 
 | Header | Valeur |
 |--------|--------|
 | `X-API-Key` | La clé API du tenant |
 | `X-Timestamp` | Timestamp Unix en **secondes** (pas millisecondes) |
-| `X-HMAC-Signature` | `hex(HMAC_SHA256(secret, corps_JSON_brut + timestamp))` |
+| `X-HMAC-Signature` | `hex(HMAC_SHA256(secret, corps_JSON_brut + timestamp [+ "|" + nonce]))` |
+| `X-Nonce` *(optionnel, recommandé)* | Valeur unique par requête (uuid4) — voir note |
+
+> **Pourquoi X-Nonce ?** Sans lui, deux requêtes au **corps identique** dans la
+> **même seconde** produisent la même signature → la seconde est rejetée
+> `403 "Replay detected"`. Cas typique : polling de `GET /v1/email/status/{id}`.
+> Avec un nonce unique par requête, chaque signature est distincte. Rétro-
+> compatible : les clients sans X-Nonce continuent de fonctionner.
 
 ### Recette exacte
 
 ```text
 1. body     = les bytes EXACTS du JSON envoyé (avant tout réencodage)
 2. ts       = str(int(time.time()))                     # secondes
-3. message  = body + ts.encode()                        # concaténation, AUCUN séparateur
-4. sig      = hmac_sha256(secret, message).hexdigest()  # 64 caractères hex minuscules
-5. headers  = X-API-Key, X-Timestamp: ts, X-HMAC-Signature: sig,
-              Content-Type: application/json
+3. nonce    = uuid.uuid4().hex                          # unique par requête
+4. message  = body + ts.encode() + b"|" + nonce.encode()  # concaténation
+5. sig      = hmac_sha256(secret, message).hexdigest()  # 64 caractères hex
+6. headers  = X-API-Key, X-Timestamp: ts, X-Nonce: nonce,
+              X-HMAC-Signature: sig, Content-Type: application/json
 ```
+
+### Idempotence — `Idempotency-Key`
+
+Les `POST /v1/otp/send` et `/v1/email/send` acceptent un header
+`Idempotency-Key: <clé unique>` : le premier appel est exécuté, sa réponse
+stockée 24 h ; tout appel suivant avec la même clé **rejoue la réponse
+d'origine** (même request_id, même message_id) — un retry réseau ne crée
+jamais un second envoi ni un nouvel OTP.
+
+### Statut d'envoi — `GET /v1/email/status/{message_id}`
+
+Réponse de `POST /v1/email/send` : `status="queued"` — la livraison est
+asynchrone avec retries (60 s, 5 min, 15 min puis dead). Interrogez ce
+endpoint pour connaître l'état : `queued | retry | sent | dead`, plus
+`attempts`, `error`, `updated`. Scopé au tenant émetteur (404 sinon).
+
+### Webhooks sortants — statuts en push
+
+Si `webhook_url` est configurée (dashboard ou admin), MailHub POST à votre
+endpoint, signé par `X-MailHub-Signature: sha256=<HMAC(body, hmac_secret)>` :
+
+| `X-MailHub-Event` | Données (`data`) |
+|---|---|
+| `email.sent` | message_id, to, type, subject |
+| `email.failed` | message_id, to, type, error, attempts, will_retry |
+| `email.dead` | message_id, to, type, error, attempts (plus de retry) |
+| `otp.sent` | request_id, to, purpose, expires_in |
+| `otp.failed` | request_id, to, purpose, error |
+| `otp.verified` | request_id |
+
+3 tentatives (immédiat, +60 s, +5 min). Répondez 2xx pour acquitter.
 
 ### Ce que le serveur vérifie (dans l'ordre)
 
