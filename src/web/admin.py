@@ -435,7 +435,7 @@ def _tenant_form(action: str, t: Tenant | None, include_account: bool) -> str:
   <div><label class="text-xs font-semibold text-slate-600">Nom expéditeur</label>
   <input name="from_name" class="input mt-1" value="{g('from_name')}"></div>
   <div><label class="text-xs font-semibold text-slate-600">Couleur emails</label>
-  <input name="brand_color" type="color" class="mt-1 h-10 w-full rounded-lg border border-slate-200 cursor-pointer" value="{g('brand_color', '#6366f1')}"></div>
+  <input name="brand_color" type="color" class="mt-1 h-10 w-full rounded-lg border border-slate-200 cursor-pointer" value="{g('brand_color', '#5060a8')}"></div>
   <div><label class="text-xs font-semibold text-slate-600">Logo emails (URL)</label>
   <input name="email_logo_url" type="url" class="input mt-1" value="{g('email_logo_url')}" placeholder="https://…"></div>
   <div class="md:col-span-2"><label class="text-xs font-semibold text-slate-600">Pied de page emails</label>
@@ -544,7 +544,7 @@ async def admin_create_tenant(
     brand_name: str = Form("SendBID"),
     from_email: str = Form(""),
     from_name: str = Form(""),
-    brand_color: str = Form("#6366f1"),
+    brand_color: str = Form("#5060a8"),
     email_logo_url: str = Form(""),
     email_footer: str = Form(""),
     smtp_host: str = Form(""),
@@ -591,7 +591,7 @@ async def admin_create_tenant(
         brand_name=brand_name.strip() or "SendBID",
         from_email=from_email.strip() or None,
         from_name=from_name.strip() or None,
-        brand_color=brand_color.strip() or "#6366f1",
+        brand_color=brand_color.strip() or "#5060a8",
         email_logo_url=email_logo_url.strip() or None,
         email_footer=email_footer.strip() or None,
         smtp_host=smtp_host.strip() or None,
@@ -823,7 +823,7 @@ async def admin_update_tenant(
     brand_name: str = Form("SendBID"),
     from_email: str = Form(""),
     from_name: str = Form(""),
-    brand_color: str = Form("#6366f1"),
+    brand_color: str = Form("#5060a8"),
     email_logo_url: str = Form(""),
     email_footer: str = Form(""),
     smtp_host: str = Form(""),
@@ -858,7 +858,7 @@ async def admin_update_tenant(
         "brand_name": brand_name.strip() or "SendBID",
         "from_email": _opt(from_email),
         "from_name": _opt(from_name),
-        "brand_color": brand_color.strip() or "#6366f1",
+        "brand_color": brand_color.strip() or "#5060a8",
         "email_logo_url": _opt(email_logo_url),
         "email_footer": _opt(email_footer),
         "smtp_host": _opt(smtp_host),

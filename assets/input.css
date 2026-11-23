@@ -13,9 +13,9 @@
 
 @layer base {
   :root {
-    --brand: #5b63c8;
-    --brand-deep: #3c4197;
-    --accent: #f5a623;
+    --brand: #5060a8;
+    --brand-deep: #364170;
+    --accent: #f08810;
     --ink: #0d0f1e;
     --line: #e6e9f2;
     --muted: #64748b;
@@ -40,12 +40,12 @@
     font-family: 'JetBrains Mono', ui-monospace, monospace;
   }
 
-  ::selection { background: rgba(91, 99, 200, .28); }
+  ::selection { background: rgba(80, 96, 168, .28); }
 
   ::-webkit-scrollbar { width: 10px; }
   ::-webkit-scrollbar-track { background: #f1f5f9; }
-  ::-webkit-scrollbar-thumb { background: #c4cbf1; border-radius: 999px; }
-  ::-webkit-scrollbar-thumb:hover { background: #a1abe6; }
+  ::-webkit-scrollbar-thumb { background: #bfc7e8; border-radius: 999px; }
+  ::-webkit-scrollbar-thumb:hover { background: #9aa5d4; }
 
   button:focus-visible, a:focus-visible, input:focus-visible,
   select:focus-visible, textarea:focus-visible {
@@ -66,7 +66,7 @@
   .card-lift:hover {
     transform: translateY(-4px);
     box-shadow: 0 18px 40px -12px rgba(13, 15, 30, .14);
-    border-color: #c4cbf1;
+    border-color: #bfc7e8;
   }
 
   /* ---------- Boutons ---------- */
@@ -95,7 +95,7 @@
     align-items: center;
     justify-content: center;
     gap: .45rem;
-    background: linear-gradient(135deg, #5b63c8 0%, #4951b8 55%, #3c4197 100%);
+    background: linear-gradient(135deg, #5060a8 0%, #425090 55%, #364170 100%);
     color: #fff;
     padding: .7rem 1.6rem;
     border-radius: .65rem;
@@ -104,13 +104,13 @@
     line-height: 1;
     transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
     display: inline-block;
-    box-shadow: 0 4px 14px rgba(91, 99, 200, .35), inset 0 1px 0 rgba(255,255,255,.14);
+    box-shadow: 0 4px 14px rgba(80, 96, 168, .35), inset 0 1px 0 rgba(255,255,255,.14);
     cursor: pointer;
     position: relative;
   }
   .btn-primary:hover {
     transform: translateY(-1px);
-    box-shadow: 0 10px 24px rgba(91, 99, 200, .42);
+    box-shadow: 0 10px 24px rgba(80, 96, 168, .42);
     filter: brightness(1.06);
   }
   .btn-primary:active { transform: translateY(0); }
@@ -119,15 +119,15 @@
     padding: .6rem 1.3rem;
     font-weight: 600;
     font-size: .9rem;
-    color: #4a51b8;
-    border: 1.5px solid #c4cbf1;
+    color: #424f8c;
+    border: 1.5px solid #bfc7e8;
     border-radius: .65rem;
     transition: all .16s ease;
     display: inline-block;
     background: #fff;
     cursor: pointer;
   }
-  .btn-outline:hover { background: #eef0fc; border-color: #7b86d8; }
+  .btn-outline:hover { background: #eef1fa; border-color: #6f7ec0; }
 
   .btn-soft {
     display: inline-flex;
@@ -138,14 +138,14 @@
     font-weight: 600;
     font-size: .8rem;
     line-height: 1;
-    background: #eef0fc;
-    color: #3c4197;
-    border: 1px solid #dfe3f9;
+    background: #eef1fa;
+    color: #364170;
+    border: 1px solid #dde2f4;
     transition: all .16s ease;
     cursor: pointer;
     white-space: nowrap;
   }
-  .btn-soft:hover { background: #dfe3f9; border-color: #c4cbf1; }
+  .btn-soft:hover { background: #dde2f4; border-color: #bfc7e8; }
 
   .btn-danger {
     display: inline-flex;
@@ -207,7 +207,7 @@
   .input:focus {
     outline: none;
     border-color: var(--brand);
-    box-shadow: 0 0 0 3px rgba(91, 99, 200, .14);
+    box-shadow: 0 0 0 3px rgba(80, 96, 168, .14);
   }
   .input::placeholder { color: #94a3b8; }
   .lbl {
@@ -244,9 +244,9 @@
     font-weight: 800;
     letter-spacing: .12em;
     text-transform: uppercase;
-    color: #4a51b8;
-    background: #eef0fc;
-    border: 1px solid #dfe3f9;
+    color: #424f8c;
+    background: #eef1fa;
+    border: 1px solid #dde2f4;
     padding: .38rem .85rem;
     border-radius: 999px;
   }
@@ -273,7 +273,7 @@
   .alert-ok    { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; }
   .alert-err   { background: #fff1f4; border-color: #fecdd6; color: #9f1239; }
   .alert-warn  { background: #fffbeb; border-color: #fde68a; color: #92400e; }
-  .alert-info  { background: #eef0fc; border-color: #c4cbf1; color: #3730a3; }
+  .alert-info  { background: #eef1fa; border-color: #bfc7e8; color: #3730a3; }
 
   /* ---------- Sidebar ---------- */
   .sb-link {
@@ -290,7 +290,7 @@
   }
   .sb-link:hover { background: rgba(255,255,255,.05); color: #fff; }
   .sb-link.on {
-    background: linear-gradient(90deg, rgba(91,99,200,.28), rgba(91,99,200,.08));
+    background: linear-gradient(90deg, rgba(80,96,168,.28), rgba(80,96,168,.08));
     color: #fff;
   }
   .sb-link.on::before {
@@ -326,8 +326,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, #eef0fc, #fdecc4);
-    color: #4a51b8;
+    background: linear-gradient(135deg, #eef1fa, #fde7c2);
+    color: #424f8c;
     border: 1px solid #e2e4f8;
     flex-shrink: 0;
   }
@@ -466,7 +466,7 @@
     border-radius: 999px;
     display: flex; align-items: center; justify-content: center;
     margin-bottom: .9rem;
-    background: #eef0fc; color: #4a51b8;
+    background: #eef1fa; color: #424f8c;
   }
   .modal-ic.danger { background: #fff1f4; color: #e11d48; }
   .modal-ic svg { width: 1.3rem; height: 1.3rem; }
@@ -475,9 +475,9 @@
 @layer utilities {
   .hero-bg {
     background:
-      radial-gradient(ellipse 90% 65% at 50% -15%, rgba(91, 99, 200, .55), transparent),
+      radial-gradient(ellipse 90% 65% at 50% -15%, rgba(80, 96, 168, .55), transparent),
       radial-gradient(ellipse 42% 42% at 88% 12%, rgba(245, 166, 35, .20), transparent),
-      radial-gradient(ellipse 35% 35% at 10% 30%, rgba(91, 99, 200, .16), transparent),
+      radial-gradient(ellipse 35% 35% at 10% 30%, rgba(80, 96, 168, .16), transparent),
       linear-gradient(180deg, #0a0b14 0%, #12142a 55%, #1a1438 100%);
   }
   .grid-pattern {
@@ -496,7 +496,7 @@
     pointer-events: none;
   }
   .gradient-text {
-    background: linear-gradient(92deg, #a1abe6 0%, #7b86d8 45%, #f5a623 100%);
+    background: linear-gradient(92deg, #9aa5d4 0%, #6f7ec0 45%, #f08810 100%);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
@@ -515,8 +515,8 @@
 }
 
 code {
-  background: #eef0fc;
-  color: #3c4197;
+  background: #eef1fa;
+  color: #364170;
   padding: .15rem .45rem;
   border-radius: .35rem;
   font-size: .82rem;

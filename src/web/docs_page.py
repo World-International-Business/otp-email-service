@@ -154,7 +154,7 @@ curl_close($ch);""".replace("<", "&lt;").replace(">", "&gt;")
         '  "subject": "Confirmez votre compte",\n'
         '  "text_body": "Cliquez pour activer votre compte : https://app.exemple.com/confirm?token=abc",\n'
         '  "html_body": "<p>Activez votre compte :</p><p><a href=\\"https://app.exemple.com/confirm?token=abc\\" '
-        'style=\\"background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none\\">'
+        'style=\\"background:#5060a8;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none\\">'
         'Confirmer mon compte</a></p>"\n}'
     )
     confirm_url = base + "/v1/otp/confirm?request_id=req_...&code=123456&t=<tenant_id>"

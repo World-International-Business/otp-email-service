@@ -61,14 +61,14 @@ def _e(value) -> str:
 # =====================================================================
 
 LOGO_MARK = (
-    '<img src="/static/mailhub-mark.png" alt="MailHub" class="h-10 w-auto">'
+    '<img src="/static/mailhub-mark.png?v=3" alt="MailHub" class="h-10 w-auto">'
 )
 LOGO_FULL = (
-    '<img src="/static/mailhub-logo.png" alt="MailHub" class="h-16 w-auto">'
+    '<img src="/static/mailhub-logo.png?v=3" alt="MailHub" class="h-16 w-auto">'
 )
 LOGO_SVG = LOGO_MARK
 
-FAVICON_URI = "/static/mailhub-mark.png"
+FAVICON_URI = "/static/mailhub-mark.png?v=3"
 
 # Micro-bibliothèque UI partagée par toutes les pages : toasts, modale de
 # confirmation, copie presse-papiers, états de chargement des formulaires.
@@ -220,7 +220,7 @@ async def static_asset(path: str):
     return Response(
         target.read_bytes(),
         media_type=_STATIC_TYPES[target.suffix.lower()],
-        headers={"Cache-Control": "public, max-age=86400"},
+        headers={"Cache-Control": "public, max-age=3600"},
     )
 
 
@@ -434,12 +434,12 @@ async def _require_user(request: Request):
 # =====================================================================
 
 ICON = {
-    "lock": """<svg class="w-6 h-6" fill="none" stroke="#6366f1" stroke-width="2" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 118 0v3"/></svg>""",
-    "mail": """<svg class="w-6 h-6" fill="none" stroke="#6366f1" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>""",
-    "layers": """<svg class="w-6 h-6" fill="none" stroke="#6366f1" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2l9 5-9 5-9-5 9-5z"/><path d="M3 12l9 5 9-5"/><path d="M3 17l9 5 9-5"/></svg>""",
-    "shield": """<svg class="w-6 h-6" fill="none" stroke="#6366f1" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"/><path d="M9 12l2 2 4-4"/></svg>""",
-    "gauge": """<svg class="w-6 h-6" fill="none" stroke="#6366f1" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>""",
-    "code": """<svg class="w-6 h-6" fill="none" stroke="#6366f1" stroke-width="2" viewBox="0 0 24 24"><path d="M8 6l-6 6 6 6M16 6l6 6-6 6"/></svg>""",
+    "lock": """<svg class="w-6 h-6" fill="none" stroke="#5060a8" stroke-width="2" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 118 0v3"/></svg>""",
+    "mail": """<svg class="w-6 h-6" fill="none" stroke="#5060a8" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>""",
+    "layers": """<svg class="w-6 h-6" fill="none" stroke="#5060a8" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2l9 5-9 5-9-5 9-5z"/><path d="M3 12l9 5 9-5"/><path d="M3 17l9 5 9-5"/></svg>""",
+    "shield": """<svg class="w-6 h-6" fill="none" stroke="#5060a8" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"/><path d="M9 12l2 2 4-4"/></svg>""",
+    "gauge": """<svg class="w-6 h-6" fill="none" stroke="#5060a8" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>""",
+    "code": """<svg class="w-6 h-6" fill="none" stroke="#5060a8" stroke-width="2" viewBox="0 0 24 24"><path d="M8 6l-6 6 6 6M16 6l6 6-6 6"/></svg>""",
     "globe": """<svg class="w-6 h-6" fill="none" stroke="#8b5cf6" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/></svg>""",
     "chart": """<svg class="w-6 h-6" fill="none" stroke="#10b981" stroke-width="2" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg>""",
 }
@@ -1579,7 +1579,7 @@ async def dashboard_branding(
 ):
     user = await _require_user(request)
     form = await request.form()
-    color = str(form.get("brand_color") or "#6366f1").strip()
+    color = str(form.get("brand_color") or "#5060a8").strip()
     if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
         raise HTTPException(status_code=422, detail="Couleur invalide (format #rrggbb)")
     logo = str(form.get("email_logo_url") or "").strip()

@@ -18,7 +18,7 @@ def _sanitize_color(color: str) -> str:
         ch in "0123456789abcdefABCDEF" for ch in c[1:]
     ):
         return c
-    return "#6366f1"
+    return "#5060a8"
 
 
 def resolve_logo_url(logo_url: str | None, public_base_url: str) -> str | None:
@@ -32,7 +32,7 @@ def email_layout(
     brand: str,
     content_html: str,
     preheader: str = "",
-    color: str = "#6366f1",
+    color: str = "#5060a8",
     logo_url: str | None = None,
     footer: str | None = None,
 ) -> str:
@@ -105,7 +105,7 @@ def otp_html(
     language: str = "fr",
     magic_url: str | None = None,
     ttl_minutes: int = 5,
-    color: str = "#6366f1",
+    color: str = "#5060a8",
     logo_url: str | None = None,
     footer: str | None = None,
 ) -> str:
@@ -165,7 +165,7 @@ def generic_html(
     title: str | None,
     content_html: str,
     brand: str,
-    color: str = "#6366f1",
+    color: str = "#5060a8",
     logo_url: str | None = None,
     footer: str | None = None,
 ) -> str:
