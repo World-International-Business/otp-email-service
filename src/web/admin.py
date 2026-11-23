@@ -31,6 +31,7 @@ from src.core.tenants import (
     plan_quota_updates,
 )
 from src.services.events import get_events
+from src.services.payments import list_payments
 from src.web.i18n import I18nRoute
 from src.web.routes import LOGO_FULL, LOGO_MARK, UI_ICONS, _head
 from src.web.users import WebUserStore
@@ -746,6 +747,28 @@ async def admin_edit_tenant(
       <input type="hidden" name="action" value="reject_plan">
       <button class="text-xs font-semibold text-slate-600 border border-slate-200 rounded-lg px-4 py-2 hover:bg-slate-50">Refuser la demande</button>
     </form>"""
+    payments = await list_payments(request.app.state.redis, tenant_id)
+    payments_html = ""
+    if payments:
+        _pst = {"paid": ("Payé", "bg-emerald-100 text-emerald-700"),
+                "created": ("En attente", "bg-amber-100 text-amber-700"),
+                "failed": ("Échoué", "bg-rose-100 text-rose-700")}
+        _prow = "".join(
+            f'<tr class="border-t border-slate-100">'
+            f'<td class="py-2 pr-3 text-xs text-slate-500 whitespace-nowrap">{_e(p.get("date") or "—")}</td>'
+            f'<td class="py-2 pr-3 text-xs font-semibold">{_e((p.get("plan") or "—").upper())}</td>'
+            f'<td class="py-2 pr-3 text-xs whitespace-nowrap">{_e(str(p.get("amount") or "—"))} {_e(p.get("currency") or "")}</td>'
+            f'<td class="py-2 pr-3 text-xs text-slate-500">{_e(p.get("provider") or "—")}</td>'
+            f'<td class="py-2 pr-3"><span class="badge {_pst.get(p.get("status"), ("?", "bg-slate-100 text-slate-500"))[1]}">'
+            f'{_pst.get(p.get("status"), ("?", ""))[0]}</span></td>'
+            f'<td class="py-2 text-right"><code class="text-[10px] text-slate-400">{_e(p.get("tx_id") or "")}</code></td></tr>'
+            for p in payments
+        )
+        payments_html = f"""
+  <div class="mt-4 pt-4 border-t border-slate-100">
+    <p class="text-xs font-semibold text-slate-600 mb-2">Transactions en ligne</p>
+    <div class="overflow-x-auto"><table class="w-full"><tbody>{_prow}</tbody></table></div>
+  </div>"""
     content = f"""
 <div class="flex items-center justify-between mb-6">
   <div>
@@ -787,6 +810,7 @@ async def admin_edit_tenant(
     </form>
     {reject_plan_form}
   </div>
+  {payments_html}
   <p class="text-[11px] text-slate-400 mt-3">À utiliser si Stripe / PayPal / mobile money est
   indisponible ou pour un paiement reçu hors ligne — la trace reste via le prestataire « manual ».</p>
 </div>

@@ -1099,6 +1099,49 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
         "Tu solicitud ha sido enviada.",
         "تم إرسال طلبك.",
     ),
+
+    # ---------------------------------------------------------- paiements
+    "Payer en ligne — activation immédiate après validation :": (
+        "Pay online — activated immediately after validation:",
+        "Online bezahlen — sofortige Aktivierung nach Bestätigung:",
+        "Pagar en línea — activación inmediata tras la validación:",
+        "ادفع عبر الإنترنت — التفعيل فوري بعد التأكيد:",
+    ),
+    "Carte bancaire": ("Card", "Bankkarte", "Tarjeta bancaria", "بطاقة بنكية"),
+    "Mobile Money": ("Mobile Money", "Mobile Money", "Dinero móvil", "الدفع عبر الهاتف"),
+    "Historique des paiements": (
+        "Payment history", "Zahlungsverlauf", "Historial de pagos", "سجل المدفوعات",
+    ),
+    "Transactions en ligne": (
+        "Online transactions", "Online-Transaktionen", "Transacciones en línea", "المعاملات عبر الإنترنت",
+    ),
+    "Payé": ("Paid", "Bezahlt", "Pagado", "مدفوع"),
+    "En attente": ("Pending", "Ausstehend", "Pendiente", "قيد الانتظار"),
+    "Échoué": ("Failed", "Fehlgeschlagen", "Fallido", "فشل"),
+    "Paiement confirmé — votre plan est actif.": (
+        "Payment confirmed — your plan is active.",
+        "Zahlung bestätigt — Ihr Plan ist aktiv.",
+        "Pago confirmado — tu plan está activo.",
+        "تم تأكيد الدفع — خطتك نشطة.",
+    ),
+    "Paiement reçu — activation en cours de confirmation, votre plan sera appliqué automatiquement dans quelques instants.": (
+        "Payment received — confirmation in progress, your plan will be applied automatically in a few moments.",
+        "Zahlung eingegangen — Bestätigung läuft, Ihr Plan wird in Kürze automatisch aktiviert.",
+        "Pago recibido — confirmación en curso, tu plan se aplicará automáticamente en unos instantes.",
+        "تم استلام الدفع — التأكيد جارٍ، سيتم تفعيل خطتك تلقائيًا خلال لحظات.",
+    ),
+    "Paiement annulé — aucun montant n'a été débité.": (
+        "Payment cancelled — no amount was charged.",
+        "Zahlung abgebrochen — es wurde kein Betrag abgebucht.",
+        "Pago cancelado — no se ha cobrado ningún importe.",
+        "تم إلغاء الدفع — لم يتم خصم أي مبلغ.",
+    ),
+    "Le paiement n'a pas pu être initialisé — réessayez ou contactez le support.": (
+        "The payment could not be initialized — try again or contact support.",
+        "Die Zahlung konnte nicht initialisiert werden — versuchen Sie es erneut oder kontaktieren Sie den Support.",
+        "No se pudo iniciar el pago — inténtalo de nuevo o contacta con soporte.",
+        "تعذّر بدء عملية الدفع — حاول مرة أخرى أو تواصل مع الدعم.",
+    ),
 }
 
 # Textes contenant une partie dynamique (nom de l'utilisateur, etc.).

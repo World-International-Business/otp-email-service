@@ -36,6 +36,15 @@ from src.services.email_service import EmailService
 from src.services.email_templates import otp_html
 from src.services.events import get_events, mask_email
 from src.services.otp_service import OTPService
+from src.services.payments import (
+    apply_paid_plan,
+    available_providers,
+    capture_paypal_order,
+    create_checkout,
+    get_tx,
+    list_payments,
+    plan_price,
+)
 from src.web.i18n import (
     DEFAULT_LANG,
     LANG_COOKIE,
@@ -1101,6 +1110,7 @@ async def logout_get():
 async def dashboard(
     request: Request,
     test: str = "",
+    billing: str = "",
     settings: Settings = Depends(get_settings),
 ) -> HTMLResponse:
     user = await _require_user(request)
@@ -1110,6 +1120,19 @@ async def dashboard(
         raise HTTPException(status_code=404, detail="Tenant introuvable")
 
     banner = ""
+    if billing == "ok":
+        banner = f"""<div class="alert alert-ok mb-5">{UI_ICONS['check']}
+          <span>Paiement confirmé — votre plan est actif.</span></div>"""
+    elif billing == "pending":
+        banner = f"""<div class="alert alert-info mb-5">{UI_ICONS['clock']}
+          <span>Paiement reçu — activation en cours de confirmation, votre plan sera
+          appliqué automatiquement dans quelques instants.</span></div>"""
+    elif billing == "cancel":
+        banner = f"""<div class="alert alert-warn mb-5">{UI_ICONS['warn']}
+          <span>Paiement annulé — aucun montant n'a été débité.</span></div>"""
+    elif billing.startswith("err"):
+        banner = f"""<div class="alert alert-err mb-5">{UI_ICONS['error']}
+          <span>Le paiement n'a pas pu être initialisé — réessayez ou contactez le support.</span></div>"""
     if test == "ok":
         banner = f"""<div class="alert alert-ok mb-5">{UI_ICONS['check']}
           <span>Email de test envoyé — vérifiez la boîte de réception (et les spams).</span></div>"""
@@ -1281,6 +1304,49 @@ async def dashboard(
     <span>Demande <b>{_e(PLANS[pending_plan]['label'])}</b> en attente — votre plan sera
     activé dès validation du paiement (Stripe, PayPal, mobile money ou virement).
     Questions ? Utilisez le support ci-dessous.</span></div>"""
+
+    pay_buttons = ""
+    providers = available_providers(settings)
+    if pending_plan and pending_plan in PLANS and providers:
+        rows = "".join(
+            '<form method="post" action="/dashboard/billing/checkout" class="flex-1 min-w-[10rem]">'
+            f'<input type="hidden" name="plan" value="{_e(pending_plan)}">'
+            f'<input type="hidden" name="provider" value="{_e(prov)}">'
+            f'<button class="btn-soft w-full justify-center text-sm">{_e(meta["label"])}'
+            f'<span class="text-[10px] font-normal text-slate-400 ml-1.5">· {_e(meta["via"])}</span></button></form>'
+            for prov, meta in providers.items()
+            if plan_price(settings, pending_plan, prov)[0]
+        )
+        if rows:
+            pay_buttons = f"""
+  <div class="mt-4 pt-4 border-t border-slate-100">
+    <p class="text-xs font-semibold text-slate-600 mb-2.5">Payer en ligne — activation immédiate après validation :</p>
+    <div class="flex flex-wrap gap-2.5">{rows}</div>
+  </div>"""
+
+    payments = await list_payments(redis, tenant.tenant_id, limit=8)
+    pay_history = ""
+    if payments:
+        _st = {"paid": ("Payé", "bg-emerald-100 text-emerald-700"),
+               "created": ("En attente", "bg-amber-100 text-amber-700"),
+               "failed": ("Échoué", "bg-rose-100 text-rose-700")}
+        prow = "".join(
+            f'<tr class="hover:bg-slate-50 transition">'
+            f'<td class="py-2 pr-3 text-xs text-slate-500 whitespace-nowrap">{_e(p.get("date") or "—")}</td>'
+            f'<td class="py-2 pr-3"><span class="badge bg-brand-50 text-brand-700">{_e(PLANS.get(p.get("plan"), {}).get("label") or "—")}</span></td>'
+            f'<td class="py-2 pr-3 text-xs font-semibold whitespace-nowrap">{_e(str(p.get("amount") or "—"))} {_e(p.get("currency") or "")}</td>'
+            f'<td class="py-2 pr-3 text-xs text-slate-500">{_e(p.get("provider") or "—")}</td>'
+            f'<td class="py-2"><span class="badge {_st.get(p.get("status"), ("—", "bg-slate-100 text-slate-500"))[1]}">'
+            f'{_st.get(p.get("status"), ("—", ""))[0]}</span></td></tr>'
+            for p in payments
+        )
+        pay_history = f"""
+<div id="sec-payments" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
+  <h2 class="font-bold mb-4">Historique des paiements</h2>
+  <div class="overflow-x-auto"><table class="w-full text-sm">
+    <tbody class="divide-y divide-slate-100">{prow}</tbody></table></div>
+</div>"""
+
     plan_card_html = f"""
 <div id="sec-plan" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
   <h2 class="font-bold mb-1">Votre abonnement</h2>
@@ -1288,6 +1354,7 @@ async def dashboard(
   les plans payants sont activés après validation du paiement.</p>
   {pending_banner}
   <div class="grid sm:grid-cols-3 gap-3">{plan_cards}</div>
+  {pay_buttons}
 </div>"""
 
     plan_label = _e(PLANS.get(tenant.plan, {}).get("label", tenant.plan.upper()))
@@ -1331,7 +1398,7 @@ async def dashboard(
 </div>
 
 {plan_card_html}
-
+{pay_history}
 <div id="sec-smtp" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
   <h2 class="font-bold mb-1">Configuration de votre expéditeur email</h2>
   <p class="text-sm text-slate-500 mb-4">Configurez l'adresse email utilisée pour envoyer VOS emails
@@ -1740,6 +1807,64 @@ async def dashboard_plan(
     # (manuel ou webhook Stripe/PayPal/mobile money) puis applique le plan.
     await TenantStore(redis).update(user.tenant_id, {"plan_requested": plan})
     return RedirectResponse("/dashboard?plan_requested=" + plan, status_code=303)
+
+
+@router.post("/dashboard/billing/checkout")
+async def dashboard_billing_checkout(
+    request: Request,
+    plan: str = Form(...),
+    provider: str = Form(...),
+    settings: Settings = Depends(get_settings),
+    _: None = Depends(require_same_origin),
+):
+    user = await _require_user(request)
+    if plan not in PLANS or plan == "free" or provider not in available_providers(settings):
+        raise HTTPException(status_code=422, detail="Paiement invalide")
+    redis = request.app.state.redis
+    tenant = await TenantStore(redis).get(user.tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant introuvable")
+    base = (settings.public_base_url or "").rstrip("/") or str(request.base_url).rstrip("/")
+    res = await create_checkout(provider, plan, tenant, settings, base, redis)
+    if "error" in res:
+        return RedirectResponse("/dashboard?billing=err", status_code=303)
+    return RedirectResponse(res["url"], status_code=303)
+
+
+@router.get("/dashboard/billing/return", response_class=HTMLResponse)
+async def dashboard_billing_return(
+    request: Request,
+    p: str = "",
+    provider: str = "",
+    token: str = "",
+    settings: Settings = Depends(get_settings),
+):
+    await _require_user(request)
+    redis = request.app.state.redis
+    # PayPal : la capture se fait ici (pas de webhook nécessaire pour la validation)
+    if provider == "paypal" and token:
+        order = await capture_paypal_order(settings, token)
+        if order and order.get("status") == "COMPLETED":
+            tx_id = ""
+            for unit in order.get("purchase_units", []):
+                tx_id = unit.get("custom_id") or unit.get("reference_id") or ""
+            tx = await get_tx(redis, tx_id) if tx_id else None
+            if tx:
+                await apply_paid_plan(
+                    redis,
+                    tx_id=tx_id,
+                    tenant_id=tx["tenant_id"],
+                    plan=tx["plan"],
+                    provider="paypal",
+                    amount=tx.get("amount"),
+                    currency=tx.get("currency", ""),
+                )
+                return RedirectResponse("/dashboard?billing=ok", status_code=303)
+        return RedirectResponse("/dashboard?billing=err", status_code=303)
+    if p == "cancel":
+        return RedirectResponse("/dashboard?billing=cancel", status_code=303)
+    # Stripe / mobile : le webhook applique le plan en arrière-plan
+    return RedirectResponse("/dashboard?billing=pending", status_code=303)
 
 
 @router.post("/dashboard/test-email")
