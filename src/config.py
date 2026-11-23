@@ -80,6 +80,12 @@ class Settings(BaseSettings):
     plan_price_enterprise_mobile: int = 0
     billing_currency_mobile: str = "XOF"
 
+    # Coordonnées de réception affichées pour les paiements manuels
+    billing_bank_details: str | None = None   # RIB/IBAN — virement bancaire
+    billing_momo_number: str | None = None    # numéro — transfert mobile money direct
+    billing_momo_name: str | None = None      # titulaire du compte mobile money
+    billing_manual_note: str | None = None    # instructions libres (Western Union, cash…)
+
     # Résiliation automatique des abonnements expirés (secondes entre chaque balayage)
     billing_check_interval_seconds: int = 3600
 

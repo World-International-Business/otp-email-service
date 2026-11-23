@@ -1119,6 +1119,42 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     "Annuler la demande": (
         "Cancel request", "Anfrage stornieren", "Cancelar solicitud", "إلغاء الطلب",
     ),
+    "Virement bancaire": ("Bank transfer", "Banküberweisung", "Transferencia bancaria", "تحويل بنكي"),
+    "Espèces / autre moyen": (
+        "Cash / other", "Bargeld / andere", "Efectivo / otro", "نقدًا / وسيلة أخرى",
+    ),
+    "· IBAN / transfert": ("· IBAN / transfer", "· IBAN / Überweisung", "· IBAN / transferencia", "· IBAN / تحويل"),
+    "· Orange / MTN / Wave / Moov — transfert direct": (
+        "· Orange / MTN / Wave / Moov — direct transfer",
+        "· Orange / MTN / Wave / Moov — Direktübertragung",
+        "· Orange / MTN / Wave / Moov — transferencia directa",
+        "· Orange / MTN / Wave / Moov — تحويل مباشر",
+    ),
+    "· remise en main propre, Western Union…": (
+        "· in-person handover, Western Union…",
+        "· persönliche Übergabe, Western Union…",
+        "· entrega en mano, Western Union…",
+        "· تسليم يدوي، Western Union…",
+    ),
+    "Validé par l’admin": (
+        "Validated by the admin", "Vom Admin bestätigt", "Validado por el admin", "يؤكده المسؤول",
+    ),
+    "Moyen choisi :": ("Chosen method:", "Gewählte Methode:", "Método elegido:", "الوسيلة المختارة:"),
+    "Coordonnées de paiement :": (
+        "Payment details:", "Zahlungsdaten:", "Datos de pago:", "بيانات الدفع:",
+    ),
+    "Effectuez le règlement puis votre demande sera activée dès réception par l’administrateur.": (
+        "Make the payment, then your request will be activated upon receipt by the administrator.",
+        "Nehmen Sie die Zahlung vor — Ihre Anfrage wird nach Eingang vom Administrator aktiviert.",
+        "Realiza el pago y tu solicitud se activará al recibirlo el administrador.",
+        "قم بالدفع ثم سيُفعَّل طلبك عند استلامه من المسؤول.",
+    ),
+    "Ou payer en ligne — activation immédiate :": (
+        "Or pay online — immediate activation:",
+        "Oder online zahlen — sofortige Aktivierung:",
+        "O pagar en línea — activación inmediata:",
+        "أو ادفع عبر الإنترنت — تفعيل فوري:",
+    ),
     "Finaliser votre commande": (
         "Complete your order", "Bestellung abschließen", "Finalizar tu pedido", "إتمام طلبك",
     ),
@@ -1141,18 +1177,6 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
         "Payment method", "Zahlungsmethode", "Medio de pago", "وسيلة الدفع",
     ),
     "Paiement manuel": ("Manual payment", "Manuelle Zahlung", "Pago manual", "الدفع اليدوي"),
-    "virement, cash, mobile money hors ligne": (
-        "bank transfer, cash, offline mobile money",
-        "Überweisung, Bargeld, Offline-Mobile-Money",
-        "transferencia, efectivo, dinero móvil sin conexión",
-        "تحويل بنكي أو نقدًا أو Mobile Money دون اتصال",
-    ),
-    "Validé par l’administrateur": (
-        "Validated by the administrator",
-        "Vom Administrator bestätigt",
-        "Validado por el administrador",
-        "يؤكدها المسؤول",
-    ),
     "Valider ma commande": (
         "Confirm my order", "Bestellung bestätigen", "Confirmar mi pedido", "تأكيد طلبي",
     ),

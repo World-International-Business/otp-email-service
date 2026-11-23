@@ -39,12 +39,14 @@ from src.services.email_templates import otp_html
 from src.services.events import get_events, mask_email
 from src.services.otp_service import OTPService
 from src.services.payments import (
+    MANUAL_METHODS,
     apply_paid_plan,
     available_providers,
     capture_paypal_order,
     create_checkout,
     get_tx,
     list_payments,
+    manual_method_details,
     new_tx_id,
     plan_price,
     record_tx,
@@ -1303,6 +1305,14 @@ async def dashboard(
     )
     pending_panel = ""
     if pending_plan and pending_plan in PLANS:
+        pending_tx = next(
+            (
+                p for p in await list_payments(redis, tenant.tenant_id, limit=10)
+                if p.get("plan") == pending_plan
+                and p.get("status") in ("pending_manual", "created")
+            ),
+            None,
+        )
         providers = available_providers(settings)
         rows = "".join(
             '<form method="post" action="/dashboard/billing/checkout" class="flex-1 min-w-[11rem]">'
@@ -1314,7 +1324,28 @@ async def dashboard(
             for prov, meta in providers.items()
             if plan_price(settings, pending_plan, prov)[0]
         )
-        if rows:
+        chosen_manual = (pending_tx.get("provider") if pending_tx else None) or ""
+        if chosen_manual in MANUAL_METHODS or chosen_manual == "manual":
+            meta = MANUAL_METHODS.get(chosen_manual, {"label": "Paiement manuel"})
+            details = manual_method_details(settings, chosen_manual)
+            coords = (
+                f'<p class="text-xs mt-2">Coordonnées de paiement : '
+                f'<code class="text-[11px]">{_e(details)}</code></p>'
+                if details else ""
+            )
+            pay_zone = (
+                f'<p class="text-xs text-slate-600">Moyen choisi : '
+                f'<b>{_e(meta["label"])}</b>.{coords}</p>'
+                '<p class="text-xs text-slate-500 mt-2">Effectuez le règlement puis votre '
+                'demande sera activée dès réception par l’administrateur.</p>'
+            )
+            if rows:
+                pay_zone += (
+                    '<p class="text-xs font-semibold text-slate-600 mt-4 mb-2.5">'
+                    'Ou payer en ligne — activation immédiate :</p>'
+                    f'<div class="flex flex-wrap gap-2.5">{rows}</div>'
+                )
+        elif rows:
             pay_zone = (
                 f'<p class="text-xs font-semibold text-slate-600 mb-2.5">'
                 f'Payer en ligne — activation immédiate après confirmation :</p>'
@@ -1354,7 +1385,7 @@ async def dashboard(
             f'<td class="py-2 pr-3 text-xs text-slate-500 whitespace-nowrap">{_e(p.get("date") or "—")}</td>'
             f'<td class="py-2 pr-3"><span class="badge bg-brand-50 text-brand-700">{_e(PLANS.get(p.get("plan"), {}).get("label") or "—")}</span></td>'
             f'<td class="py-2 pr-3 text-xs font-semibold whitespace-nowrap">{_e(str(p.get("amount") or "—"))} {_e(p.get("currency") or "")}</td>'
-            f'<td class="py-2 pr-3 text-xs text-slate-500">{_e(p.get("provider") or "—")}</td>'
+            f'<td class="py-2 pr-3 text-xs text-slate-500">{_e(p.get("method") or p.get("provider") or "—")}</td>'
             f'<td class="py-2"><span class="badge {_st.get(p.get("status"), ("—", "bg-slate-100 text-slate-500"))[1]}">'
             f'{_st.get(p.get("status"), ("—", ""))[0]}</span></td></tr>'
             for p in payments
@@ -1873,16 +1904,20 @@ async def dashboard_billing_page(
             f'<span class="text-xs text-slate-400 ml-1.5">· {_e(meta["via"])}</span></span>'
             f'<b class="text-brand-600 text-sm whitespace-nowrap">{amt:g} {_e(cur)}</b></label>'
         )
-    manual_checked = " checked" if not method_cards else ""
-    method_cards += (
-        '<label class="flex items-center gap-3 border border-slate-200 rounded-xl px-4 py-3 '
-        'cursor-pointer transition hover:border-brand-300 '
-        'has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50/50">'
-        f'<input type="radio" name="provider" value="manual" required{manual_checked} class="accent-brand-600">'
-        '<span class="flex-1"><span class="font-semibold text-sm">Paiement manuel</span>'
-        '<span class="text-xs text-slate-400 ml-1.5">· virement, cash, mobile money hors ligne</span></span>'
-        '<span class="text-xs text-slate-400">Validé par l’administrateur</span></label>'
-    )
+    first_manual = " checked" if not method_cards else ""
+    for prov, meta in MANUAL_METHODS.items():
+        details = manual_method_details(settings, prov)
+        coords = f' — <b class="font-medium">{_e(details)}</b>' if details else ""
+        method_cards += (
+            '<label class="flex items-center gap-3 border border-slate-200 rounded-xl px-4 py-3 '
+            'cursor-pointer transition hover:border-brand-300 '
+            'has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50/50">'
+            f'<input type="radio" name="provider" value="{_e(prov)}" required{first_manual} class="accent-brand-600">'
+            f'<span class="flex-1"><span class="font-semibold text-sm">{_e(meta["label"])}</span>'
+            f'<span class="text-xs text-slate-400 ml-1.5">· {_e(meta["via"])}{coords}</span></span>'
+            '<span class="text-xs text-slate-400">Validé par l’admin</span></label>'
+        )
+        first_manual = ""
     price_rows = "".join(
         f'<li class="flex justify-between text-sm"><span class="text-slate-500">{_e(meta["label"])}</span>'
         f'<b>{amt:g} {_e(cur)}</b></li>'
@@ -1972,7 +2007,8 @@ async def dashboard_billing_submit(
     if plan not in PLANS or plan == "free":
         raise HTTPException(status_code=422, detail="Plan invalide")
     online = provider in available_providers(settings)
-    if provider != "manual" and not online:
+    is_manual = provider in MANUAL_METHODS or provider == "manual"
+    if not online and not is_manual:
         raise HTTPException(status_code=422, detail="Moyen de paiement invalide")
     if not (billing_name.strip() and billing_email.strip() and billing_phone.strip()):
         return RedirectResponse(f"/dashboard/billing?plan={plan}&err=form", status_code=303)
@@ -1991,7 +2027,7 @@ async def dashboard_billing_submit(
     tenant = await store.get(user.tenant_id)
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant introuvable")
-    if provider == "manual":
+    if is_manual:
         tx_id = new_tx_id()
         await record_tx(
             redis,
@@ -1999,7 +2035,8 @@ async def dashboard_billing_submit(
             {
                 "tenant_id": user.tenant_id,
                 "plan": plan,
-                "provider": "manual",
+                "provider": provider,
+                "method": MANUAL_METHODS.get(provider, {}).get("label", "Paiement manuel"),
                 "amount": 0,
                 "currency": "",
                 "status": "pending_manual",
