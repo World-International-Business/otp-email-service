@@ -100,10 +100,6 @@ def _translate_token(m: re.Match, lang: str) -> str:
 # ---------------------------------------------------------------------
 # Sélecteur de langue
 # ---------------------------------------------------------------------
-_GLOBE = (
-    '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">'
-    '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/></svg>'
-)
 _CHEVRON = (
     '<svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">'
     '<path stroke-linecap="round" stroke-linejoin="round" d="M6 9l6 6 6-6"/></svg>'
@@ -130,6 +126,16 @@ _VARIANTS = {
 }
 
 
+_FLAG_STYLE = 'style="width:1.15rem;height:auto;border-radius:3px;box-shadow:inset 0 0 0 1px rgba(15,23,42,.12)"'
+_FLAGS: dict[str, str] = {
+    "fr": f'<svg viewBox="0 0 20 14" {_FLAG_STYLE}><rect width="6.7" height="14" fill="#0055A4"/><rect x="6.7" width="6.6" height="14" fill="#fff"/><rect x="13.3" width="6.7" height="14" fill="#EF4135"/></svg>',
+    "en": f'<svg viewBox="0 0 20 14" {_FLAG_STYLE}><rect width="20" height="14" fill="#012169"/><path d="M0 0l20 14M20 0L0 14" stroke="#fff" stroke-width="2.8"/><path d="M0 0l20 14M20 0L0 14" stroke="#C8102E" stroke-width="1"/><path d="M10 0v14M0 7h20" stroke="#fff" stroke-width="4.4"/><path d="M10 0v14M0 7h20" stroke="#C8102E" stroke-width="2.4"/></svg>',
+    "de": f'<svg viewBox="0 0 20 14" {_FLAG_STYLE}><rect width="20" height="4.7" fill="#151515"/><rect y="4.7" width="20" height="4.7" fill="#DD0000"/><rect y="9.3" width="20" height="4.7" fill="#FFCE00"/></svg>',
+    "es": f'<svg viewBox="0 0 20 14" {_FLAG_STYLE}><rect width="20" height="14" fill="#F1BF00"/><rect width="20" height="3.5" fill="#AA151B"/><rect y="10.5" width="20" height="3.5" fill="#AA151B"/></svg>',
+    "ar": f'<svg viewBox="0 0 20 14" {_FLAG_STYLE}><rect width="20" height="14" fill="#006C35"/><circle cx="10.6" cy="7" r="4" fill="#fff"/><circle cx="11.7" cy="7" r="3.4" fill="#006C35"/><circle cx="6.9" cy="7" r="1" fill="#fff"/></svg>',
+}
+
+
 def lang_switcher(lang: str, next_url: str, variant: str) -> str:
     btn_cls, pos_cls, pos_style = _VARIANTS[variant]
     nxt = quote(next_url, safe="/?=&%")
@@ -140,14 +146,15 @@ def lang_switcher(lang: str, next_url: str, variant: str) -> str:
             f'<a href="/lang/{code}?next={nxt}" hreflang="{code}" lang="{code}" '
             f'class="flex items-center justify-between gap-6 px-4 py-2 text-sm hover:bg-slate-50 '
             f'{"font-bold text-slate-900" if current else "text-slate-600"}">'
-            f'<span>{name}</span>{_CHECK if current else ""}</a>'
+            f'<span class="flex items-center gap-2.5">{_FLAGS[code]}<span>{name}</span></span>'
+            f'{_CHECK if current else ""}</a>'
         )
     return (
         '<div class="relative">'
         f'<button type="button" aria-haspopup="true" aria-label="Language" '
         f'onclick="this.nextElementSibling.classList.toggle(\'hidden\')" '
         f'class="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm font-semibold transition {btn_cls}">'
-        f'{_GLOBE}<span>{lang.upper()}</span>{_CHEVRON}</button>'
+        f'{_FLAGS[lang]}<span>{lang.upper()}</span>{_CHEVRON}</button>'
         f'<div class="lang-menu hidden absolute z-50 min-w-[10.5rem] rounded-xl bg-white border border-slate-200 '
         f'shadow-xl py-1 {pos_cls}" style="{pos_style}">{"".join(items)}</div>'
         '</div>'
