@@ -996,13 +996,38 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     "Python — client complet": ("Python — complete client", "Python — vollständiger Client", "Python — cliente completo", "Python — عميل كامل"),
     "Page introuvable — MailHub": ("Page not found — MailHub", "Seite nicht gefunden — MailHub", "Página no encontrada — MailHub", "الصفحة غير موجودة — MailHub"),
     "Branding automatique : sans": ("Automatic branding: without", "Automatisches Branding: ohne", "Branding automático: sin", "العلامة التلقائية: بدون"),
-    "(ou avec un": ("(or with a", "(oder mit einem", "(o con un", "(أو مع"),
-    "HTML — sans balise": ("HTML — without an", "HTML — ohne Tag", "HTML — sin etiqueta", "HTML — بدون وسم"),
-    "), le contenu est mis en page avec votre branding (couleur, logo, pied de page). Un document HTML complet (": (
-        "), the content is laid out with your branding (color, logo, footer). A complete HTML document (",
-        ") wird der Inhalt mit Ihrem Branding (Farbe, Logo, Fußzeile) formatiert. Ein vollständiges HTML-Dokument (",
-        "), el contenido se maqueta con tu branding (color, logo, pie de página). Un documento HTML completo (",
-        ")، يُنسَّق المحتوى بهويتك البصرية (اللون، الشعار، التذييل). مستند HTML كامل (",
+    ", le texte est mis en page avec votre branding (couleur, logo, pied de page) et": (
+        ", the text is laid out with your branding (color, logo, footer) and",
+        ", wird der Text mit Ihrem Branding (Farbe, Logo, Fußzeile) formatiert und",
+        ", el texto se maqueta con tu branding (color, logo, pie de página) y",
+        "، يُنسَّق النص بهويتك البصرية (اللون، الشعار، التذييل) و",
+    ),
+    "devient le titre de l'email. Avec un": (
+        "becomes the email title. With an",
+        "wird zum E-Mail-Titel. Mit einem",
+        "se convierte en el título del email. Con un",
+        "يصبح عنوان البريد. مع",
+    ),
+    "fragment": ("fragment", "Fragment", "fragmento", "جزء"),
+    "HTML (sans balise": ("HTML (without an", "HTML (ohne Tag", "HTML (sin etiqueta", "HTML (بدون وسم"),
+    "), le fragment est enrobé du même branding": (
+        "), the fragment is wrapped in the same branding",
+        ") wird das Fragment in dasselbe Branding gehüllt",
+        "), el fragmento se envuelve con el mismo branding",
+        ")، يُغلَّف الجزء بنفس الهوية البصرية",
+    ),
+    "sans titre injecté": ("with no injected title", "ohne eingefügten Titel", "sin título inyectado", "بدون عنوان مُدرَج"),
+    "— incluez votre propre": (
+        "— include your own",
+        "— fügen Sie Ihre eigene",
+        "— incluye tu propio",
+        "— أدرج العنصر الخاص بك",
+    ),
+    "dans le fragment. Un document HTML complet (": (
+        "in the fragment. A complete HTML document (",
+        "im Fragment. Ein vollständiges HTML-Dokument (",
+        "en el fragmento. Un documento HTML completo (",
+        "في الجزء. مستند HTML كامل (",
     ),
     ") est envoyé tel quel — utilisez alors du CSS": (
         ") is sent as-is — then use",
@@ -1010,6 +1035,7 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
         ") se envía tal cual — usa entonces",
         ") يُرسَل كما هو — استخدم حينها",
     ),
+
 
     "Reset MDP": ("Reset password", "Passwort zurücksetzen", "Restablecer contraseña", "إعادة تعيين كلمة المرور"),
 

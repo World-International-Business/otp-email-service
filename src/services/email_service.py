@@ -155,9 +155,11 @@ class EmailService:
             pass
         else:
             # Fragment HTML ou texte : enrobé dans le template de marque
-            # (couleur, logo, pied de page du tenant).
+            # (couleur, logo, pied de page du tenant). Un fragment fourni par
+            # le client porte déjà son propre titre : on n'injecte pas le
+            # subject en <h1> — sinon deux titres s'affichent.
             html = self._wrap_html(
-                request.subject,
+                None if html else request.subject,
                 html if html else escape(request.text_body).replace("\n", "<br>"),
                 tenant,
             )
@@ -226,7 +228,7 @@ class EmailService:
         return subject, text, html
 
     def _wrap_html(
-        self, title: str, content_html: str, tenant_or_brand
+        self, title: str | None, content_html: str, tenant_or_brand
     ) -> str:
         if isinstance(tenant_or_brand, Tenant):
             t = tenant_or_brand
