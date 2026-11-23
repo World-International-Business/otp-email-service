@@ -996,6 +996,22 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     ),
     "Python — client complet": ("Python — complete client", "Python — vollständiger Client", "Python — cliente completo", "Python — عميل كامل"),
     "Page introuvable — MailHub": ("Page not found — MailHub", "Seite nicht gefunden — MailHub", "Página no encontrada — MailHub", "الصفحة غير موجودة — MailHub"),
+    "Branding automatique : sans": ("Automatic branding: without", "Automatisches Branding: ohne", "Branding automático: sin", "العلامة التلقائية: بدون"),
+    "(ou avec un": ("(or with a", "(oder mit einem", "(o con un", "(أو مع"),
+    "HTML — sans balise": ("HTML — without an", "HTML — ohne Tag", "HTML — sin etiqueta", "HTML — بدون وسم"),
+    "), le contenu est mis en page avec votre branding (couleur, logo, pied de page). Un document HTML complet (": (
+        "), the content is laid out with your branding (color, logo, footer). A complete HTML document (",
+        ") wird der Inhalt mit Ihrem Branding (Farbe, Logo, Fußzeile) formatiert. Ein vollständiges HTML-Dokument (",
+        "), el contenido se maqueta con tu branding (color, logo, pie de página). Un documento HTML completo (",
+        ")، يُنسَّق المحتوى بهويتك البصرية (اللون، الشعار، التذييل). مستند HTML كامل (",
+    ),
+    ") est envoyé tel quel — utilisez alors du CSS": (
+        ") is sent as-is — then use",
+        ") wird unverändert gesendet — verwenden Sie dann",
+        ") se envía tal cual — usa entonces",
+        ") يُرسَل كما هو — استخدم حينها",
+    ),
+
     "Reset MDP": ("Reset password", "Passwort zurücksetzen", "Restablecer contraseña", "إعادة تعيين كلمة المرور"),
 
     # ------------------------------------------- activité récente
