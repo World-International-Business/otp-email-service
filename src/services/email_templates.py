@@ -21,6 +21,13 @@ def _sanitize_color(color: str) -> str:
     return "#6366f1"
 
 
+def resolve_logo_url(logo_url: str | None, public_base_url: str) -> str | None:
+    """URL relative -> absolue : les clients mail ne résolvent pas les chemins relatifs."""
+    if logo_url and logo_url.startswith("/") and public_base_url:
+        return public_base_url.rstrip("/") + logo_url
+    return logo_url
+
+
 def email_layout(
     brand: str,
     content_html: str,
@@ -32,14 +39,18 @@ def email_layout(
     """Enveloppe commune : header marque + carte + footer (personnalisable)."""
     b = _esc(brand)
     accent = _sanitize_color(color)
+    brand_text = (
+        f'<span style="color:#fff; font-size:20px; font-weight:800;'
+        f' letter-spacing:.3px; vertical-align:middle;">{b}</span>'
+    )
     logo = (
+        f'<table role="presentation" cellpadding="0" cellspacing="0"><tr>'
+        f'<td style="padding-right:12px; vertical-align:middle;">'
         f'<img src="{_esc(logo_url)}" alt="{b}" '
         'style="max-height:36px; max-width:180px; display:block;">'
+        f'</td><td style="vertical-align:middle;">{brand_text}</td></tr></table>'
         if logo_url
-        else (
-            f'<span style="color:#fff; font-size:20px; font-weight:800;'
-            f' letter-spacing:.3px;">{b}</span>'
-        )
+        else brand_text
     )
     footer_text = _esc(footer) if footer else (
         f"Message automatique de {b} — merci de ne pas répondre."
