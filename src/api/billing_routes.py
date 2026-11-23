@@ -40,6 +40,7 @@ async def _apply_from_tx(redis, tx_id: str, provider: str) -> bool:
         provider=provider,
         amount=tx.get("amount"),
         currency=tx.get("currency", ""),
+        period=tx.get("period", "monthly"),
     )
 
 

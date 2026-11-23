@@ -91,6 +91,7 @@ async def apply_paid_plan(
     provider: str,
     amount: float | int | None = None,
     currency: str = "",
+    period: str = "monthly",
 ) -> bool:
     """Applique un plan après paiement confirmé. Retourne False si déjà fait."""
     marker = await redis.set(f"pay:done:{tx_id}", "1", nx=True, ex=90 * 24 * 3600)
@@ -106,11 +107,13 @@ async def apply_paid_plan(
     base = date.today()
     if tenant.paid_until and tenant.paid_until > base.isoformat():
         base = date.fromisoformat(tenant.paid_until)
+    days = PERIODS.get(period, PERIODS["monthly"])["days"]
     updates = {
         "plan": plan,
         "plan_requested": None,
+        "plan_scheduled": None,
         "billing_status": "active",
-        "paid_until": (base + timedelta(days=30)).isoformat(),
+        "paid_until": (base + timedelta(days=days)).isoformat(),
         "payment_provider": provider,
         "payment_ref": tx_id,
         **plan_quota_updates(plan),
@@ -126,6 +129,7 @@ async def apply_paid_plan(
             "amount": amount,
             "currency": currency,
             "status": "paid",
+            "period": period,
             "ts": int(time.time()),
             "date": date.today().isoformat(),
         },
@@ -175,13 +179,22 @@ def manual_method_details(settings, method: str) -> str:
     return ""
 
 
-def plan_price(settings, plan: str, provider: str) -> tuple[float | int, str]:
-    """(montant, devise) selon le provider ; (0, '') si non tarifé."""
+# Périodes de facturation — comportement SaaS standard
+PERIODS: dict[str, dict] = {
+    "monthly": {"label": "Mensuel", "days": 30},
+    "yearly": {"label": "Annuel", "days": 365},
+}
+
+
+def plan_price(
+    settings, plan: str, provider: str, period: str = "monthly"
+) -> tuple[float | int, str]:
+    """(montant, devise) selon le provider et la période ; (0, '') si non tarifé."""
     mobile = provider == "mobile"
-    amount = (
-        getattr(settings, f"plan_price_{plan}_mobile" if mobile else f"plan_price_{plan}")
-        or 0
-    )
+    suffix = "_mobile" if mobile else ""
+    if period == "yearly":
+        suffix += "_yearly"
+    amount = getattr(settings, f"plan_price_{plan}{suffix}", 0) or 0
     currency = settings.billing_currency_mobile if mobile else settings.billing_currency
     return amount, currency
 
@@ -198,20 +211,24 @@ async def create_checkout(
     settings,
     base_url: str,
     redis,
+    period: str = "monthly",
 ) -> dict:
     """Retourne {"url": ...} ou {"error": ...}. Enregistre le tx en 'created'."""
-    amount, currency = plan_price(settings, plan, provider)
+    amount, currency = plan_price(settings, plan, provider, period)
     if not amount:
         return {"error": "no_price"}
     tx_id = new_tx_id()
+    days = PERIODS.get(period, PERIODS["monthly"])["days"]
     ret = f"{base_url}/dashboard/billing/return"
     try:
         if provider == "stripe":
-            url = await _stripe_checkout(settings, tx_id, tenant, plan, amount, currency, ret)
+            url = await _stripe_checkout(settings, tx_id, tenant, plan, amount, currency, ret, days)
         elif provider == "paypal":
-            url = await _paypal_checkout(settings, tx_id, tenant, plan, amount, currency, ret)
+            url = await _paypal_checkout(settings, tx_id, tenant, plan, amount, currency, ret, days)
         elif provider == "mobile":
-            url = await _cinetpay_checkout(settings, tx_id, tenant, plan, amount, currency, ret)
+            url = await _cinetpay_checkout(
+                settings, tx_id, tenant, plan, amount, currency, ret, days
+            )
         else:
             return {"error": "unknown_provider"}
     except (httpx.HTTPError, KeyError, ValueError) as exc:
@@ -229,6 +246,7 @@ async def create_checkout(
             "amount": amount,
             "currency": currency,
             "status": "created",
+            "period": period,
             "ts": int(time.time()),
             "date": date.today().isoformat(),
         },
@@ -236,7 +254,9 @@ async def create_checkout(
     return {"url": url, "tx_id": tx_id, "amount": amount, "currency": currency}
 
 
-async def _stripe_checkout(settings, tx_id, tenant, plan, amount, currency, ret) -> str | None:
+async def _stripe_checkout(
+    settings, tx_id, tenant, plan, amount, currency, ret, days: int = 30
+) -> str | None:
     params = {
         "mode": "payment",
         "success_url": f"{ret}?p=ok&provider=stripe",
@@ -245,7 +265,7 @@ async def _stripe_checkout(settings, tx_id, tenant, plan, amount, currency, ret)
         "customer_email": tenant.billing_email or tenant.from_email or "",
         "line_items[0][price_data][currency]": currency.lower(),
         "line_items[0][price_data][unit_amount]": int(round(float(amount) * 100)),
-        "line_items[0][price_data][product_data][name]": f"MailHub {plan.upper()} — 30 jours",
+        "line_items[0][price_data][product_data][name]": f"MailHub {plan.upper()} — {days} jours",
         "line_items[0][quantity]": "1",
         "metadata[tx_id]": tx_id,
         "metadata[plan]": plan,
@@ -279,7 +299,9 @@ async def _paypal_token(settings) -> str | None:
     return r.json().get("access_token") if r.status_code == 200 else None
 
 
-async def _paypal_checkout(settings, tx_id, tenant, plan, amount, currency, ret) -> str | None:
+async def _paypal_checkout(
+    settings, tx_id, tenant, plan, amount, currency, ret, days: int = 30
+) -> str | None:
     token = await _paypal_token(settings)
     if not token:
         return None
@@ -290,7 +312,7 @@ async def _paypal_checkout(settings, tx_id, tenant, plan, amount, currency, ret)
             {
                 "reference_id": tx_id,
                 "custom_id": tx_id,
-                "description": f"MailHub {plan.upper()} — 30 jours",
+                "description": f"MailHub {plan.upper()} — {days} jours",
                 "amount": {"currency_code": currency, "value": f"{float(amount):.2f}"},
             }
         ],
@@ -314,7 +336,9 @@ async def _paypal_checkout(settings, tx_id, tenant, plan, amount, currency, ret)
     return None
 
 
-async def _cinetpay_checkout(settings, tx_id, tenant, plan, amount, currency, ret) -> str | None:
+async def _cinetpay_checkout(
+    settings, tx_id, tenant, plan, amount, currency, ret, days: int = 30
+) -> str | None:
     base = (settings.public_base_url or "").rstrip("/") or ret.rsplit("/dashboard", 1)[0]
     body = {
         "apikey": settings.cinetpay_api_key,
@@ -322,7 +346,7 @@ async def _cinetpay_checkout(settings, tx_id, tenant, plan, amount, currency, re
         "transaction_id": tx_id,
         "amount": int(amount),
         "currency": currency,
-        "description": f"MailHub {plan.upper()} - 30 jours",
+        "description": f"MailHub {plan.upper()} - {days} jours",
         "customer_email": tenant.billing_email or tenant.from_email or "",
         "notify_url": f"{base}/v1/billing/webhooks/cinetpay",
         "return_url": f"{ret}?provider=mobile",

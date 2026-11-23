@@ -40,6 +40,7 @@ from src.services.events import get_events, mask_email
 from src.services.otp_service import OTPService
 from src.services.payments import (
     MANUAL_METHODS,
+    PERIODS,
     apply_paid_plan,
     available_providers,
     capture_paypal_order,
@@ -1275,6 +1276,12 @@ async def dashboard(
 
     cur_plan = tenant.plan if tenant and tenant.plan in PLANS else "free"
     pending_plan = tenant.plan_requested if tenant else None
+    scheduled_plan = tenant.plan_scheduled if tenant else None
+
+    def _plan_price_label(pid: str) -> str:
+        amt, cur = plan_price(settings, pid, "stripe", "monthly")
+        return f"{amt:g} {cur}/mois" if amt else PLANS[pid]["price"]
+
     plan_cards = "".join(
         f'<div class="border rounded-xl p-4 flex flex-col '
         f'{"border-brand-500 ring-1 ring-brand-500" if pid == cur_plan else "border-slate-200"}">'
@@ -1282,7 +1289,7 @@ async def dashboard(
         f"<p class=\"font-bold\">{_e(p['label'])}</p>"
         + ('<span class="badge bg-brand-100 text-brand-700">ACTUEL</span>' if pid == cur_plan else "")
         + "</div>"
-        f"<p class=\"text-2xl font-black mt-1\">{_e(p['price'])}</p>"
+        f"<p class=\"text-2xl font-black mt-1\">{_e(_plan_price_label(pid))}</p>"
         f"<p class=\"text-xs text-slate-500 mt-1\">{_e(p['desc'])}</p>"
         f'<ul class="text-[11px] text-slate-500 mt-3 space-y-1">'
         f"<li>{p['max_sends_per_user_per_10min']} envois/user/10min</li>"
@@ -1300,6 +1307,9 @@ async def dashboard(
                 else '<button class="btn-soft w-full justify-center">Choisir ce plan</button>'
             )
         )
+        + ('<p class="text-[11px] text-amber-600 mt-2 flex items-center gap-1">'
+           + UI_ICONS["clock"] + f' Passage prévu le <b>{_e(tenant.paid_until or "")}</b></p>'
+           if scheduled_plan and pid == scheduled_plan else "")
         + "</form></div>"
         for pid, p in PLANS.items()
     )
@@ -1314,15 +1324,17 @@ async def dashboard(
             None,
         )
         providers = available_providers(settings)
+        pending_period = (pending_tx.get("period") if pending_tx else None) or "monthly"
         rows = "".join(
             '<form method="post" action="/dashboard/billing/checkout" class="flex-1 min-w-[11rem]">'
             f'<input type="hidden" name="plan" value="{_e(pending_plan)}">'
             f'<input type="hidden" name="provider" value="{_e(prov)}">'
+            f'<input type="hidden" name="period" value="{_e(pending_period)}">'
             f'<button class="btn-soft w-full justify-center text-sm">{_e(meta["label"])}'
-            f'<b class="text-brand-600 ml-1.5">{plan_price(settings, pending_plan, prov)[0]:g} {_e(plan_price(settings, pending_plan, prov)[1])}</b>'
+            f'<b class="text-brand-600 ml-1.5">{plan_price(settings, pending_plan, prov, pending_period)[0]:g} {_e(plan_price(settings, pending_plan, prov, pending_period)[1])}</b>'
             f'<span class="text-[10px] font-normal text-slate-400 ml-1.5">· {_e(meta["via"])}</span></button></form>'
             for prov, meta in providers.items()
-            if plan_price(settings, pending_plan, prov)[0]
+            if plan_price(settings, pending_plan, prov, pending_period)[0]
         )
         chosen_manual = (pending_tx.get("provider") if pending_tx else None) or ""
         if chosen_manual in MANUAL_METHODS or chosen_manual == "manual":
@@ -1364,7 +1376,8 @@ async def dashboard(
   <div class="mt-5 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
     <div class="flex items-center gap-2 mb-3">
       <span class="text-amber-600">{UI_ICONS['clock']}</span>
-      <h3 class="font-bold text-sm">Finaliser le paiement — <span class="text-brand-600">{_e(PLANS[pending_plan]['label'])}</span></h3>
+      <h3 class="font-bold text-sm">Finaliser le paiement — <span class="text-brand-600">{_e(PLANS[pending_plan]['label'])}</span>
+      <span class="text-xs font-normal text-slate-400 ml-1">· {PERIODS.get(pending_period, PERIODS["monthly"])["label"]}</span></h3>
     </div>
     {pay_zone}
     <form method="post" action="/dashboard/plan/cancel" class="mt-3">
@@ -1853,10 +1866,20 @@ async def dashboard_plan(
         raise HTTPException(status_code=422, detail="Plan invalide")
     redis = request.app.state.redis
     if plan == "free":
-        # Le plan gratuit est appliqué immédiatement (rien à payer)
+        tenant = await TenantStore(redis).get(user.tenant_id)
+        today = date.today().isoformat()
+        if tenant and tenant.paid_until and tenant.paid_until > today:
+            # SaaS standard : le downgrade prend effet en fin de période payée
+            await TenantStore(redis).update(
+                user.tenant_id,
+                {"plan_scheduled": "free", "plan_requested": None},
+            )
+            return RedirectResponse("/dashboard", status_code=303)
+        # Pas de période payée → application immédiate
         await TenantStore(redis).update(
             user.tenant_id,
-            {"plan": plan, "plan_requested": None, **plan_quota_updates(plan)},
+            {"plan": plan, "plan_requested": None, "plan_scheduled": None,
+             **plan_quota_updates(plan)},
         )
         return RedirectResponse("/dashboard", status_code=303)
     # Plan payant → page checkout : formulaire de facturation + moyen de paiement
@@ -1870,7 +1893,9 @@ async def dashboard_plan_cancel(
 ):
     user = await _require_user(request)
     redis = request.app.state.redis
-    await TenantStore(redis).update(user.tenant_id, {"plan_requested": None})
+    await TenantStore(redis).update(
+        user.tenant_id, {"plan_requested": None, "plan_scheduled": None}
+    )
     return RedirectResponse("/dashboard", status_code=303)
 
 
@@ -1878,12 +1903,15 @@ async def dashboard_plan_cancel(
 async def dashboard_billing_page(
     request: Request,
     plan: str = "",
+    period: str = "monthly",
     err: str = "",
     settings: Settings = Depends(get_settings),
 ):
     user = await _require_user(request)
     if plan not in PLANS or plan == "free":
         return RedirectResponse("/dashboard#sec-plan", status_code=303)
+    if period not in PERIODS:
+        period = "monthly"
     redis = request.app.state.redis
     tenant = await TenantStore(redis).get(user.tenant_id)
     if not tenant:
@@ -1892,7 +1920,7 @@ async def dashboard_billing_page(
     providers = available_providers(settings)
     method_cards = ""
     for prov, meta in providers.items():
-        amt, cur = plan_price(settings, plan, prov)
+        amt, cur = plan_price(settings, plan, prov, period)
         if not amt:
             continue
         method_cards += (
@@ -1922,7 +1950,7 @@ async def dashboard_billing_page(
         f'<li class="flex justify-between text-sm"><span class="text-slate-500">{_e(meta["label"])}</span>'
         f'<b>{amt:g} {_e(cur)}</b></li>'
         for prov, meta in providers.items()
-        for amt, cur in [plan_price(settings, plan, prov)] if amt
+        for amt, cur in [plan_price(settings, plan, prov, period)] if amt
     ) or '<li class="text-sm text-slate-500">Tarif convenu avec l’administrateur</li>'
     err_banner = ""
     if err:
@@ -1935,16 +1963,31 @@ async def dashboard_billing_page(
             + "</div>"
         )
     p_info = PLANS[plan]
+    period_tabs = "".join(
+        (
+            f'<a href="/dashboard/billing?plan={_e(plan)}&period={_e(pid)}" data-noload '
+            f'class="flex-1 text-center text-sm font-semibold rounded-lg px-4 py-2.5 border transition '
+            + (
+                "border-brand-500 bg-brand-50 text-brand-700"
+                if pid == period
+                else "border-slate-200 text-slate-500 hover:border-brand-300"
+            )
+            + f'">{_e(meta["label"])}</a>'
+        )
+        for pid, meta in PERIODS.items()
+    )
     content = f"""
 <div class="mb-6">
   <a href="/dashboard#sec-plan" class="text-xs text-slate-400 hover:text-brand-600 transition">← Retour au dashboard</a>
   <h1 class="text-2xl font-extrabold mt-1">Finaliser votre commande</h1>
   <p class="text-sm text-slate-500">Complétez vos informations de facturation puis choisissez un moyen de paiement.</p>
+  <div class="card p-2 mt-4 flex gap-2 max-w-sm">{period_tabs}</div>
 </div>
 {err_banner}
 <div class="grid lg:grid-cols-5 gap-6 items-start">
   <form method="post" action="/dashboard/billing/submit" class="lg:col-span-3 card p-4 sm:p-6 space-y-5">
     <input type="hidden" name="plan" value="{_e(plan)}">
+    <input type="hidden" name="period" value="{_e(period)}">
     <div>
       <h2 class="font-bold text-sm mb-3">Informations de facturation</h2>
       <div class="grid sm:grid-cols-2 gap-4">
@@ -1972,7 +2015,7 @@ async def dashboard_billing_page(
     <h2 class="font-bold text-sm mb-3">Récapitulatif</h2>
     <div class="flex items-center justify-between mb-3 pb-3 border-b border-slate-100">
       <span class="font-semibold">{_e(p_info['label'])}</span>
-      <span class="badge bg-brand-50 text-brand-700">30 jours</span>
+      <span class="badge bg-brand-50 text-brand-700">{PERIODS[period]['days']} jours</span>
     </div>
     <ul class="space-y-1.5 mb-4">
       <li class="flex justify-between text-sm"><span class="text-slate-500">Envois/utilisateur/10min</span><b>{p_info['max_sends_per_user_per_10min']}</b></li>
@@ -1996,6 +2039,7 @@ async def dashboard_billing_submit(
     request: Request,
     plan: str = Form(...),
     provider: str = Form(...),
+    period: str = Form("monthly"),
     billing_name: str = Form(""),
     billing_email: str = Form(""),
     billing_phone: str = Form(""),
@@ -2006,6 +2050,8 @@ async def dashboard_billing_submit(
     user = await _require_user(request)
     if plan not in PLANS or plan == "free":
         raise HTTPException(status_code=422, detail="Plan invalide")
+    if period not in PERIODS:
+        period = "monthly"
     online = provider in available_providers(settings)
     is_manual = provider in MANUAL_METHODS or provider == "manual"
     if not online and not is_manual:
@@ -2040,6 +2086,7 @@ async def dashboard_billing_submit(
                 "amount": 0,
                 "currency": "",
                 "status": "pending_manual",
+                "period": period,
                 "ts": int(time.time()),
                 "date": date.today().isoformat(),
                 "billing_name": tenant.billing_name,
@@ -2049,7 +2096,7 @@ async def dashboard_billing_submit(
         )
         return RedirectResponse("/dashboard?plan_requested=" + plan, status_code=303)
     base = (settings.public_base_url or "").rstrip("/") or str(request.base_url).rstrip("/")
-    res = await create_checkout(provider, plan, tenant, settings, base, redis)
+    res = await create_checkout(provider, plan, tenant, settings, base, redis, period=period)
     if "error" in res:
         return RedirectResponse(f"/dashboard/billing?plan={plan}&err=provider", status_code=303)
     return RedirectResponse(res["url"], status_code=303)
@@ -2060,6 +2107,7 @@ async def dashboard_billing_checkout(
     request: Request,
     plan: str = Form(...),
     provider: str = Form(...),
+    period: str = Form("monthly"),
     settings: Settings = Depends(get_settings),
     _: None = Depends(require_same_origin),
 ):
@@ -2071,7 +2119,7 @@ async def dashboard_billing_checkout(
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant introuvable")
     base = (settings.public_base_url or "").rstrip("/") or str(request.base_url).rstrip("/")
-    res = await create_checkout(provider, plan, tenant, settings, base, redis)
+    res = await create_checkout(provider, plan, tenant, settings, base, redis, period=period)
     if "error" in res:
         return RedirectResponse("/dashboard?billing=err", status_code=303)
     return RedirectResponse(res["url"], status_code=303)
@@ -2104,6 +2152,7 @@ async def dashboard_billing_return(
                     provider="paypal",
                     amount=tx.get("amount"),
                     currency=tx.get("currency", ""),
+                    period=tx.get("period", "monthly"),
                 )
                 return RedirectResponse("/dashboard?billing=ok", status_code=303)
         return RedirectResponse("/dashboard?billing=err", status_code=303)

@@ -18,7 +18,7 @@ from src.api.billing_routes import router as billing_router
 from src.api.dependencies import get_email_provider, get_redis_client, get_settings
 from src.api.middleware import JSONLogMiddleware, SecurityHeadersMiddleware
 from src.api.routes import email_router, router
-from src.core.tenants import TenantStore, plan_quota_updates, seed_default_tenant
+from src.core.tenants import PLANS, TenantStore, plan_quota_updates, seed_default_tenant
 from src.services.billing_reminders import notify_plan_expired, run_billing_reminders
 from src.services.email_queue import process_email_queue_once
 from src.services.email_service import EmailService
@@ -63,12 +63,16 @@ async def _expire_billing_once(redis, email_provider=None, public_base_url: str 
             and t.plan != "free"
         ):
             old_plan = t.plan
+            # Downgrade programmé (ex. retour au Starter en fin de période)
+            # ou retour au plan gratuit par défaut.
+            target = t.plan_scheduled if t.plan_scheduled in PLANS else "free"
             await store.update(
                 t.tenant_id,
                 {
-                    "plan": "free",
+                    "plan": target,
+                    "plan_scheduled": None,
                     "billing_status": "expired",
-                    **plan_quota_updates("free"),
+                    **plan_quota_updates(target),
                 },
             )
             downgraded += 1

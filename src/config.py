@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     plan_price_pro_mobile: int = 0        # agrégateur mobile, devise billing_currency_mobile
     plan_price_enterprise_mobile: int = 0
     billing_currency_mobile: str = "XOF"
+    # Tarifs annuels (période 365 j) — 0 ou absent = option masquée
+    plan_price_pro_yearly: float = 0.0
+    plan_price_enterprise_yearly: float = 0.0
+    plan_price_pro_mobile_yearly: int = 0
+    plan_price_enterprise_mobile_yearly: int = 0
 
     # Coordonnées de réception affichées pour les paiements manuels
     billing_bank_details: str | None = None   # RIB/IBAN — virement bancaire
