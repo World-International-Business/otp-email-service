@@ -32,6 +32,7 @@ class Tenant(BaseModel):
     allowed_purposes: list[str] = Field(default_factory=lambda: ["login_2fa"])
     plan: str = "free"
     plan_requested: str | None = None  # plan payant demandé, en attente de validation
+    plan_scheduled: str | None = None  # downgrade programmé à la fin de la période payée
     unlimited: bool = False  # partenaire : aucune limite de quota/cooldown
     # Facturation déclarative (Stripe/PayPal branché via payment_ref)
     billing_status: str = "trialing"  # trialing | active | past_due | canceled

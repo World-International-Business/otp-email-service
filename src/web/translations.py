@@ -1118,7 +1118,12 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     ),
     "Annuler la demande": (
         "Cancel request", "Anfrage stornieren", "Cancelar solicitud", "إلغاء الطلب",
+    ),    "Mensuel": ("Monthly", "Monatlich", "Mensual", "شهري"),
+    "Annuel": ("Yearly", "Jährlich", "Anual", "سنوي"),
+    "Passage prévu le": (
+        "Switch scheduled for", "Wechsel geplant für", "Cambio previsto el", "التبديل مجدول في",
     ),
+
     "Virement bancaire": ("Bank transfer", "Banküberweisung", "Transferencia bancaria", "تحويل بنكي"),
     "Espèces / autre moyen": (
         "Cash / other", "Bargeld / andere", "Efectivo / otro", "نقدًا / وسيلة أخرى",
