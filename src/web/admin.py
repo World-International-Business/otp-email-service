@@ -32,7 +32,7 @@ from src.core.tenants import (
 )
 from src.services.events import get_events
 from src.web.i18n import I18nRoute
-from src.web.routes import LOGO_SVG, UI_ICONS, _head
+from src.web.routes import LOGO_FULL, LOGO_MARK, UI_ICONS, _head
 from src.web.users import WebUserStore
 
 router = APIRouter(
@@ -76,7 +76,7 @@ def _admin_page(title: str, content: str) -> HTMLResponse:
 <body class="bg-slate-100 text-slate-800 min-h-screen">
 <nav class="bg-[#0d0f1e] text-white sticky top-0 z-20">
   <div class="max-w-7xl mx-auto px-4 sm:px-6 min-h-14 py-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-    <a href="/admin" class="flex items-center gap-2.5 font-extrabold">{LOGO_SVG}
+    <a href="/admin" class="flex items-center gap-2.5 font-extrabold">{LOGO_MARK}
       MailHub <span class="badge bg-rose-500 text-white">ADMIN</span>
     </a>
     <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
@@ -120,7 +120,7 @@ async def admin_login_page(request: Request, error: str = "") -> HTMLResponse:
   <div class="w-full max-w-sm">
     <div class="text-center mb-6">
       <a href="/" class="inline-flex items-center gap-2 font-extrabold text-lg text-white">
-        {LOGO_SVG} MailHub
+        {LOGO_FULL}
       </a>
     </div>
     <div class="card p-6 sm:p-8 shadow-xl">

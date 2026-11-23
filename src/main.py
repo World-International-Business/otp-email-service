@@ -168,7 +168,7 @@ def _error_page(
 <body class="bg-slate-50 min-h-screen flex items-center justify-center px-4">
 <div class="card p-10 max-w-md w-full text-center shadow-lg">
   <div class="flex justify-center mb-5">
-    <img src="/static/mailhub-logo.png" alt="MailHub" class="w-12 h-12 rounded-2xl shadow-md">
+    <img src="/static/mailhub-logo.png" alt="MailHub" class="h-16 w-auto">
   </div>
   <p class="text-5xl font-black mb-2" style="background:linear-gradient(92deg,#5b63c8,#f5a623);
      -webkit-background-clip:text;background-clip:text;color:transparent">{code}</p>

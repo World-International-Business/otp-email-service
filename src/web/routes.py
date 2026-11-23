@@ -60,12 +60,15 @@ def _e(value) -> str:
 # Templates HTML — design moderne (Tailwind)
 # =====================================================================
 
-LOGO_SVG = (
-    '<img src="/static/mailhub-logo.png" alt="MailHub" '
-    'class="w-9 h-9 rounded-xl object-cover shadow-md shadow-brand-900/30">'
+LOGO_MARK = (
+    '<img src="/static/mailhub-mark.png" alt="MailHub" class="h-9 w-auto">'
 )
+LOGO_FULL = (
+    '<img src="/static/mailhub-logo.png" alt="MailHub" class="h-14 w-auto">'
+)
+LOGO_SVG = LOGO_MARK
 
-FAVICON_URI = "/static/mailhub-logo.png"
+FAVICON_URI = "/static/mailhub-mark.png"
 
 # Micro-bibliothèque UI partagée par toutes les pages : toasts, modale de
 # confirmation, copie presse-papiers, états de chargement des formulaires.
@@ -232,7 +235,7 @@ def _footer(logged_in: bool = False) -> str:
 <footer class="bg-[#0a0b14] text-slate-400">
   <div class="max-w-6xl mx-auto px-6 py-10 md:py-14 grid md:grid-cols-3 gap-8 md:gap-10">
     <div>
-      <div class="flex items-center gap-2.5 text-white font-extrabold mb-3">{LOGO_SVG} MailHub</div>
+      <div class="flex items-center gap-2.5 text-white font-extrabold mb-3">{LOGO_MARK} MailHub</div>
       <p class="text-sm leading-relaxed">API d'emails transactionnels et de codes OTP.
       Sécurisée, multi-tenant, self-hostable.</p>
     </div>
@@ -684,7 +687,7 @@ def _auth_form(title: str, action: str, fields: str, link: str) -> HTMLResponse:
 <div class="min-h-[80vh] flex items-center justify-center px-4 sm:px-6 py-10 sm:py-16">
   <div class="w-full max-w-md fade-up">
     <div class="text-center mb-6">
-      <a href="/" class="inline-flex items-center gap-2 font-extrabold text-lg">{LOGO_SVG} MailHub</a>
+      <a href="/" class="inline-flex items-center gap-2 font-extrabold text-lg">{LOGO_FULL}</a>
     </div>
     <div class="card p-6 sm:p-8 shadow-lg">
       <h1 class="text-2xl font-extrabold mb-1">{title}</h1>
