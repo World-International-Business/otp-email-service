@@ -1123,6 +1123,73 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     "Passage prévu le": (
         "Switch scheduled for", "Wechsel geplant für", "Cambio previsto el", "التبديل مجدول في",
     ),
+    "Régler votre commande": (
+        "Pay for your order", "Bestellung bezahlen", "Paga tu pedido", "ادفع طلبك",
+    ),
+    "Effectuez le règlement": (
+        "Make the payment", "Zahlung vornehmen", "Realiza el pago", "قم بالدفع",
+    ),
+    "Réglez via": ("Pay via", "Zahlen Sie per", "Paga con", "ادفع عبر"),
+    " avec les coordonnées ci-dessous.": (
+        " using the details below.",
+        " mit den untenstehenden Daten.",
+        " con los datos de abajo.",
+        " باستخدام البيانات أدناه.",
+    ),
+    "Déclarez votre paiement avec la référence de transaction.": (
+        "Declare your payment with the transaction reference.",
+        "Melden Sie Ihre Zahlung mit der Transaktionsreferenz.",
+        "Declara tu pago con la referencia de la transacción.",
+        "أعلن عن دفعتك برقم المعاملة.",
+    ),
+    "Votre plan est activé dès vérification — généralement très rapide.": (
+        "Your plan is activated upon verification — usually very fast.",
+        "Ihr Plan wird nach Prüfung aktiviert — meist sehr schnell.",
+        "Tu plan se activa tras la verificación — suele ser muy rápido.",
+        "يتم تفعيل خطتك بعد التحقق — عادة بسرعة كبيرة.",
+    ),
+    "Paiement déclaré — vérification en cours par l’administrateur.": (
+        "Payment declared — being verified by the administrator.",
+        "Zahlung gemeldet — wird vom Administrator geprüft.",
+        "Pago declarado — verificación por el administrador en curso.",
+        "تم الإعلان عن الدفع — جارٍ التحقق من المسؤول.",
+    ),
+    "Référence de transaction *": (
+        "Transaction reference *", "Transaktionsreferenz *", "Referencia de transacción *", "رقم المعاملة *",
+    ),
+    "Nom ou n° expéditeur *": (
+        "Sender name or number *", "Absendername oder -nummer *", "Nombre o nº del remitente *", "اسم أو رقم المرسل *",
+    ),
+    "@N° de transaction / référence du virement": (
+        "Transaction no. / transfer reference", "Transaktionsnr. / Überweisungsreferenz", "Nº de transacción / referencia de la transferencia", "رقم المعاملة / مرجع التحويل",
+    ),
+    "@Compte / numéro d’envoi": (
+        "Account / sending number", "Konto / Sendenummer", "Cuenta / número de envío", "الحساب / رقم الإرسال",
+    ),
+    "J’ai effectué le paiement": (
+        "I have made the payment", "Ich habe bezahlt", "He realizado el pago", "لقد أتممت الدفع",
+    ),
+    "Commande": ("Order", "Bestellung", "Pedido", "الطلب"),
+    "En attente de règlement": (
+        "Awaiting payment", "Zahlung ausstehend", "Pago pendiente", "في انتظار الدفع",
+    ),
+    "En vérification": (
+        "Being verified", "In Prüfung", "En verificación", "قيد التحقق",
+    ),
+    "Déclarer mon paiement →": (
+        "Declare my payment →", "Zahlung melden →", "Declarar mi pago →", "الإعلان عن الدفع ←",
+    ),
+    "référence": ("reference", "Referenz", "referencia", "المرجع"),
+    "Référence": ("Reference", "Referenz", "Referencia", "المرجع"),
+    "Coordonnées de paiement": (
+        "Payment details", "Zahlungsdaten", "Datos de pago", "بيانات الدفع",
+    ),
+    "Paiement déclaré — votre plan sera activé dès vérification par l’administrateur.": (
+        "Payment declared — your plan will be activated once verified by the administrator.",
+        "Zahlung gemeldet — Ihr Plan wird nach Prüfung durch den Administrator aktiviert.",
+        "Pago declarado — tu plan se activará tras la verificación del administrador.",
+        "تم الإعلان عن الدفع — سيتم تفعيل خطتك بعد تحقق المسؤول.",
+    ),
 
     "Virement bancaire": ("Bank transfer", "Banküberweisung", "Transferencia bancaria", "تحويل بنكي"),
     "Espèces / autre moyen": (

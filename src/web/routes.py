@@ -51,6 +51,7 @@ from src.services.payments import (
     new_tx_id,
     plan_price,
     record_tx,
+    update_tx,
 )
 from src.web.i18n import (
     DEFAULT_LANG,
@@ -1319,7 +1320,7 @@ async def dashboard(
             (
                 p for p in await list_payments(redis, tenant.tenant_id, limit=10)
                 if p.get("plan") == pending_plan
-                and p.get("status") in ("pending_manual", "created")
+                and p.get("status") in ("pending_manual", "pending_verification", "created")
             ),
             None,
         )
@@ -1339,18 +1340,28 @@ async def dashboard(
         chosen_manual = (pending_tx.get("provider") if pending_tx else None) or ""
         if chosen_manual in MANUAL_METHODS or chosen_manual == "manual":
             meta = MANUAL_METHODS.get(chosen_manual, {"label": "Paiement manuel"})
-            details = manual_method_details(settings, chosen_manual)
-            coords = (
-                f'<p class="text-xs mt-2">Coordonnées de paiement : '
-                f'<code class="text-[11px]">{_e(details)}</code></p>'
-                if details else ""
-            )
-            pay_zone = (
-                f'<p class="text-xs text-slate-600">Moyen choisi : '
-                f'<b>{_e(meta["label"])}</b>.{coords}</p>'
-                '<p class="text-xs text-slate-500 mt-2">Effectuez le règlement puis votre '
-                'demande sera activée dès réception par l’administrateur.</p>'
-            )
+            declared = (pending_tx or {}).get("status") == "pending_verification"
+            if declared:
+                pay_zone = (
+                    f'<p class="text-xs text-slate-600">Moyen choisi : <b>{_e(meta["label"])}</b> — '
+                    f'référence <code class="text-[11px]">{_e((pending_tx or {}).get("payer_ref") or "")}</code>.</p>'
+                    '<p class="text-xs text-slate-500 mt-2">Paiement déclaré — votre plan sera '
+                    'activé dès vérification par l’administrateur.</p>'
+                )
+            else:
+                details = manual_method_details(settings, chosen_manual)
+                coords = (
+                    f'<p class="text-xs mt-2">Coordonnées de paiement : '
+                    f'<code class="text-[11px]">{_e(details)}</code></p>'
+                    if details else ""
+                )
+                pay_zone = (
+                    f'<p class="text-xs text-slate-600">Moyen choisi : '
+                    f'<b>{_e(meta["label"])}</b>.{coords}</p>'
+                    f'<a href="/dashboard/billing/pay?tx={_e((pending_tx or {}).get("tx_id") or "")}" '
+                    'class="inline-block mt-2.5 text-xs font-semibold text-brand-600 hover:text-brand-700" '
+                    'data-noload>Déclarer mon paiement →</a>'
+                )
             if rows:
                 pay_zone += (
                     '<p class="text-xs font-semibold text-slate-600 mt-4 mb-2.5">'
@@ -2094,7 +2105,7 @@ async def dashboard_billing_submit(
                 "billing_phone": tenant.billing_phone,
             },
         )
-        return RedirectResponse("/dashboard?plan_requested=" + plan, status_code=303)
+        return RedirectResponse(f"/dashboard/billing/pay?tx={tx_id}", status_code=303)
     base = (settings.public_base_url or "").rstrip("/") or str(request.base_url).rstrip("/")
     res = await create_checkout(provider, plan, tenant, settings, base, redis, period=period)
     if "error" in res:
@@ -2123,6 +2134,111 @@ async def dashboard_billing_checkout(
     if "error" in res:
         return RedirectResponse("/dashboard?billing=err", status_code=303)
     return RedirectResponse(res["url"], status_code=303)
+
+
+@router.get("/dashboard/billing/pay", response_class=HTMLResponse)
+async def dashboard_billing_pay(
+    request: Request,
+    tx: str = "",
+    done: str = "",
+    settings: Settings = Depends(get_settings),
+):
+    user = await _require_user(request)
+    redis = request.app.state.redis
+    tenant = await TenantStore(redis).get(user.tenant_id)
+    tx_data = await get_tx(redis, tx)
+    if not tenant or not tx_data or tx_data.get("tenant_id") != user.tenant_id:
+        return RedirectResponse("/dashboard", status_code=303)
+    if tx_data.get("status") == "paid":
+        return RedirectResponse("/dashboard?billing=ok", status_code=303)
+    method = tx_data.get("provider") or "manual"
+    meta = MANUAL_METHODS.get(method, {"label": "Paiement manuel", "via": ""})
+    details = manual_method_details(settings, method)
+    period_label = PERIODS.get(tx_data.get("period", "monthly"), PERIODS["monthly"])["label"]
+    coords_block = ""
+    if details:
+        coords_block = f"""
+      <div class="rounded-xl border border-brand-200 bg-brand-50/60 p-4 mb-5">
+        <p class="text-xs font-semibold text-slate-500 mb-1.5">Coordonnées de paiement</p>
+        <p class="font-mono text-sm font-semibold break-all">{_e(details)}</p>
+      </div>"""
+    declared = tx_data.get("status") == "pending_verification"
+    confirm_zone = (
+        f"""
+      <div class="alert alert-warn mb-4">{UI_ICONS['clock']}
+        <span>Paiement déclaré — vérification en cours par l'administrateur.</span></div>"""
+        if declared
+        else f"""
+      <form method="post" action="/dashboard/billing/pay/confirm" class="space-y-4">
+        <input type="hidden" name="tx" value="{_e(tx)}">
+        <div class="grid sm:grid-cols-2 gap-4">
+          <div><label class="text-xs font-semibold text-slate-600">Référence de transaction *</label>
+          <input name="payer_ref" class="input mt-1" required maxlength="80"
+                 placeholder="N° de transaction / référence du virement"></div>
+          <div><label class="text-xs font-semibold text-slate-600">Nom ou n° expéditeur *</label>
+          <input name="payer_info" class="input mt-1" required maxlength="120"
+                 placeholder="Compte / numéro d'envoi"></div>
+        </div>
+        <button class="btn-primary w-full justify-center">J'ai effectué le paiement</button>
+      </form>"""
+    )
+    plan_label = PLANS.get(tx_data.get("plan"), {}).get("label", (tx_data.get("plan") or "").upper())
+    content = f"""
+<div class="mb-6">
+  <a href="/dashboard#sec-plan" class="text-xs text-slate-400 hover:text-brand-600 transition">← Retour au dashboard</a>
+  <h1 class="text-2xl font-extrabold mt-1">Régler votre commande</h1>
+  <p class="text-sm text-slate-500">Plan <b>{_e(plan_label)}</b> · {_e(period_label)} · {_e(meta['label'])}</p>
+</div>
+<div class="grid lg:grid-cols-5 gap-6 items-start">
+  <div class="lg:col-span-3 card p-4 sm:p-6">
+    <h2 class="font-bold text-sm mb-4">Effectuez le règlement</h2>
+    <ol class="text-sm text-slate-600 space-y-2 mb-5 list-none">
+      <li class="flex gap-2.5"><span class="step-n">1</span><span>Réglez via <b>{_e(meta['label'])}</b> avec les coordonnées ci-dessous.</span></li>
+      <li class="flex gap-2.5"><span class="step-n">2</span><span>Déclarez votre paiement avec la référence de transaction.</span></li>
+      <li class="flex gap-2.5"><span class="step-n">3</span><span>Votre plan est activé dès vérification — généralement très rapide.</span></li>
+    </ol>
+    {coords_block}
+    {confirm_zone}
+  </div>
+  <div class="lg:col-span-2 card p-4 sm:p-6">
+    <h2 class="font-bold text-sm mb-3">Commande <code class="text-xs text-slate-400">{_e(tx)}</code></h2>
+    <ul class="space-y-1.5 text-sm">
+      <li class="flex justify-between"><span class="text-slate-500">Plan</span><b>{_e(plan_label)}</b></li>
+      <li class="flex justify-between"><span class="text-slate-500">Période</span><b>{_e(period_label)}</b></li>
+      <li class="flex justify-between"><span class="text-slate-500">Moyen</span><b>{_e(meta['label'])}</b></li>
+      <li class="flex justify-between"><span class="text-slate-500">Statut</span>
+      <b class="{'text-amber-600' if not declared else 'text-brand-600'}">{'En attente de règlement' if not declared else 'En vérification'}</b></li>
+      {f'<li class="flex justify-between"><span class="text-slate-500">Référence</span>'
+       f'<code class="text-xs">{_e(tx_data.get("payer_ref") or "")}</code></li>' if declared else ''}
+    </ul>
+  </div>
+</div>"""
+    return _dashboard_page(user, tenant, content, active="plan")
+
+
+@router.post("/dashboard/billing/pay/confirm")
+async def dashboard_billing_pay_confirm(
+    request: Request,
+    tx: str = Form(...),
+    payer_ref: str = Form(""),
+    payer_info: str = Form(""),
+    _: None = Depends(require_same_origin),
+):
+    user = await _require_user(request)
+    redis = request.app.state.redis
+    tx_data = await get_tx(redis, tx)
+    if not tx_data or tx_data.get("tenant_id") != user.tenant_id:
+        raise HTTPException(status_code=404, detail="Transaction introuvable")
+    if not payer_ref.strip() or not payer_info.strip():
+        return RedirectResponse(f"/dashboard/billing/pay?tx={tx}", status_code=303)
+    await update_tx(
+        redis,
+        tx,
+        status="pending_verification",
+        payer_ref=payer_ref.strip()[:80],
+        payer_info=payer_info.strip()[:120],
+    )
+    return RedirectResponse("/dashboard?plan_requested=" + tx_data["plan"], status_code=303)
 
 
 @router.get("/dashboard/billing/return", response_class=HTMLResponse)

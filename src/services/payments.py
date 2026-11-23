@@ -77,6 +77,14 @@ async def set_tx_status(redis, tx_id: str, status: str) -> None:
         await redis.set(f"pay:tx:{tx_id}", json.dumps(data), ex=30 * 24 * 3600)
 
 
+async def update_tx(redis, tx_id: str, **fields) -> None:
+    """Fusionne des champs dans l'enregistrement de transaction."""
+    data = await get_tx(redis, tx_id)
+    if data:
+        data.update({k: v for k, v in fields.items() if v is not None})
+        await redis.set(f"pay:tx:{tx_id}", json.dumps(data), ex=30 * 24 * 3600)
+
+
 # ---------------------------------------------------------------------
 # Application du plan (idempotent) — partagé par tous les providers
 # ---------------------------------------------------------------------
