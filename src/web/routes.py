@@ -1297,31 +1297,45 @@ async def dashboard(
         + "</form></div>"
         for pid, p in PLANS.items()
     )
-    pending_banner = ""
+    pending_panel = ""
     if pending_plan and pending_plan in PLANS:
-        pending_banner = f"""
-  <div class="alert alert-warn mb-4">{UI_ICONS['clock']}
-    <span>Demande <b>{_e(PLANS[pending_plan]['label'])}</b> en attente — votre plan sera
-    activé dès validation du paiement (Stripe, PayPal, mobile money ou virement).
-    Questions ? Utilisez le support ci-dessous.</span></div>"""
-
-    pay_buttons = ""
-    providers = available_providers(settings)
-    if pending_plan and pending_plan in PLANS and providers:
+        providers = available_providers(settings)
         rows = "".join(
-            '<form method="post" action="/dashboard/billing/checkout" class="flex-1 min-w-[10rem]">'
+            '<form method="post" action="/dashboard/billing/checkout" class="flex-1 min-w-[11rem]">'
             f'<input type="hidden" name="plan" value="{_e(pending_plan)}">'
             f'<input type="hidden" name="provider" value="{_e(prov)}">'
             f'<button class="btn-soft w-full justify-center text-sm">{_e(meta["label"])}'
+            f'<b class="text-brand-600 ml-1.5">{plan_price(settings, pending_plan, prov)[0]:g} {_e(plan_price(settings, pending_plan, prov)[1])}</b>'
             f'<span class="text-[10px] font-normal text-slate-400 ml-1.5">· {_e(meta["via"])}</span></button></form>'
             for prov, meta in providers.items()
             if plan_price(settings, pending_plan, prov)[0]
         )
         if rows:
-            pay_buttons = f"""
-  <div class="mt-4 pt-4 border-t border-slate-100">
-    <p class="text-xs font-semibold text-slate-600 mb-2.5">Payer en ligne — activation immédiate après validation :</p>
-    <div class="flex flex-wrap gap-2.5">{rows}</div>
+            pay_zone = (
+                f'<p class="text-xs font-semibold text-slate-600 mb-2.5">'
+                f'Payer en ligne — activation immédiate après confirmation :</p>'
+                f'<div class="flex flex-wrap gap-2.5">{rows}</div>'
+                f'<p class="text-[11px] text-slate-400 mt-3">Virement, cash ou autre moyen ? '
+                f'Votre demande reste en attente — l’administrateur l’activera manuellement '
+                f'après réception du paiement.</p>'
+            )
+        else:
+            pay_zone = (
+                '<p class="text-xs text-slate-500">Le paiement en ligne n’est pas activé sur cette '
+                'instance. Votre demande sera validée manuellement par l’administrateur dès '
+                'réception du paiement — contactez le support ci-dessous pour les modalités.</p>'
+            )
+        pending_panel = f"""
+  <div class="mt-5 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+    <div class="flex items-center gap-2 mb-3">
+      <span class="text-amber-600">{UI_ICONS['clock']}</span>
+      <h3 class="font-bold text-sm">Finaliser le paiement — <span class="text-brand-600">{_e(PLANS[pending_plan]['label'])}</span></h3>
+    </div>
+    {pay_zone}
+    <form method="post" action="/dashboard/plan/cancel" class="mt-3">
+      <button class="text-[11px] text-slate-400 hover:text-rose-600 transition underline underline-offset-2" data-noload>
+        Annuler la demande</button>
+    </form>
   </div>"""
 
     payments = await list_payments(redis, tenant.tenant_id, limit=8)
@@ -1352,9 +1366,8 @@ async def dashboard(
   <h2 class="font-bold mb-1">Votre abonnement</h2>
   <p class="text-sm text-slate-500 mb-4">Plan actuel : <b>{_e(PLANS[cur_plan]['label'])}</b> —
   les plans payants sont activés après validation du paiement.</p>
-  {pending_banner}
   <div class="grid sm:grid-cols-3 gap-3">{plan_cards}</div>
-  {pay_buttons}
+  {pending_panel}
 </div>"""
 
     plan_label = _e(PLANS.get(tenant.plan, {}).get("label", tenant.plan.upper()))
@@ -1814,6 +1827,17 @@ async def dashboard_plan(
     # (manuel ou webhook Stripe/PayPal/mobile money) puis applique le plan.
     await TenantStore(redis).update(user.tenant_id, {"plan_requested": plan})
     return RedirectResponse("/dashboard?plan_requested=" + plan, status_code=303)
+
+
+@router.post("/dashboard/plan/cancel")
+async def dashboard_plan_cancel(
+    request: Request,
+    _: None = Depends(require_same_origin),
+):
+    user = await _require_user(request)
+    redis = request.app.state.redis
+    await TenantStore(redis).update(user.tenant_id, {"plan_requested": None})
+    return RedirectResponse("/dashboard", status_code=303)
 
 
 @router.post("/dashboard/billing/checkout")
