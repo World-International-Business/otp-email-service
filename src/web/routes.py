@@ -538,10 +538,7 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
   <div class="max-w-6xl mx-auto px-6 py-16 md:py-28 relative">
     <div class="grid lg:grid-cols-2 gap-14 items-center">
       <div class="text-left">
-        <span class="badge bg-white/10 text-brand-200 border border-white/20 backdrop-blur fade-up">
-          API OTP & Emails transactionnels
-        </span>
-        <h1 class="mt-7 text-4xl sm:text-5xl md:text-[3.6rem] font-black tracking-tight leading-[1.06] fade-up fade-up-1">
+        <h1 class="text-4xl sm:text-5xl md:text-[3.6rem] font-black tracking-tight leading-[1.06] fade-up fade-up-1">
           Vos codes de vérification et emails,
           <span class="gradient-text">en un appel API.</span>
         </h1>
@@ -609,8 +606,7 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
 
 <section id="services" class="max-w-6xl mx-auto px-6 py-14 md:py-20">
   <div class="text-center mb-12">
-    <span class="eyebrow">Nos services</span>
-    <h2 class="text-3xl md:text-4xl font-extrabold mt-4">Tout pour vos emails & OTP</h2>
+    <h2 class="text-3xl md:text-4xl font-extrabold">Tout pour vos emails & OTP</h2>
     <p class="text-slate-500 mt-3 max-w-xl mx-auto">Une plateforme complète, pensée pour les développeurs et les produits qui grandissent.</p>
   </div>
   <div class="grid md:grid-cols-3 gap-5">{services_html}</div>
@@ -663,8 +659,7 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
 
 <section id="pricing" class="max-w-6xl mx-auto px-6 py-14 md:py-20">
   <div class="text-center mb-12">
-    <span class="eyebrow">Tarifs</span>
-    <h2 class="text-3xl md:text-4xl font-extrabold mt-4">Simple et transparent</h2>
+    <h2 class="text-3xl md:text-4xl font-extrabold">Simple et transparent</h2>
     <p class="text-slate-500 mt-3">Commencez gratuitement, passez à l'échelle quand vous êtes prêt.</p>
   </div>
   <div class="grid md:grid-cols-3 gap-6 items-stretch pt-3">{plans_html}</div>

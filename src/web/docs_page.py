@@ -330,8 +330,7 @@ curl_close($ch);""".replace("<", "&lt;").replace(">", "&gt;")
 
     <div class="space-y-10 min-w-0">
       <div id="doc-intro">
-        <span class="badge bg-brand-50 text-brand-700 border border-brand-100">DOCUMENTATION</span>
-        <h1 class="text-3xl md:text-4xl font-extrabold mt-4">Intégrer MailHub</h1>
+        <h1 class="text-3xl md:text-4xl font-extrabold">Intégrer MailHub</h1>
         <p class="text-slate-500 mt-3 leading-relaxed">Une API REST pour vos codes OTP et emails
         transactionnels. Toutes les requêtes <code>/v1/*</code> sont signées
         <strong>HMAC-SHA256</strong>. Le code OTP part par email — vos utilisateurs le
