@@ -208,6 +208,13 @@ async def seed_default_tenant(redis, settings) -> Tenant:
         if existing.api_key_hash != api_key_hash:
             await redis.delete(store._bykey(existing.api_key_hash))
             await redis.set(store._bykey(api_key_hash), existing.tenant_id)
+        patch = {}
+        if not existing.email_logo_url:
+            patch["email_logo_url"] = "/static/mailhub-logo.png"
+        if existing.brand_color.lower() == "#6366f1":
+            patch["brand_color"] = "#5b63c8"
+        if patch:
+            await store.update(existing.tenant_id, patch)
         await store.update(
             existing.tenant_id,
             {
@@ -235,6 +242,8 @@ async def seed_default_tenant(redis, settings) -> Tenant:
         api_key_hash=api_key_hash,
         hmac_secret=hmac_secret,
         brand_name=settings.from_name,
+        brand_color="#5b63c8",
+        email_logo_url="/static/mailhub-logo.png",
         from_email=settings.from_email,
         from_name=settings.from_name,
         smtp_user=settings.smtp_user,

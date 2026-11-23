@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel, EmailStr
 from starlette.datastructures import UploadFile
+from pathlib import Path
 
 from src.api.dependencies import (
     get_client_ip,
@@ -59,21 +60,12 @@ def _e(value) -> str:
 # Templates HTML — design moderne (Tailwind)
 # =====================================================================
 
-LOGO_SVG = """<svg class="w-9 h-9" viewBox="0 0 40 40" fill="none">
-<rect width="40" height="40" rx="10" fill="url(#g)"/>
-<path d="M10 14.5l10 7 10-7" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M11 13.5h18a1.5 1.5 0 011.5 1.5v10a1.5 1.5 0 01-1.5 1.5H11a1.5 1.5 0 01-1.5-1.5V15a1.5 1.5 0 011.5-1.5z" stroke="#fff" stroke-width="2.4"/>
-<defs><linearGradient id="g" x1="0" y1="0" x2="40" y2="40"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#a855f7"/></linearGradient></defs>
-</svg>"""
-
-
-FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="10" fill="#4f46e5"/><path d="M10 14.5l10 7 10-7" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M11 13.5h18a1.5 1.5 0 011.5 1.5v10a1.5 1.5 0 01-1.5 1.5H11a1.5 1.5 0 01-1.5-1.5V15a1.5 1.5 0 011.5-1.5z" stroke="#fff" stroke-width="2.4" fill="none"/></svg>"""
-
-FAVICON_URI = (
-    "data:image/svg+xml,"
-    + FAVICON_SVG.replace("\n", "").replace('"', "'").replace("<", "%3C").replace(">", "%3E")
-    .replace("#", "%23")
+LOGO_SVG = (
+    '<img src="/static/mailhub-logo.png" alt="MailHub" '
+    'class="w-9 h-9 rounded-xl object-cover shadow-md shadow-brand-900/30">'
 )
+
+FAVICON_URI = "/static/mailhub-logo.png"
 
 
 def _head(title: str) -> str:
@@ -83,13 +75,37 @@ def _head(title: str) -> str:
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="description" content="MailHub — API d'emails transactionnels et de codes OTP. Multi-tenant, sécurisée HMAC, intégration en 5 minutes.">
-<link rel="icon" type="image/svg+xml" href="{FAVICON_URI}">
+<link rel="icon" type="image/png" href="{FAVICON_URI}">
 <title>{title} — MailHub</title>
 <style>{TAILWIND_CSS}</style>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 </head>"""
+
+
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+_STATIC_TYPES = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml",
+    ".ico": "image/x-icon", ".woff": "font/woff", ".woff2": "font/woff2",
+}
+
+
+@router.get("/static/{path:path}")
+async def static_asset(path: str):
+    """Assets locaux (logo, polices) — whitelist extensions + anti-traversal."""
+    target = (_STATIC_DIR / path).resolve()
+    if (
+        not str(target).startswith(str(_STATIC_DIR))
+        or target.suffix.lower() not in _STATIC_TYPES
+        or not target.is_file()
+    ):
+        raise HTTPException(status_code=404, detail="Asset introuvable")
+    return Response(
+        target.read_bytes(),
+        media_type=_STATIC_TYPES[target.suffix.lower()],
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 def _footer(logged_in: bool = False) -> str:
@@ -100,7 +116,7 @@ def _footer(logged_in: bool = False) -> str:
         '        <a href="/login" class="hover:text-white transition">Connexion</a>'
     )
     return f"""
-<footer class="bg-slate-950 text-slate-400">
+<footer class="bg-[#0a0b14] text-slate-400">
   <div class="max-w-6xl mx-auto px-6 py-10 md:py-14 grid md:grid-cols-3 gap-8 md:gap-10">
     <div>
       <div class="flex items-center gap-2.5 text-white font-extrabold mb-3">{LOGO_SVG} MailHub</div>
@@ -212,7 +228,7 @@ def _dashboard_page(user, tenant, content: str, active: str = "dashboard", debug
     )
     return HTMLResponse(f"""{_head("Dashboard")}
 <body class="bg-slate-100 text-slate-800">
-<header class="md:hidden fixed top-0 inset-x-0 h-14 bg-slate-900 text-white flex items-center justify-between px-4 z-20">
+<header class="md:hidden fixed top-0 inset-x-0 h-14 bg-[#0d0f1e] text-white flex items-center justify-between px-4 z-20">
   <a href="/dashboard" class="flex items-center gap-2 font-extrabold">{LOGO_SVG} MailHub</a>
   <div class="flex items-center gap-1">
     __LANG_SWITCH_HEADER__
@@ -226,7 +242,7 @@ def _dashboard_page(user, tenant, content: str, active: str = "dashboard", debug
 <div id="sbOverlay" class="hidden fixed inset-0 bg-black/50 z-20 md:hidden"
      onclick="document.getElementById('sidebar').classList.add('-translate-x-full');this.classList.add('hidden')"></div>
 <div class="flex min-h-screen">
-  <aside id="sidebar" class="w-64 bg-slate-900 text-white flex flex-col fixed inset-y-0 z-30 overflow-y-auto transform -translate-x-full md:translate-x-0 transition-transform duration-200">
+  <aside id="sidebar" class="w-64 bg-[#0d0f1e] text-white flex flex-col fixed inset-y-0 z-30 overflow-y-auto transform -translate-x-full md:translate-x-0 transition-transform duration-200">
     <div class="h-16 flex items-center gap-2.5 px-6 border-b border-white/10 shrink-0">
       {LOGO_SVG}
       <span class="font-extrabold">MailHub</span>
@@ -349,7 +365,7 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
          "border-brand-200"),
         (ICON["mail"], "Emails transactionnels",
          "Bienvenue, notifications, confirmations de transaction ou email 100 % libre — FR & EN.",
-         "border-violet-200"),
+         "border-accent-200"),
         (ICON["layers"], "Multi-tenant",
          "Chaque application cliente : clés propres, branding, quotas et données isolées dans Redis.",
          "border-blue-200"),
@@ -365,7 +381,7 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
     ]
     services_html = "".join(
         f"""<div class="card card-lift p-6 transition-all border-t-4 {bc}">
-          <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-50 to-violet-100 border border-brand-100 flex items-center justify-center mb-4">{icon}</div>
+          <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-50 to-accent-100 border border-brand-100 flex items-center justify-center mb-4">{icon}</div>
           <h3 class="font-bold mb-1.5">{t}</h3>
           <p class="text-sm text-slate-500 leading-relaxed">{d}</p>
         </div>"""
@@ -401,11 +417,11 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
 <section class="hero-bg text-white relative overflow-hidden">
   <div class="absolute inset-0 grid-pattern"></div>
   <div class="orb w-96 h-96 bg-brand-500 -top-20 -left-20"></div>
-  <div class="orb w-80 h-80 bg-violet-500 top-40 -right-16"></div>
+  <div class="orb w-80 h-80 bg-accent-500 top-40 -right-16"></div>
   <div class="max-w-6xl mx-auto px-6 py-16 md:py-28 relative">
     <div class="grid lg:grid-cols-2 gap-14 items-center">
       <div class="text-left">
-        <span class="badge bg-white/10 text-indigo-200 border border-white/20 backdrop-blur fade-up">
+        <span class="badge bg-white/10 text-brand-200 border border-white/20 backdrop-blur fade-up">
           API OTP & Emails transactionnels
         </span>
         <h1 class="mt-7 text-4xl sm:text-5xl md:text-[3.6rem] font-black tracking-tight leading-[1.06] fade-up fade-up-1">
@@ -429,7 +445,7 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
       </div>
       <div class="relative fade-up fade-up-2 hidden lg:block">
         <div class="glass rounded-2xl p-1.5 shadow-2xl">
-          <div class="bg-slate-950/80 rounded-xl overflow-hidden">
+          <div class="bg-[#0a0b14]/80 rounded-xl overflow-hidden">
             <div class="flex items-center gap-2 px-4 py-3 border-b border-white/10">
               <span class="w-3 h-3 rounded-full bg-rose-400"></span>
               <span class="w-3 h-3 rounded-full bg-amber-400"></span>
@@ -437,7 +453,7 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
               <span class="text-xs text-slate-400 ml-2 font-mono">api.sh</span>
             </div>
             <pre class="p-5 text-[13px] leading-relaxed font-mono text-slate-300"><span class="text-slate-500"># Envoyer un OTP</span>
-<span class="text-violet-400">curl</span> -X POST {str('/v1/otp/send')} \\
+<span class="text-accent-400">curl</span> -X POST {str('/v1/otp/send')} \\
   -H <span class="text-emerald-300">"X-API-Key: ••••"</span> \\
   -d <span class="text-amber-300">'{{"email":"client@ex.com","purpose":"login_2fa"}}'</span>
 
@@ -452,7 +468,7 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
             <p class="text-[11px] text-slate-400">il y a 0,4 s — boîte de réception</p>
           </div>
         </div>
-        <div class="floaty floaty-2 absolute -bottom-7 -left-5 bg-slate-900 rounded-xl shadow-xl border border-white/10 px-4 py-3 flex items-center gap-3">
+        <div class="floaty floaty-2 absolute -bottom-7 -left-5 bg-[#0d0f1e] rounded-xl shadow-xl border border-white/10 px-4 py-3 flex items-center gap-3">
           <span class="w-9 h-9 rounded-lg bg-brand-600/20 text-brand-300 flex items-center justify-center font-mono text-[10px] font-bold">OTP</span>
           <div>
             <p class="text-[11px] text-slate-400">Code de vérification</p>
@@ -490,17 +506,17 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
   </div>
   <div class="grid md:grid-cols-3 gap-6">
     <div class="card card-lift p-7 text-center transition-all">
-      <div class="w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-violet-600 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">1</div>
+      <div class="w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-accent-600 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">1</div>
       <h3 class="font-bold mb-2">Créez votre compte</h3>
       <p class="text-sm text-slate-500">Un tenant + une clé API + un secret HMAC sont générés instantanément.</p>
     </div>
     <div class="card card-lift p-7 text-center transition-all">
-      <div class="w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-violet-600 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">2</div>
+      <div class="w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-accent-600 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">2</div>
       <h3 class="font-bold mb-2">Configurez votre expéditeur</h3>
       <p class="text-sm text-slate-500">Votre adresse email et votre SMTP dans le dashboard — test intégré.</p>
     </div>
     <div class="card card-lift p-7 text-center transition-all">
-      <div class="w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-violet-600 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">3</div>
+      <div class="w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-accent-600 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">3</div>
       <h3 class="font-bold mb-2">Intégrez en un appel</h3>
       <p class="text-sm text-slate-500">POST signé HMAC vers <code>/v1/otp/send</code> ou <code>/v1/email/send</code>.</p>
     </div>
@@ -539,7 +555,7 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
 
 <section class="max-w-6xl mx-auto px-6 pb-24">
   <div class="hero-bg rounded-3xl p-8 sm:p-12 md:p-16 text-center text-white relative overflow-hidden">
-    <div class="orb w-72 h-72 bg-violet-500 -top-10 -right-10"></div>
+    <div class="orb w-72 h-72 bg-accent-500 -top-10 -right-10"></div>
     <h2 class="text-3xl md:text-4xl font-extrabold relative">Prêt à envoyer votre premier email ?</h2>
     <p class="text-slate-300 mt-4 relative">Compte gratuit, clés instantanées, aucune carte requise.</p>
     <a href="/register" class="btn-primary inline-block mt-8 relative px-8 py-3.5">Commencer maintenant →</a>
@@ -597,7 +613,7 @@ async def register_page(
       <div><label class="text-xs font-semibold text-slate-600">Mot de passe</label>
       <input name="password" type="password" class="input mt-1" minlength="8" required></div>
     """ + invite_field
-    link = 'Déjà un compte ? <a href="/login" class="text-indigo-600 font-semibold">Se connecter</a>'
+    link = 'Déjà un compte ? <a href="/login" class="text-brand-600 font-semibold">Se connecter</a>'
     return _auth_form("Créer un compte", "/register", fields, link)
 
 
@@ -623,19 +639,19 @@ async def register(
         return _auth_form(
             "Créer un compte", "/register",
             '<p class="text-sm text-red-600">Code d\'invitation invalide.</p>',
-            '<a href="/login" class="text-indigo-600">Se connecter</a>',
+            '<a href="/login" class="text-brand-600">Se connecter</a>',
         )
     if len(password) < 8:
         return _auth_form(
             "Créer un compte", "/register",
             '<p class="text-sm text-red-600">Le mot de passe doit contenir au moins 8 caractères.</p>',
-            '<a href="/login" class="text-indigo-600">Se connecter</a>',
+            '<a href="/login" class="text-brand-600">Se connecter</a>',
         )
     if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
         return _auth_form(
             "Créer un compte", "/register",
             '<p class="text-sm text-red-600">Adresse email invalide.</p>',
-            '<a href="/login" class="text-indigo-600">Se connecter</a>',
+            '<a href="/login" class="text-brand-600">Se connecter</a>',
         )
 
     redis = request.app.state.redis
@@ -644,7 +660,7 @@ async def register(
         return _auth_form(
             "Créer un compte", "/register",
             '<p class="text-sm text-red-600">Cet email est déjà utilisé.</p>',
-            '<a href="/login" class="text-indigo-600">Se connecter</a>',
+            '<a href="/login" class="text-brand-600">Se connecter</a>',
         )
 
     # Si une inscription est déjà en attente pour cet email, on renvoie
@@ -741,9 +757,9 @@ def _verify_email_page(
     link = (
         '<form method="post" action="/register/resend" class="inline">'
         f'<input type="hidden" name="t" value="{_e(t)}">'
-        '<button type="submit" class="text-indigo-600 font-semibold bg-transparent border-0 '
+        '<button type="submit" class="text-brand-600 font-semibold bg-transparent border-0 '
         'p-0 cursor-pointer text-xs">Renvoyer le code</button></form>'
-        ' · <a href="/register" class="text-indigo-600 font-semibold">Recommencer</a>'
+        ' · <a href="/register" class="text-brand-600 font-semibold">Recommencer</a>'
     )
     return _auth_form("Vérifier mon email", "/register/verify", fields, link)
 
@@ -801,7 +817,7 @@ async def register_verify(
         return _auth_form(
             "Créer un compte", "/register",
             '<p class="text-sm text-red-600">Cet email est déjà utilisé.</p>',
-            '<a href="/login" class="text-indigo-600">Se connecter</a>',
+            '<a href="/login" class="text-brand-600">Se connecter</a>',
         )
     await redis.delete(f"reg:{t}", regidx_key)
 
@@ -908,7 +924,7 @@ async def login_page(request: Request) -> HTMLResponse:
       <div><label class="text-xs font-semibold text-slate-600">Mot de passe</label>
       <input name="password" type="password" class="input mt-1" required></div>
     """
-    link = 'Pas de compte ? <a href="/register" class="text-indigo-600 font-semibold">Créer un compte</a>'
+    link = 'Pas de compte ? <a href="/register" class="text-brand-600 font-semibold">Créer un compte</a>'
     return _auth_form("Connexion", "/login", fields, link)
 
 
@@ -935,7 +951,7 @@ async def login(
         return _auth_form(
             "Connexion", "/login",
             '<p class="text-sm text-red-600">Email ou mot de passe incorrect.</p>',
-            '<a href="/register" class="text-indigo-600">Créer un compte</a>',
+            '<a href="/register" class="text-brand-600">Créer un compte</a>',
         )
     # Succès : reset du compteur anti brute-force pour cette IP
     await redis.delete(rl_key)
@@ -1048,7 +1064,7 @@ async def dashboard(
         bars += f"""
         <div class="flex-1 flex flex-col items-center gap-1.5">
           <div class="w-full flex items-end justify-center gap-1 h-28">
-            <div class="w-4 rounded-t bg-gradient-to-t from-brand-500 to-violet-500" style="height:{max(h_sent,4) if series['otps_sent'][i] else 2}%" title="{series['otps_sent'][i]} OTP envoyés"></div>
+            <div class="w-4 rounded-t bg-gradient-to-t from-brand-500 to-accent-500" style="height:{max(h_sent,4) if series['otps_sent'][i] else 2}%" title="{series['otps_sent'][i]} OTP envoyés"></div>
             <div class="w-4 rounded-t bg-emerald-400" style="height:{max(h_ver,4) if series['otps_verified'][i] else 2}%" title="{series['otps_verified'][i]} OTP vérifiés"></div>
             <div class="w-4 rounded-t bg-amber-400" style="height:{max(h_em,4) if series['emails_sent'][i] else 2}%" title="{series['emails_sent'][i]} emails envoyés"></div>
           </div>
@@ -1074,7 +1090,7 @@ async def dashboard(
         "otp_verify_failed": ("Vérif. échouée", "bg-rose-100 text-rose-700"),
         "otp_send_failed": ("Envoi OTP échoué", "bg-rose-100 text-rose-700"),
         "otp_rate_limited": ("Rate limit", "bg-amber-100 text-amber-700"),
-        "otp_sms_fallback": ("Fallback SMS", "bg-violet-100 text-violet-700"),
+        "otp_sms_fallback": ("Fallback SMS", "bg-accent-100 text-accent-700"),
         "otp_purpose_denied": ("Purpose refusé", "bg-slate-200 text-slate-600"),
         "email_sent": ("Email envoyé", "bg-emerald-100 text-emerald-700"),
         "email_failed": ("Email échoué", "bg-rose-100 text-rose-700"),
@@ -1107,10 +1123,10 @@ async def dashboard(
     pending_plan = tenant.plan_requested if tenant else None
     plan_cards = "".join(
         f'<div class="border rounded-xl p-4 flex flex-col '
-        f'{"border-indigo-500 ring-1 ring-indigo-500" if pid == cur_plan else "border-slate-200"}">'
+        f'{"border-brand-500 ring-1 ring-brand-500" if pid == cur_plan else "border-slate-200"}">'
         f'<div class="flex items-center justify-between">'
         f"<p class=\"font-bold\">{_e(p['label'])}</p>"
-        + ('<span class="badge bg-indigo-100 text-indigo-700">ACTUEL</span>' if pid == cur_plan else "")
+        + ('<span class="badge bg-brand-100 text-brand-700">ACTUEL</span>' if pid == cur_plan else "")
         + "</div>"
         f"<p class=\"text-2xl font-black mt-1\">{_e(p['price'])}</p>"
         f"<p class=\"text-xs text-slate-500 mt-1\">{_e(p['desc'])}</p>"
@@ -1127,7 +1143,7 @@ async def dashboard(
             else (
                 f'<button disabled class="w-full text-xs font-bold text-amber-600 border border-amber-200 bg-amber-50 rounded-lg px-4 py-2 cursor-default inline-flex items-center justify-center gap-1.5">{UI_ICONS["clock"]} Demande en attente</button>'
                 if pid == pending_plan
-                else '<button class="w-full text-xs font-bold text-indigo-600 border border-indigo-200 rounded-lg px-4 py-2 hover:bg-indigo-50">Choisir ce plan</button>'
+                else '<button class="w-full text-xs font-bold text-brand-600 border border-brand-200 rounded-lg px-4 py-2 hover:bg-brand-50">Choisir ce plan</button>'
             )
         )
         + "</form></div>"
@@ -1191,7 +1207,7 @@ async def dashboard(
 <div id="sec-smtp" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
   <h2 class="font-bold mb-1">Configuration de votre expéditeur email</h2>
   <p class="text-sm text-slate-500 mb-4">Configurez l'adresse email utilisée pour envoyer VOS emails
-  (Gmail : utilisez un <a class="text-indigo-600 underline" href="https://myaccount.google.com/apppasswords" target="_blank">mot de passe d'application</a>).</p>
+  (Gmail : utilisez un <a class="text-brand-600 underline" href="https://myaccount.google.com/apppasswords" target="_blank">mot de passe d'application</a>).</p>
   <form method="post" action="/dashboard/config" class="grid md:grid-cols-2 gap-4">
     <div><label class="text-xs font-semibold text-slate-600">Marque affichée</label>
     <input name="brand_name" class="input mt-1" value="{_e(tenant.brand_name)}"></div>
@@ -1217,7 +1233,7 @@ async def dashboard(
   </form>
   <form method="post" action="/dashboard/test-email" class="mt-3 flex flex-col sm:flex-row gap-2 sm:items-center">
     <input name="test_to" type="email" class="input sm:max-w-xs" placeholder="envoyer un email de test à..." required>
-    <button class="text-xs font-semibold text-indigo-600 border border-blue-200 rounded-lg px-4 py-2.5 hover:bg-blue-50 whitespace-nowrap">Tester l'envoi</button>
+    <button class="text-xs font-semibold text-brand-600 border border-blue-200 rounded-lg px-4 py-2.5 hover:bg-blue-50 whitespace-nowrap">Tester l'envoi</button>
   </form>
 </div>
 
@@ -1287,7 +1303,7 @@ async def dashboard(
 <div id="sec-integration" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
   <h2 class="font-bold mb-1">Intégrer l'API dans votre projet</h2>
   <p class="text-sm text-slate-500 mb-4">Chaque requête doit être signée : <code>HMAC-SHA256(body + timestamp, votre secret)</code>.</p>
-  <div class="bg-slate-900 text-slate-100 rounded-lg p-5 text-xs overflow-auto font-mono">
+  <div class="bg-[#0d0f1e] text-slate-100 rounded-lg p-5 text-xs overflow-auto font-mono">
 <pre># Python — client prêt à l'emploi (pip install requests)
 import hashlib, hmac, json, time, requests
 
@@ -1312,7 +1328,7 @@ body = json.dumps({{"request_id":"req_...","code":"123456"}}).encode()
 r = requests.post(BASE_URL+"/v1/otp/verify", data=body, headers=sign(body))
 print(r.json())   # {{"verified":true,"attempts_remaining":0}}</pre>
   </div>
-  <p class="text-xs text-slate-500 mt-3">Node.js / PHP / cURL : voir <a href="/docs" class="text-indigo-600 underline">la documentation Swagger</a>.</p>
+  <p class="text-xs text-slate-500 mt-3">Node.js / PHP / cURL : voir <a href="/docs" class="text-brand-600 underline">la documentation Swagger</a>.</p>
 </div>
 
 <div id="sec-support" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
@@ -1655,8 +1671,8 @@ def _demo_page(default_tenant: str = "default") -> str:
       <select id="language" class="input mt-1"><option value="fr">Français</option><option value="en">English</option></select></div>
     </div>
     <button onclick="sendOtp()" class="btn-primary mt-4">Envoyer l'OTP</button>
-    <pre id="sendResult" class="mt-4 text-xs bg-slate-900 text-emerald-300 rounded-lg p-4 hidden overflow-auto"></pre>
-    <div id="otpCode" class="mt-3 text-center text-3xl font-extrabold tracking-[.4em] text-indigo-600 hidden"></div>
+    <pre id="sendResult" class="mt-4 text-xs bg-[#0d0f1e] text-emerald-300 rounded-lg p-4 hidden overflow-auto"></pre>
+    <div id="otpCode" class="mt-3 text-center text-3xl font-extrabold tracking-[.4em] text-brand-600 hidden"></div>
   </div>
 
   <div class="card p-4 sm:p-6 mb-6">
@@ -1668,7 +1684,7 @@ def _demo_page(default_tenant: str = "default") -> str:
       <input id="code" class="input mt-1" maxlength="6" placeholder="123456"></div>
     </div>
     <button onclick="verifyOtp()" class="btn-primary mt-4">Vérifier</button>
-    <pre id="verifyResult" class="mt-4 text-xs bg-slate-900 text-emerald-300 rounded-lg p-4 hidden overflow-auto"></pre>
+    <pre id="verifyResult" class="mt-4 text-xs bg-[#0d0f1e] text-emerald-300 rounded-lg p-4 hidden overflow-auto"></pre>
   </div>
 
   <div class="card p-6">
@@ -1691,7 +1707,7 @@ def _demo_page(default_tenant: str = "default") -> str:
       <input id="emailMessage" class="input mt-1" value="Votre colis arrive dans 48h."></div>
     </div>
     <button onclick="sendEmail()" class="btn-primary mt-4">Envoyer l'email</button>
-    <pre id="emailResult" class="mt-4 text-xs bg-slate-900 text-emerald-300 rounded-lg p-4 hidden overflow-auto"></pre>
+    <pre id="emailResult" class="mt-4 text-xs bg-[#0d0f1e] text-emerald-300 rounded-lg p-4 hidden overflow-auto"></pre>
   </div>
 </div>
 

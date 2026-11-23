@@ -74,7 +74,7 @@ def _e(value) -> str:
 def _admin_page(title: str, content: str) -> HTMLResponse:
     return HTMLResponse(f"""{_head(title)}
 <body class="bg-slate-100 text-slate-800 min-h-screen">
-<nav class="bg-slate-900 text-white sticky top-0 z-20">
+<nav class="bg-[#0d0f1e] text-white sticky top-0 z-20">
   <div class="max-w-7xl mx-auto px-4 sm:px-6 min-h-14 py-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
     <a href="/admin" class="flex items-center gap-2.5 font-extrabold">{LOGO_SVG}
       MailHub <span class="badge bg-rose-500 text-white">ADMIN</span>
@@ -116,7 +116,7 @@ async def admin_login_page(request: Request, error: str = "") -> HTMLResponse:
         if error else ""
     )
     return HTMLResponse(f"""{_head("Administration")}
-<body class="bg-slate-900 min-h-screen flex items-center justify-center px-4">
+<body class="bg-[#0d0f1e] min-h-screen flex items-center justify-center px-4">
   <div class="w-full max-w-sm">
     <div class="text-center mb-6">
       <a href="/" class="inline-flex items-center gap-2 font-extrabold text-lg text-white">
@@ -259,7 +259,7 @@ async def admin_dashboard(
   <td class="py-4 pl-5 pr-4">
     <p class="font-bold">{_e(t.name)}</p>
     <p class="text-xs text-slate-400"><code>{_e(t.tenant_id)}</code> · {_e(t.brand_name)}
-    · <span class="badge bg-indigo-50 text-indigo-700">{_e(PLANS.get(t.plan, PLANS["free"])["label"])}</span>{partner_badge}</p>
+    · <span class="badge bg-brand-50 text-brand-700">{_e(PLANS.get(t.plan, PLANS["free"])["label"])}</span>{partner_badge}</p>
   </td>
   <td class="py-4 pr-4">{status_badge}</td>
   <td class="py-4 pr-4 text-sm">
@@ -274,7 +274,7 @@ async def admin_dashboard(
   </td>
   <td class="py-4 pr-5 whitespace-nowrap text-right">
     <a href="/admin/tenants/{_e(t.tenant_id)}"
-       class="text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-lg px-3 py-1.5 hover:bg-indigo-50">Gérer</a>
+       class="text-xs font-semibold text-brand-600 border border-brand-200 rounded-lg px-3 py-1.5 hover:bg-brand-50">Gérer</a>
     <form method="post" action="/admin/tenants/{_e(t.tenant_id)}/toggle" class="inline"
           onsubmit="return confirm('Confirmer ?')">
       <button class="text-xs font-semibold {toggle_cls} border rounded-lg px-3 py-1.5 ml-1">{toggle_label}</button>
@@ -335,7 +335,7 @@ async def admin_dashboard(
   <div class="card p-4">
     <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Support</p>
     <p class="text-2xl font-extrabold mt-1">{open_support}
-      <a href="/admin/support" class="text-xs font-semibold text-indigo-600">voir →</a></p>
+      <a href="/admin/support" class="text-xs font-semibold text-brand-600">voir →</a></p>
   </div>
 </div>
 
@@ -424,7 +424,7 @@ def _tenant_form(action: str, t: Tenant | None, include_account: bool) -> str:
   <input name="user_password" type="password" class="input mt-1" minlength="8" placeholder="8 caractères min"></div>"""
 
     unlimited_hint = "" if t else """
-  <p class="md:col-span-2 text-xs text-indigo-600 bg-indigo-50 rounded-lg p-3">
+  <p class="md:col-span-2 text-xs text-brand-600 bg-brand-50 rounded-lg p-3">
     Valeurs par défaut = <strong>accès quasi illimité</strong>. Réduisez les
     champs pour un client limité (ex. 3 envois/10 min, cooldown 60 s).</p>"""
 
@@ -487,9 +487,9 @@ def _tenant_form(action: str, t: Tenant | None, include_account: bool) -> str:
          value="{g('otp_ttl_seconds', 600)}"></div>
 
   <h3 class="font-bold text-sm text-slate-700 md:col-span-2 mt-2">Partenaire & facturation</h3>
-  <div class="md:col-span-2 flex items-center gap-2 bg-indigo-50 rounded-lg p-3">
+  <div class="md:col-span-2 flex items-center gap-2 bg-brand-50 rounded-lg p-3">
     <input name="unlimited" type="checkbox" id="unlimited" class="h-4 w-4"{unlimited_checked}>
-    <label for="unlimited" class="text-sm font-semibold text-indigo-700">
+    <label for="unlimited" class="text-sm font-semibold text-brand-700">
       Partenaire — quotas et cooldown illimités (bypass total du rate-limit)</label>
   </div>
   <div><label class="text-xs font-semibold text-slate-600">Statut de facturation</label>
@@ -707,7 +707,7 @@ async def admin_edit_tenant(
     <span class="text-xs text-slate-400 ml-2">{html.escape(u.user_id)}</span></td>
   <td class="py-2.5 pr-5 text-right whitespace-nowrap">
     <form method="post" action="/admin/tenants/{_e(tenant_id)}/users/{_e(u.user_id)}/reset-password" class="inline">
-      <button class="text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-lg px-3 py-1.5 hover:bg-indigo-50">Reset MDP</button>
+      <button class="text-xs font-semibold text-brand-600 border border-brand-200 rounded-lg px-3 py-1.5 hover:bg-brand-50">Reset MDP</button>
     </form>
     <form method="post" action="/admin/tenants/{_e(tenant_id)}/users/{_e(u.user_id)}/delete" class="inline ml-1"
           onsubmit="return confirm('Supprimer ce compte utilisateur ?')">
@@ -1019,7 +1019,7 @@ async def admin_support(
     content = f"""
 <div class="flex items-center justify-between mb-6">
   <h1 class="text-2xl font-extrabold">Demandes support</h1>
-  <span class="badge bg-indigo-100 text-indigo-700">{len(ids)} en attente</span>
+  <span class="badge bg-brand-100 text-brand-700">{len(ids)} en attente</span>
 </div>
 <div class="card overflow-hidden">
   <table class="w-full text-sm"><tbody class="divide-y divide-slate-100">
@@ -1091,7 +1091,7 @@ async def admin_reset_user_password(
   <h1 class="text-xl font-bold mb-2">Mot de passe réinitialisé</h1>
   <p class="text-sm text-slate-500 mb-4">Nouveau mot de passe pour
   <b>{html.escape(user.email)}</b> — communiquez-le au client, il ne sera plus affiché :</p>
-  <div class="bg-slate-900 text-emerald-300 font-mono rounded-lg p-4 select-all break-all mb-6">{html.escape(new_password)}</div>
+  <div class="bg-[#0d0f1e] text-emerald-300 font-mono rounded-lg p-4 select-all break-all mb-6">{html.escape(new_password)}</div>
   <a href="/admin/tenants/{_e(tenant_id)}" class="btn-primary text-sm">Retour au tenant</a>
 </div>"""
     return _admin_page("Mot de passe réinitialisé", content)

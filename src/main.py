@@ -161,18 +161,18 @@ def _error_page(
     )
     page = f"""<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" type="image/svg+xml" href="{FAVICON_URI}">
+<link rel="icon" type="image/png" href="{FAVICON_URI}">
 <title>{title} — MailHub</title>
 <style>{TAILWIND_CSS}</style>
 <link href="{fonts}" rel="stylesheet"></head>
 <body class="bg-slate-50 min-h-screen flex items-center justify-center px-4">
 <div class="bg-white rounded-2xl shadow-sm border border-slate-200
      p-10 max-w-md w-full text-center">
-  <p class="text-5xl font-black text-indigo-600 mb-2">{code}</p>
+  <p class="text-5xl font-black text-brand-600 mb-2">{code}</p>
   <h1 class="text-xl font-bold mb-2">{title}</h1>
   <p class="text-sm text-slate-500 mb-6">{detail}</p>
-  <a href="/" class="inline-block bg-indigo-600 text-white text-sm font-semibold
-     rounded-lg px-6 py-2.5 hover:bg-indigo-700">Retour à l'accueil</a>
+  <a href="/" class="inline-block bg-brand-600 text-white text-sm font-semibold
+     rounded-lg px-6 py-2.5 hover:bg-brand-700">Retour à l'accueil</a>
 </div></body></html>"""
     if request is not None:
         page = translate_html(page, get_lang(request), request.url.path)
