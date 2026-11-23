@@ -278,8 +278,9 @@ async def admin_dashboard(
 </tr>"""
 
     if not rows:
-        rows = ('<tr><td colspan="5" class="py-10 text-center text-slate-400">'
-                "Aucun tenant — créez le premier.</td></tr>")
+        rows = ('<tr><td colspan="5"><div class="empty">'
+                f"<span class='empty-ic'>{UI_ICONS['users']}</span>"
+                "<p>Aucun tenant — créez le premier.</p></div></td></tr>")
 
     all_events.sort(key=lambda e: e.get("ts", ""), reverse=True)
     event_rows = ""
@@ -298,8 +299,9 @@ async def admin_dashboard(
   <td class="py-2.5 pr-5 text-xs text-slate-500">{details}</td>
 </tr>"""
     if not event_rows:
-        event_rows = ('<tr><td colspan="4" class="py-8 text-center text-slate-400">'
-                      "Aucune interaction enregistrée.</td></tr>")
+        event_rows = ('<tr><td colspan="4"><div class="empty">'
+                      f"<span class='empty-ic'>{UI_ICONS['inbox']}</span>"
+                      "<p>Aucune interaction enregistrée.</p></div></td></tr>")
 
     open_support = int(await redis.llen("support:open") or 0)
 
@@ -711,8 +713,9 @@ async def admin_edit_tenant(
   </td>
 </tr>"""
     if not user_rows:
-        user_rows = ('<tr><td colspan="2" class="py-6 text-center text-sm text-slate-400">'
-                     "Aucun compte dashboard.</td></tr>")
+        user_rows = ('<tr><td colspan="2"><div class="empty">'
+                     f"<span class='empty-ic'>{UI_ICONS['users']}</span>"
+                     "<p>Aucun compte dashboard.</p></div></td></tr>")
     delete_zone = "" if tenant_id == "default" else f"""
 <div class="card p-4 sm:p-6 border-rose-200 mt-6">
   <h2 class="font-bold mb-1 text-rose-700">Zone danger</h2>
@@ -771,7 +774,7 @@ async def admin_edit_tenant(
   <div class="flex flex-wrap gap-2">
     <form method="post" action="/admin/tenants/{_e(tenant_id)}/billing">
       <input type="hidden" name="action" value="paid">
-      <button class="text-xs font-semibold text-emerald-700 border border-emerald-200 rounded-lg px-4 py-2 hover:bg-emerald-50">✓ Valider un paiement (+30 j)</button>
+      <button class="text-xs font-semibold text-emerald-700 border border-emerald-200 rounded-lg px-4 py-2 hover:bg-emerald-50">{UI_ICONS['check']} Valider un paiement (+30 j)</button>
     </form>
     <form method="post" action="/admin/tenants/{_e(tenant_id)}/billing">
       <input type="hidden" name="action" value="past_due">
@@ -1006,8 +1009,9 @@ async def admin_support(
   </td>
 </tr>"""
     empty = (
-        '<tr><td colspan="3" class="py-10 text-center text-slate-400 text-sm">'
-        "Aucune demande en cours.</td></tr>"
+        '<tr><td colspan="3"><div class="empty">'
+        f"<span class='empty-ic'>{UI_ICONS['inbox']}</span>"
+        "<p>Aucune demande en cours.</p></div></td></tr>"
         if not rows
         else ""
     )

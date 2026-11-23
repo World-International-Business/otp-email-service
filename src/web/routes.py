@@ -232,7 +232,7 @@ def _footer(logged_in: bool = False) -> str:
         '        <a href="/login" class="hover:text-white transition">Connexion</a>'
     )
     return f"""
-<footer class="bg-[#0a0b14] text-slate-400">
+<footer class="footer bg-[#0a0b14] text-slate-400">
   <div class="max-w-6xl mx-auto px-6 py-10 md:py-14 grid md:grid-cols-3 gap-8 md:gap-10">
     <div>
       <div class="flex items-center gap-2.5 text-white font-extrabold mb-3">{LOGO_MARK}</div>
@@ -450,6 +450,8 @@ UI_ICONS = {
     "error": '<svg class="w-4 h-4 inline-block -mt-0.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M9 9l6 6M15 9l-6 6"/></svg>',
     "clock": '<svg class="w-4 h-4 inline-block -mt-0.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 7v5l3.5 2"/></svg>',
     "warn": '<svg class="w-4 h-4 inline-block -mt-0.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v5m0 3.5v.01M10.3 3.9L2.6 17a2 2 0 001.7 3h15.4a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>',
+    "inbox": '<svg fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13l3-8h12l3 8v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5z"/><path stroke-linecap="round" d="M3 13h5l1.5 3h5L16 13h5"/></svg>',
+    "users": '<svg fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path stroke-linecap="round" d="M3.5 19c.5-3 2.8-5 5.5-5s5 2 5.5 5M16 8.5a3 3 0 100-6M17.5 14.2c2 .6 3.4 2.3 3.9 4.8"/></svg>',
 }
 
 
@@ -521,7 +523,7 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
           <p class="text-3xl font-black mt-2">{price}</p>
           <p class="text-sm text-slate-500 mt-1 mb-5">{desc}</p>
           <ul class="space-y-2.5 text-sm text-slate-600">
-            {''.join(f'<li class="flex gap-2"><span class="text-emerald-500 font-bold">✓</span>{f_}</li>' for f_ in feats)}
+            {''.join(f'<li class="flex gap-2"><span class="check"></span>{f_}</li>' for f_ in feats)}
           </ul>
           <a href="/register" class="{'btn-primary' if hot else 'btn-outline'} w-full text-center mt-6 block">Choisir</a>
         </div>"""
@@ -553,9 +555,9 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
           {'<a href="/demo" class="btn-ghost text-base text-center">Essayer la console</a>' if settings.demo_enabled else '<a href="/docs" class="btn-ghost text-base text-center">Documentation API</a>'}
         </div>
         <div class="mt-10 flex flex-wrap gap-x-7 gap-y-2 text-xs text-slate-400 fade-up fade-up-3">
-          <span class="inline-flex items-center gap-1.5"><span class="text-emerald-400">✓</span> Sans carte bancaire</span>
-          <span class="inline-flex items-center gap-1.5"><span class="text-emerald-400">✓</span> Self-hostable</span>
-          <span class="inline-flex items-center gap-1.5"><span class="text-emerald-400">✓</span> Sécurité HMAC-SHA256</span>
+          <span class="inline-flex items-center gap-1.5"><span class="check check-dark"></span> Sans carte bancaire</span>
+          <span class="inline-flex items-center gap-1.5"><span class="check check-dark"></span> Self-hostable</span>
+          <span class="inline-flex items-center gap-1.5"><span class="check check-dark"></span> Sécurité HMAC-SHA256</span>
         </div>
       </div>
       <div class="relative fade-up fade-up-2 hidden lg:block">
@@ -1238,7 +1240,12 @@ async def dashboard(
   </table></div>
 </div>"""
     else:
-        activity_html = ""
+        activity_html = f"""
+<div id="sec-activity" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
+  <h2 class="font-bold mb-4">Activité récente</h2>
+  <div class="empty"><span class="empty-ic">{UI_ICONS['inbox']}</span>
+    <p>Aucune activité pour le moment — vos envois apparaîtront ici.</p></div>
+</div>"""
 
     base_url = _e(str(request.base_url).rstrip("/"))
 
@@ -1785,7 +1792,7 @@ def _demo_page(default_tenant: str = "default") -> str:
   <p class="text-sm text-slate-500 mb-8">Testez les endpoints en direct. Les emails sont loggés côté serveur (provider console).</p>
 
   <div class="card p-4 sm:p-6 mb-6">
-    <h2 class="font-bold mb-4">1. Envoyer un OTP</h2>
+    <h2 class="font-bold mb-4 flex items-center gap-2.5"><span class="step-n">1</span>Envoyer un OTP</h2>
     <div class="grid md:grid-cols-2 gap-4">
       <div><label class="text-xs font-semibold text-slate-600">Tenant <span class="font-normal text-slate-400">(id, nom ou marque)</span></label>
       <input id="otpTenant" class="input mt-1" value="__TENANT__"></div>
@@ -1802,7 +1809,7 @@ def _demo_page(default_tenant: str = "default") -> str:
   </div>
 
   <div class="card p-4 sm:p-6 mb-6">
-    <h2 class="font-bold mb-4">2. Vérifier le code</h2>
+    <h2 class="font-bold mb-4 flex items-center gap-2.5"><span class="step-n">2</span>Vérifier le code</h2>
     <div class="grid md:grid-cols-2 gap-4">
       <div><label class="text-xs font-semibold text-slate-600">Request ID</label>
       <input id="requestId" class="input mt-1" placeholder="req_..."></div>
@@ -1814,7 +1821,7 @@ def _demo_page(default_tenant: str = "default") -> str:
   </div>
 
   <div class="card p-6">
-    <h2 class="font-bold mb-4">3. Email transactionnel</h2>
+    <h2 class="font-bold mb-4 flex items-center gap-2.5"><span class="step-n">3</span>Email transactionnel</h2>
     <div class="grid md:grid-cols-2 gap-4">
       <div><label class="text-xs font-semibold text-slate-600">Tenant</label>
       <input id="emailTenant" class="input mt-1" value="__TENANT__"></div>

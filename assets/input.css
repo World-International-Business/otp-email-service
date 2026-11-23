@@ -4,8 +4,7 @@
 
 @font-face {
   font-family: 'Moncera';
-  src: url('/static/fonts/moncera.woff2') format('woff2'),
-       url('/static/fonts/moncera.woff') format('woff');
+  src: local('Moncera'), url('/static/fonts/moncera.woff2') format('woff2');
   font-weight: 400 800;
   font-style: normal;
   font-display: swap;
@@ -51,6 +50,29 @@
   select:focus-visible, textarea:focus-visible {
     outline: 2px solid var(--brand);
     outline-offset: 2px;
+  }
+
+  /* ---------- Rythme typographique ---------- */
+  h1, h2, h3 { text-wrap: balance; }
+  p { text-wrap: pretty; }
+  hr { border: 0; border-top: 1px solid var(--line); }
+  section[id] { scroll-margin-top: 5.5rem; }
+
+  /* Code en ligne : pastille lisible plutôt que brut */
+  code:not(pre code) {
+    font-size: .84em;
+    background: #eef1fa;
+    color: #42508e;
+    padding: .13em .42em;
+    border-radius: .4em;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: .01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: .01ms !important;
+    }
   }
 }
 
@@ -552,4 +574,67 @@ code {
 #sidebar { inset-inline-start: 0; }
 @media (min-width: 768px) {
   .sb-offset { margin-inline-start: 16rem; }
+}
+
+/* ---------- Puces check dessinées ---------- */
+.check {
+  width: 1.05rem; height: 1.05rem; flex: none;
+  border-radius: 999px;
+  background: #d1fae5; color: #059669;
+  display: inline-flex; align-items: center; justify-content: center;
+  margin-top: .08rem;
+}
+.check::before {
+  content: ""; width: .6rem; height: .6rem; background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4.5 12.5l5 5 10-11'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4.5 12.5l5 5 10-11'/%3E%3C/svg%3E") center/contain no-repeat;
+}
+.check-dark { background: rgba(52, 211, 153, .16); color: #34d399; }
+
+/* ---------- États vides ---------- */
+.empty {
+  display: flex; flex-direction: column; align-items: center;
+  gap: .55rem; padding: 1.4rem .5rem;
+  color: var(--muted); text-align: center;
+}
+.empty-ic {
+  width: 2.6rem; height: 2.6rem; border-radius: 999px;
+  background: #f1f3fa; color: #94a3b8;
+  display: flex; align-items: center; justify-content: center;
+}
+.empty-ic svg { width: 1.25rem; height: 1.25rem; }
+.empty p { font-size: .82rem; margin: 0; }
+
+/* ---------- Étapes numérotées ---------- */
+.step-n {
+  display: inline-flex; width: 1.7rem; height: 1.7rem; flex: none;
+  border-radius: .55rem;
+  background: linear-gradient(135deg, var(--brand), var(--brand-deep));
+  color: #fff; align-items: center; justify-content: center;
+  font-size: .78rem; font-weight: 800;
+  box-shadow: 0 2px 8px rgba(80, 96, 168, .3);
+}
+
+/* ---------- Select avec chevron ---------- */
+select.input {
+  appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right .75rem center;
+  background-size: .95rem;
+  padding-inline-end: 2.4rem;
+}
+[dir="rtl"] select.input { background-position: left .75rem center; }
+textarea.input { min-height: 5rem; resize: vertical; }
+
+/* ---------- Chiffres alignés ---------- */
+.kpi-num, .dt td { font-variant-numeric: tabular-nums; }
+
+/* ---------- Badges ---------- */
+.badge { letter-spacing: .05em; text-transform: uppercase; }
+
+/* ---------- Filet de marque en haut du footer ---------- */
+.footer::before {
+  content: ""; display: block; height: 3px;
+  background: linear-gradient(90deg, var(--brand) 0%, var(--accent) 55%, var(--brand) 100%);
 }
