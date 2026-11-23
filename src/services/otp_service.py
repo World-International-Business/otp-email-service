@@ -11,7 +11,7 @@ from src.core.otp import OTPStore, verify_otp
 from src.core.security import hash_code, is_in_rollout
 from src.core.tenants import Tenant
 from src.email_providers.base import EmailProvider, EmailSendError, SenderIdentity
-from src.services.email_templates import otp_html
+from src.services.email_templates import otp_html, resolve_logo_url
 from src.services.events import incr_daily_stat, log_event, mask_email
 from src.services.rate_limiter import RateLimiter
 
@@ -223,7 +223,7 @@ class OTPService:
         return subject, text_body, otp_html(
             code, brand, lang, magic_url, ttl_minutes=mins,
             color=tenant.brand_color,
-            logo_url=tenant.email_logo_url,
+            logo_url=resolve_logo_url(tenant.email_logo_url, self.settings.public_base_url),
             footer=tenant.email_footer,
         )
 

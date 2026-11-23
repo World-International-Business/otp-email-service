@@ -12,7 +12,7 @@ from src.core.models import EmailSendRequest, EmailSendResponse, EmailType, Lang
 from src.core.security import hash_code
 from src.core.tenants import Tenant
 from src.email_providers.base import EmailProvider, EmailSendError, SenderIdentity
-from src.services.email_templates import generic_html
+from src.services.email_templates import generic_html, resolve_logo_url
 from src.services.events import incr_daily_stat, log_event, mask_email
 from src.services.rate_limiter import RateLimiter
 
@@ -225,7 +225,8 @@ class EmailService:
             t = tenant_or_brand
             return generic_html(
                 title, content_html, t.brand_name,
-                color=t.brand_color, logo_url=t.email_logo_url,
+                color=t.brand_color,
+                logo_url=resolve_logo_url(t.email_logo_url, self.settings.public_base_url),
                 footer=t.email_footer,
             )
         return generic_html(title, content_html, tenant_or_brand)
