@@ -20,10 +20,20 @@ PIXEL_GIF = (
 _HREF = re.compile(r'href="(https?://[^"]+)"', re.IGNORECASE)
 
 
+def tracking_base_url(settings, tenant) -> str | None:
+    """Base des liens trackés : domaine white-label du tenant s'il en a un
+    (CNAME vers la plateforme — les routes /v1/track/* y répondent),
+    sinon le domaine plateforme."""
+    domain = getattr(tenant, "tracking_domain", None)
+    if domain:
+        return f"https://{domain}"
+    return settings.public_base_url or None
+
+
 def tracking_enabled(settings, tenant) -> bool:
     return bool(
         settings.email_tracking_enabled
-        and settings.public_base_url
+        and tracking_base_url(settings, tenant)
         and getattr(tenant, "track_emails", True)
     )
 
