@@ -730,3 +730,53 @@ async def test_track_rejects_invalid_url(client):
     r = client.get("/v1/track/c/msg_x?u=javascript:alert(1)",
                    follow_redirects=False)
     assert r.status_code == 400
+
+
+# ------------------------------------------------------------- SDK Python
+
+def test_sdk_signature_accepted(client):
+    """La signature du SDK officiel est vérifiée par l'auth serveur."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "mailhub_client", "sdks/python/mailhub/client.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    sdk = mod.MailHubClient(
+        base_url="http://x", api_key="k", hmac_secret="s" * 40)
+    body = b'{"user_id":"u1","email":"a@b.c"}'
+    headers = sdk._sign(body)
+
+    from src.core.auth import _verify_hmac
+    assert _verify_hmac(
+        body, headers["X-Timestamp"], headers["X-HMAC-Signature"],
+        "s" * 40, headers["X-Nonce"],
+    )
+    # Signature différente par requête (nonce unique).
+    assert sdk._sign(body)["X-HMAC-Signature"] != headers["X-HMAC-Signature"]
+
+
+# ---------------------------------------------------------- exports CSV
+
+async def test_payments_csv_export(client, redis):
+    """GET /dashboard/payments.csv : CSV UTF-8 avec les tx du tenant."""
+    from src.services.payments import new_tx_id, record_tx
+    from src.web.users import SessionStore, WebUserStore
+
+    tid = new_tx_id()
+    await record_tx(redis, tid, {
+        "tenant_id": "default", "plan": "pro", "period": "yearly",
+        "amount": 348, "currency": "EUR", "method": "stripe",
+        "status": "paid", "tx_id": tid, "date": "2026-11-20"})
+    w = await WebUserStore(redis).create("csv@x.co", "Passw0rd!", "default", "App")
+    sid = await SessionStore(redis).create(w.user_id)
+
+    r = client.get("/dashboard/payments.csv", cookies={"session_id": sid})
+    assert r.status_code == 200
+    assert "text/csv" in r.headers["content-type"]
+    assert "attachment" in r.headers["content-disposition"]
+    text = r.content.decode("utf-8-sig")
+    assert text.splitlines()[0].startswith("date,plan,period")
+    assert "pro,yearly,348,EUR,stripe,paid" in text.replace('"', "")
+    assert tid in text

@@ -956,7 +956,10 @@ async def admin_edit_tenant(
         _prow = "".join(_rows)
         payments_html = f"""
   <div class="mt-4 pt-4 border-t border-slate-100">
-    <p class="text-xs font-semibold text-slate-600 mb-2">Transactions en ligne</p>
+    <div class="flex items-center justify-between mb-2">
+      <p class="text-xs font-semibold text-slate-600">Transactions en ligne</p>
+      <a href="/admin/tenants/{_e(tenant_id)}/payments.csv" class="btn-soft text-xs">CSV ↓</a>
+    </div>
     <div class="overflow-x-auto"><table class="w-full"><tbody>{_prow}</tbody></table></div>
     {hpager}
   </div>"""
@@ -1306,6 +1309,41 @@ async def admin_support_resolve(
 # ---------------------------------------------------------------------
 # Gestion complète du compte client — utilisateurs + suppression tenant
 # ---------------------------------------------------------------------
+
+@router.get("/tenants/{tenant_id}/payments.csv")
+async def admin_tenant_payments_csv(
+    tenant_id: str,
+    request: Request,
+    settings: Settings = Depends(get_settings),
+):
+    """Export CSV de toutes les transactions d'un tenant."""
+    import csv
+    import io
+
+    from fastapi.responses import Response
+
+    await _require_admin(request, settings)
+    payments = await list_payments(
+        request.app.state.redis, tenant_id, limit=500)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["date", "plan", "period", "amount", "currency", "method",
+                "status", "tx_id", "payer_ref", "payer_info"])
+    for p in payments:
+        w.writerow([
+            p.get("date", ""), p.get("plan", ""), p.get("period", ""),
+            p.get("amount", ""), p.get("currency", ""),
+            p.get("method") or p.get("provider") or "",
+            p.get("status", ""), p.get("tx_id", ""),
+            p.get("payer_ref", ""), p.get("payer_info", ""),
+        ])
+    return Response(
+        content=buf.getvalue().encode("utf-8-sig"),
+        media_type="text/csv",
+        headers={"Content-Disposition":
+                 f'attachment; filename="payments-{tenant_id}.csv"'},
+    )
+
 
 @router.post("/tenants/{tenant_id}/unsuppress")
 async def admin_unsuppress(

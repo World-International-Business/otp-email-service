@@ -1852,10 +1852,13 @@ async def dashboard(
 <div id="sec-payments" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
   <div class="flex items-center justify-between mb-4">
     <h2 class="font-bold">Historique des paiements</h2>
-    <form method="get" action="/dashboard#sec-payments">
-      <select name="pstatus" onchange="this.form.submit()"
-              class="input !py-1.5 !px-2 text-xs">{pst_opts}</select>
-    </form>
+    <div class="flex items-center gap-3">
+      <form method="get" action="/dashboard#sec-payments">
+        <select name="pstatus" onchange="this.form.submit()"
+                class="input !py-1.5 !px-2 text-xs">{pst_opts}</select>
+      </form>
+      <a href="/dashboard/payments.csv" class="btn-soft text-xs">CSV ↓</a>
+    </div>
   </div>
   <div class="overflow-x-auto"><table class="w-full text-sm">
     <tbody class="divide-y divide-slate-100">{prow}</tbody></table></div>
@@ -2289,6 +2292,35 @@ async def dashboard_support(
     )
     await redis.lpush("support:open", req_id)
     return RedirectResponse("/dashboard", status_code=303)
+
+
+@router.get("/dashboard/payments.csv")
+async def dashboard_payments_csv(request: Request):
+    """Export CSV de l'historique de paiements du tenant connecté."""
+    import csv
+    import io
+
+    user = await _require_user(request)
+    payments = await list_payments(
+        request.app.state.redis, user.tenant_id, limit=500)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["date", "plan", "period", "amount", "currency", "method",
+                "status", "tx_id", "payer_ref", "payer_info"])
+    for p in payments:
+        w.writerow([
+            p.get("date", ""), p.get("plan", ""), p.get("period", ""),
+            p.get("amount", ""), p.get("currency", ""),
+            p.get("method") or p.get("provider") or "",
+            p.get("status", ""), p.get("tx_id", ""),
+            p.get("payer_ref", ""), p.get("payer_info", ""),
+        ])
+    return Response(
+        content=buf.getvalue().encode("utf-8-sig"),  # BOM : Excel ouvre l'UTF-8
+        media_type="text/csv",
+        headers={"Content-Disposition":
+                 'attachment; filename="paiements-mailhub.csv"'},
+    )
 
 
 @router.get("/dashboard/email-preview", response_class=HTMLResponse)
