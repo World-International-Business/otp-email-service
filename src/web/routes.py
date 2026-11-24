@@ -243,7 +243,7 @@ UI_JS = """<script>
     } else {
       revs.forEach(function (el) { el.classList.add('in'); });
     }
-  }
+
     // Scroll-spy sidebar dashboard : surligne l'item de la section visible.
     // Les sections sans item (sec-payments, sec-activity, sec-config) gardent
     // le dernier item valide ; tout en haut -> "top" (Vue d'ensemble).
@@ -269,20 +269,13 @@ UI_JS = """<script>
       window.addEventListener('hashchange', spy);
       // Clic : activer immédiatement l'item, avant la fin du scroll animé.
       spyLinks.forEach(function (a) {
-        var sec = a.getAttribute('data-sec');
-        if (sec === 'top') {
-          a.addEventListener('click', function () {
-            spyLinks.forEach(function (x) { x.classList.toggle('on', x === a); });
-          });
-        } else {
-          a.addEventListener('click', function () {
-            spyLinks.forEach(function (x) { x.classList.toggle('on', x === a); });
-            spyCur = sec;
-          });
-        }
+        a.addEventListener('click', function () {
+          spyLinks.forEach(function (x) { x.classList.toggle('on', x === a); });
+        });
       });
       spy();
     }
+  }
 
   function initFxSafe() {
     try {
