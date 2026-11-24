@@ -82,6 +82,10 @@ class SMTPProvider(EmailProvider):
             f"<{secrets.token_hex(10)}.{int(time.time())}@{domain}>"
         )
         msg["Reply-To"] = from_email
+        # RFC 3834 : signale un message automatique légitime — les filtres
+        # le distinguent d'un envoi manuel suspect et les auto-répondeurs
+        # (absences, mailing lists) ne répondent pas en boucle.
+        msg["Auto-Submitted"] = "auto-generated"
         # Lien opt-out : URL signée par destinataire (SenderIdentity) en
         # priorité, sinon l'URL statique configurée globalement.
         unsub = sender.get("unsubscribe_url") or self.settings.list_unsubscribe_url

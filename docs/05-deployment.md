@@ -130,6 +130,26 @@ les révoquer — modifier le code ne révoque rien.
 - [ ] HTTPS terminé (Nginx/Traefik) — le service ne sert que du HTTP
 - [ ] `/health` remonte au monitoring ; logs JSON collectés (`smtp_send_error`, `http_request`)
 - [ ] Secrets historiques compromis → **rotés** (voir section rotation)
+- [ ] DNS du domaine d'expédition : SPF + DKIM + DMARC (voir section dédiée)
+- [ ] `FROM_EMAIL` sur votre domaine, pas un freemail (@gmail.com…) — sinon spam quasi garanti
+
+## Authentification DNS du domaine d'expédition (anti-spam)
+
+Sans ces trois enregistrements, Gmail/Outlook/Yahoo classent les emails en
+spam — c'est vérifiable avec `nslookup -type=TXT <domaine>`.
+
+| Enregistrement | Type | Exemple | Vérification |
+|---|---|---|---|
+| SPF | TXT `@` (ou sous-domaine `mail`) | `v=spf1 include:_spf-eu.ionos.com ~all` (IONOS) ; `v=spf1 include:spf.brevo.com ~all` (Brevo) ; `v=spf1 include:_spf.resend.com ~all` (Resend) | doit couvrir le serveur qui envoie réellement |
+| DKIM | TXT/CNAME fourni par le provider | `mail._domainkey` → clé publique du provider | activé dans la console provider (Brevo/Resend/IONOS) |
+| DMARC | TXT `_dmarc` | `v=DMARC1; p=quarantine; rua=mailto:dmarc@votredomaine` | commencer par `p=none` si hésitant |
+
+Règles :
+
+- **Un seul SPF par domaine** — fusionner les `include:` dans un seul TXT.
+- DKIM doit être **aligné** : le domaine signé = domaine du `From:`.
+- `mail.aiforge.world` a déjà un SPF IONOS ; `aiforge.world` (racine) n'a **aucun** TXT — si le `From:` est `@aiforge.world`, ajouter le SPF à la racine.
+- Le provider SMTP doit correspondre au SPF : envoyer via `smtp.gmail.com` avec un `From: @aiforge.world` échoue SPF (gmail n'y est pas autorisé).
 
 ## Option : serveur mail auto-hébergé
 
