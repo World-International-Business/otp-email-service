@@ -73,6 +73,8 @@ _EVENT_LABELS = {
     "email_suppressed": ("Supprimé", "bg-slate-200 text-slate-600"),
     "otp_suppressed": ("OTP supprimé", "bg-slate-200 text-slate-600"),
     "warmup_limited": ("Limite warm-up", "bg-amber-100 text-amber-700"),
+    "email_opened": ("Ouvert", "bg-sky-100 text-sky-700"),
+    "email_clicked": ("Clic", "bg-violet-100 text-violet-700"),
     "email_rate_limited": ("Rate limit", "bg-amber-100 text-amber-700"),
 }
 

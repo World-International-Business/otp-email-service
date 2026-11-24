@@ -116,6 +116,10 @@ class Settings(BaseSettings):
     warmup_start_volume: int = 50
     warmup_growth: float = 1.5
 
+    # Tracking ouvertures/clics (transactionnel uniquement, jamais les OTP).
+    # Nécessite PUBLIC_BASE_URL pour construire les URLs de tracking.
+    email_tracking_enabled: bool = True
+
     risky_countries: str = "CN,RU,BY,IR,KP"
     rollout_percentage: int = Field(default=100, ge=0, le=100)
 

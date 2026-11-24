@@ -20,6 +20,7 @@ from src.api.event_routes import events_router
 from src.api.metrics_routes import metrics_router
 from src.api.middleware import JSONLogMiddleware, SecurityHeadersMiddleware
 from src.api.routes import email_router, router
+from src.api.track_routes import track_router
 from src.core.tenants import PLANS, TenantStore, plan_quota_updates, seed_default_tenant
 from src.services.billing_reminders import notify_plan_expired, run_billing_reminders
 from src.services.email_queue import process_email_queue_once
@@ -343,3 +344,4 @@ app.include_router(admin_router)
 app.include_router(billing_router)
 app.include_router(events_router)
 app.include_router(metrics_router)
+app.include_router(track_router)

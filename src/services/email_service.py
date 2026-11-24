@@ -19,6 +19,7 @@ from src.services.failover import send_with_failover
 from src.services.rate_limiter import RateLimiter
 from src.services.sandbox import capture_send
 from src.services.suppression import suppression_reason
+from src.services.tracking import inject_tracking, tracking_enabled
 from src.services.warmup import seconds_until_midnight, warmup_state
 from src.services.webhooks import enqueue_webhook
 
@@ -120,6 +121,11 @@ class EmailService:
         Lève EmailSendError — l'appelant décide : 502 (synchrone) ou retry
         (file d'attente).
         """
+        # Tracking ouvertures/clics (transactionnel — jamais les OTP).
+        if tracking_enabled(self.settings, tenant):
+            html_body = inject_tracking(
+                html_body, message_id, self.settings.public_base_url)
+
         if tenant.sandbox:
             # Sandbox : pipeline complet mais capture au lieu de l'envoi SMTP.
             await capture_send(

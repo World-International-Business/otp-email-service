@@ -657,3 +657,76 @@ async def test_sandbox_transactional_captured(client, redis):
     finally:
         await store.update("default", {"sandbox": False})
         await redis.delete("t:default:sandbox_outbox")
+
+
+# --------------------------------------------------------------- tracking
+
+class _HtmlSpy(_SpyProvider):
+    """Capture aussi le HTML envoyé."""
+
+    async def send_email(self, to_email, subject, text_body, html_body,
+                         sender=None):
+        await super().send_email(to_email, subject, text_body, html_body,
+                                 sender)
+        self.last_html = html_body
+        return True
+
+
+async def test_tracking_pixel_and_click_wrap(client, redis):
+    """Tracking actif : pixel injecté + liens réécrits en /v1/track."""
+    from src.core.models import EmailSendRequest
+    from src.core.tenants import TenantStore
+
+    svc = client.app.state.email_service
+    svc.settings.public_base_url = "https://hub.test"
+    spy = _HtmlSpy()
+    svc.email_provider = spy
+    tenant = await TenantStore(redis).get("default")
+
+    req = EmailSendRequest(to_email="u@x.co", type="custom",
+                           subject="S", text_body="t",
+                           html_body='<html><body><a href="https://ex.com/x">go</a></body></html>')
+    resp = await svc.send(tenant, req)
+    assert resp.sent
+
+    html = spy.last_html
+    assert f"/v1/track/o/{resp.message_id}.gif" in html
+    assert f"/v1/track/c/{resp.message_id}?u=" in html
+    assert "https%3A%2F%2Fex.com%2Fx" in html
+
+    # Le pixel attribue l'ouverture au tenant et incrémente les stats.
+    r = client.get(f"/v1/track/o/{resp.message_id}.gif")
+    assert r.status_code == 200 and r.content[:6] == b"GIF89a"
+    assert int(await redis.get("t:default:stats:emails_opened") or 0) >= 1
+
+    # Le clic redirige vers la cible et compte.
+    r2 = client.get(
+        f"/v1/track/c/{resp.message_id}?u=https%3A%2F%2Fex.com%2Fx",
+        follow_redirects=False)
+    assert r2.status_code == 302
+    assert r2.headers["location"] == "https://ex.com/x"
+    assert int(await redis.get("t:default:stats:emails_clicked") or 0) >= 1
+
+
+async def test_tracking_disabled_without_base_url(client, redis):
+    """Pas de PUBLIC_BASE_URL => aucune modification du HTML."""
+    from src.core.models import EmailSendRequest
+    from src.core.tenants import TenantStore
+
+    svc = client.app.state.email_service
+    svc.settings.public_base_url = ""
+    spy = _HtmlSpy()
+    svc.email_provider = spy
+    tenant = await TenantStore(redis).get("default")
+
+    req = EmailSendRequest(to_email="u@x.co", type="custom",
+                           subject="S", text_body="t",
+                           html_body='<html><body><a href="https://ex.com">x</a></body></html>')
+    resp = await svc.send(tenant, req)
+    assert resp.sent and "/v1/track/" not in spy.last_html
+
+
+async def test_track_rejects_invalid_url(client):
+    r = client.get("/v1/track/c/msg_x?u=javascript:alert(1)",
+                   follow_redirects=False)
+    assert r.status_code == 400

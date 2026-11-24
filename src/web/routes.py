@@ -1620,6 +1620,8 @@ async def dashboard(
         "email_suppressed": ("Destinataire supprimé", "bg-slate-200 text-slate-600"),
         "otp_suppressed": ("OTP supprimé", "bg-slate-200 text-slate-600"),
         "warmup_limited": ("Limite warm-up", "bg-amber-100 text-amber-700"),
+        "email_opened": ("Email ouvert", "bg-sky-100 text-sky-700"),
+        "email_clicked": ("Lien cliqué", "bg-violet-100 text-violet-700"),
     }
     events = await get_events(redis, tenant, limit=200)
     atypes = sorted({e.get("type", "") for e in events if e.get("type")})

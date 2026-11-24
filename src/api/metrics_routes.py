@@ -29,6 +29,8 @@ _COUNTERS = {
     "emails_bounced": "mailhub_emails_bounced_total",
     "emails_softbounced": "mailhub_emails_softbounced_total",
     "emails_complained": "mailhub_emails_complained_total",
+    "emails_opened": "mailhub_emails_opened_total",
+    "emails_clicked": "mailhub_emails_clicked_total",
 }
 
 
