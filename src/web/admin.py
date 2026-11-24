@@ -66,6 +66,11 @@ _EVENT_LABELS = {
     "email_failed": ("Échec email", "bg-rose-100 text-rose-700"),
     "smtp_health_failed": ("SMTP en panne", "bg-rose-100 text-rose-700"),
     "smtp_failover": ("SMTP secours", "bg-amber-100 text-amber-700"),
+    "email_bounced": ("Bounce", "bg-rose-100 text-rose-700"),
+    "email_softbounced": ("Bounce léger", "bg-amber-100 text-amber-700"),
+    "email_complained": ("Plainte spam", "bg-rose-100 text-rose-700"),
+    "email_suppressed": ("Supprimé", "bg-slate-200 text-slate-600"),
+    "otp_suppressed": ("OTP supprimé", "bg-slate-200 text-slate-600"),
     "email_rate_limited": ("Rate limit", "bg-amber-100 text-amber-700"),
 }
 
@@ -876,6 +881,33 @@ async def admin_edit_tenant(
       <input type="hidden" name="action" value="reject_plan">
       <button class="text-xs font-semibold text-slate-600 border border-slate-200 rounded-lg px-4 py-2 hover:bg-slate-50">Refuser la demande</button>
     </form>"""
+    from src.services.suppression import list_suppressions
+
+    suppressions = await list_suppressions(request.app.state.redis, tenant_id)
+    supp_html = ""
+    if suppressions:
+        _srows = "".join(
+            f'<tr class="border-t border-slate-100">'
+            f'<td class="py-2 pr-3 text-xs">{_e(s["email"])}</td>'
+            f'<td class="py-2 pr-3"><span class="badge bg-rose-100 text-rose-700">'
+            f'{_e(s.get("reason") or "—")}</span></td>'
+            f'<td class="py-2 pr-3 text-xs text-slate-400">{_e(s.get("source") or "—")}</td>'
+            f'<td class="py-2 text-right">'
+            f'<form method="post" action="/admin/tenants/{_e(tenant_id)}/unsuppress" class="inline">'
+            f'<input type="hidden" name="email" value="{_e(s["email"])}">'
+            f'<button class="btn-soft text-xs" data-confirm="Retirer la suppression ? '
+            f'l\'adresse redeviendra joignable." data-confirm-ok="Retirer">Retirer</button>'
+            f'</form></td></tr>'
+            for s in suppressions[:20]
+        )
+        supp_html = f"""
+  <div class="mt-4 pt-4 border-t border-slate-100">
+    <p class="text-xs font-semibold text-rose-600 mb-2">Liste de suppression —
+    {len(suppressions)} adresse(s) bloquée(s) (bounce/plainte)</p>
+    <div class="overflow-x-auto"><table class="w-full"><tbody>{_srows}</tbody></table></div>
+    {f'<p class="text-[11px] text-slate-400 mt-1">… et {len(suppressions) - 20} autre(s)</p>' if len(suppressions) > 20 else ""}
+  </div>"""
+
     payments = await list_payments(request.app.state.redis, tenant_id, limit=500)
     hpage = max(1, hpage)
     hpager = _pager(
@@ -961,6 +993,7 @@ async def admin_edit_tenant(
     {reject_plan_form}
   </div>
   {payments_html}
+  {supp_html}
   <p class="text-[11px] text-slate-400 mt-3">À utiliser si Stripe / PayPal / mobile money est
   indisponible ou pour un paiement reçu hors ligne — la trace reste via le prestataire « manual ».</p>
 </div>
@@ -1254,6 +1287,21 @@ async def admin_support_resolve(
 # ---------------------------------------------------------------------
 # Gestion complète du compte client — utilisateurs + suppression tenant
 # ---------------------------------------------------------------------
+
+@router.post("/tenants/{tenant_id}/unsuppress")
+async def admin_unsuppress(
+    tenant_id: str,
+    request: Request,
+    email: str = Form(""),
+    settings: Settings = Depends(get_settings),
+    _: None = Depends(require_same_origin),
+):
+    """Retire une adresse de la liste de suppression du tenant."""
+    await _require_admin(request, settings)
+    from src.services.suppression import remove_suppression
+    await remove_suppression(request.app.state.redis, tenant_id, email)
+    return RedirectResponse(f"/admin/tenants/{tenant_id}", status_code=303)
+
 
 @router.post("/tenants/{tenant_id}/users/{user_id}/delete")
 async def admin_delete_user(

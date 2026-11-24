@@ -16,6 +16,7 @@ from src.services.email_templates import otp_html, resolve_logo_url
 from src.services.events import incr_daily_stat, log_event, mask_email
 from src.services.failover import send_with_failover
 from src.services.rate_limiter import RateLimiter
+from src.services.suppression import suppression_reason
 from src.services.webhooks import enqueue_webhook
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,22 @@ class OTPService:
             )
 
         channel = self._choose_channel(tenant, user_id, country_code)
+
+        # Liste de suppression : adresse en bounce/plainte = refus net
+        # (protège la réputation — l'admin peut la retirer manuellement).
+        if channel == Channel.email:
+            reason = await suppression_reason(
+                self.redis, tenant.tenant_id, email)
+            if reason:
+                await log_event(
+                    self.redis, tenant, "otp_suppressed",
+                    email=mask_email(email), purpose=purpose, reason=reason,
+                )
+                raise HTTPException(
+                    status_code=422,
+                    detail="Recipient address is suppressed "
+                           "(previous bounce or complaint)",
+                )
 
         if channel == Channel.sms_fallback:
             logger.info(

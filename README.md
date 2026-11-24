@@ -163,6 +163,7 @@ global.
 | `POST` | `/v1/email/send` | HMAC | Transactionnel — `{to_email, type, language?, data?, subject?, text_body?, html_body?}` → `{sent, status:"queued"\|"sent", message_id}` |
 | `GET` | `/v1/email/status/{message_id}` | HMAC | Statut d'un envoi — `queued` / `retry` / `sent` / `dead` + `attempts`, `error` |
 | `POST` | `/v1/billing/webhooks/{stripe,paypal,cinetpay}` | signature provider | Callbacks paiement — activation du plan dès confirmation |
+| `POST` | `/v1/events/email` | `X-Admin-Key` | Bounces/plaintes entrants (Brevo, Resend ou générique) → liste de suppression + stats réputation |
 | `POST` | `/v1/admin/tenants` | `X-Admin-Key` | Créer un tenant |
 | `GET` | `/v1/admin/tenants` | `X-Admin-Key` | Lister les tenants |
 | `GET/PATCH/DELETE` | `/v1/admin/tenants/{id}` | `X-Admin-Key` | Gérer un tenant |

@@ -16,6 +16,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from src.api.admin_routes import admin_router
 from src.api.billing_routes import router as billing_router
 from src.api.dependencies import get_email_provider, get_redis_client, get_settings
+from src.api.event_routes import events_router
 from src.api.middleware import JSONLogMiddleware, SecurityHeadersMiddleware
 from src.api.routes import email_router, router
 from src.core.tenants import PLANS, TenantStore, plan_quota_updates, seed_default_tenant
@@ -339,3 +340,4 @@ app.include_router(router)
 app.include_router(email_router)
 app.include_router(admin_router)
 app.include_router(billing_router)
+app.include_router(events_router)

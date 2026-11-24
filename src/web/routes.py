@@ -1600,6 +1600,11 @@ async def dashboard(
         "email_rate_limited": ("Rate limit", "bg-amber-100 text-amber-700"),
         "smtp_failover": ("SMTP secours", "bg-amber-100 text-amber-700"),
         "smtp_health_failed": ("SMTP en panne", "bg-rose-100 text-rose-700"),
+        "email_bounced": ("Bounce", "bg-rose-100 text-rose-700"),
+        "email_softbounced": ("Bounce léger", "bg-amber-100 text-amber-700"),
+        "email_complained": ("Plainte spam", "bg-rose-100 text-rose-700"),
+        "email_suppressed": ("Destinataire supprimé", "bg-slate-200 text-slate-600"),
+        "otp_suppressed": ("OTP supprimé", "bg-slate-200 text-slate-600"),
     }
     events = await get_events(redis, tenant, limit=200)
     atypes = sorted({e.get("type", "") for e in events if e.get("type")})

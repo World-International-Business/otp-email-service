@@ -350,3 +350,68 @@ async def test_no_failover_without_custom_smtp(client, redis):
         "user_id": str(uuid.uuid4()), "email": "u@x.co",
         "country_code": "FR", "purpose": "login_2fa"})
     assert resp.status_code == 502
+
+
+# --------------------------------------------------- suppression / bounces
+
+_ADMIN = {"X-Admin-Key": "a" * 40}
+
+
+async def test_bounce_event_suppresses_recipient(client, redis):
+    """Webhook bounce => adresse supprimée => envois suivants refusés."""
+    r = client.post("/v1/events/email", headers=_ADMIN,
+                    json={"event": "hard_bounce", "email": "dead@x.co",
+                          "tenant_id": "default"})
+    assert r.status_code == 200, r.text
+    assert r.json()["suppressed"] is True
+
+    client.app.state.otp_service.email_provider = _SpyProvider()
+    resp = _post(client, "/v1/otp/send", {
+        "user_id": str(uuid.uuid4()), "email": "dead@x.co",
+        "country_code": "FR", "purpose": "login_2fa"})
+    assert resp.status_code == 422
+    assert "suppressed" in resp.json()["detail"]
+
+
+async def test_resend_format_normalized(client, redis):
+    """Le format Resend {type, data:{to}} est reconnu."""
+    r = client.post("/v1/events/email", headers=_ADMIN,
+                    json={"type": "email.bounced",
+                          "data": {"to": ["b1@x.co", "b2@x.co"]},
+                          "tenant_id": "default"})
+    assert r.status_code == 200 and r.json()["processed"] == 2
+
+
+async def test_global_suppression_blocks_all_tenants(client, redis):
+    """Sans tenant_id, un hard bounce supprime au niveau plateforme."""
+    from src.core.tenants import (
+        Tenant,
+        TenantStore,
+        generate_api_key,
+        generate_hmac_secret,
+        hash_api_key,
+    )
+    client.post("/v1/events/email", headers=_ADMIN,
+                json={"event": "hard_bounce", "email": "gone@x.co"})
+    key2 = generate_api_key()
+    await TenantStore(redis).create(Tenant(
+        tenant_id="t2", name="T2", api_key_hash=hash_api_key(key2),
+        hmac_secret=generate_hmac_secret(), allowed_purposes=["login_2fa"]))
+    from src.services.suppression import suppression_reason
+    assert await suppression_reason(redis, "t2", "gone@x.co") is not None
+
+
+async def test_soft_bounce_not_suppressed(client, redis):
+    """Soft bounce : compté dans les stats mais adresse toujours joignable."""
+    r = client.post("/v1/events/email", headers=_ADMIN,
+                    json={"event": "soft_bounce", "email": "full@x.co",
+                          "tenant_id": "default"})
+    assert r.json()["suppressed"] is False
+    from src.services.suppression import suppression_reason
+    assert await suppression_reason(redis, "default", "full@x.co") is None
+
+
+async def test_events_requires_admin_key(client):
+    assert client.post("/v1/events/email",
+                       json={"event": "hard_bounce", "email": "a@b.c"}
+                       ).status_code in (401, 403)

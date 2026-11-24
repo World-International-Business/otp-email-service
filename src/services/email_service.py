@@ -17,6 +17,7 @@ from src.services.email_templates import generic_html, resolve_logo_url
 from src.services.events import incr_daily_stat, log_event, mask_email
 from src.services.failover import send_with_failover
 from src.services.rate_limiter import RateLimiter
+from src.services.suppression import suppression_reason
 from src.services.webhooks import enqueue_webhook
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,21 @@ class EmailService:
         # Rendre AVANT de réserver un slot quota : un type=custom incomplet
         # lève 422 ici — il ne doit pas consommer le quota du destinataire.
         subject, text_body, html_body = self._render(request, tenant)
+
+        # Liste de suppression : une adresse en bounce/plainte est refusée
+        # avant toute consommation de quota ou appel SMTP.
+        reason = await suppression_reason(
+            self.redis, tenant.tenant_id, to_email)
+        if reason:
+            await log_event(
+                self.redis, tenant, "email_suppressed",
+                email=mask_email(to_email), reason=reason,
+            )
+            raise HTTPException(
+                status_code=422,
+                detail="Recipient address is suppressed "
+                       "(previous bounce or complaint)",
+            )
 
         limiter = RateLimiter(self.redis, tenant)
         allowed, retry_after = await limiter.try_email(to_email)
