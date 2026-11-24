@@ -14,6 +14,7 @@ une application web, mobile ou backend. Tout ce qu'il faut savoir, étape par
 | `POST` | `/v1/otp/verify` | Vérifier le code saisi par l'utilisateur | HMAC |
 | `GET` | `/v1/otp/confirm` | Lien magique de vérification (clic dans l'email) | aucune (le lien est le secret) |
 | `POST` | `/v1/email/send` | Envoyer un email transactionnel | HMAC |
+| `GET` | `/v1/email/status/{message_id}` | Statut d'un envoi (`queued`/`retry`/`sent`/`dead`) | HMAC |
 | `GET` | `/health` | Healthcheck (`status`, `redis`, `version`) | aucune |
 | `POST` | `/v1/admin/tenants` | Créer un tenant (clé + secret affichés une fois) | `X-Admin-Key` |
 | `GET` | `/v1/admin/tenants` | Lister les tenants | `X-Admin-Key` |

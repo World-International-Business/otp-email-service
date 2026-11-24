@@ -48,6 +48,16 @@ cp .env.example .env   # Windows : copy .env.example .env
 | `RISKY_COUNTRIES` | Pays → `sms_fallback` | `CN,RU,BY,IR,KP` |
 | `ROLLOUT_PERCENTAGE` | % d'utilisateurs routés email (déterministe par `user_id`) | `100` |
 | `MAX_SENDS_PER_USER_PER_10MIN` / `_IP_` / `COOLDOWN_SECONDS` / `MAX_VERIFY_ATTEMPTS` / `OTP_TTL_SECONDS` | Quotas globaux (surchargeables par tenant) | `3 / 3 / 60 / 5 / 300` |
+| `PUBLIC_BASE_URL` | URL publique (`https://…`) — magic links OTP + logo emails | vide |
+| `EMAIL_QUEUE_ENABLED` / `EMAIL_QUEUE_POLL_SECONDS` / `EMAIL_MAX_ATTEMPTS` | File d'envoi async + retries (60s/5min/15min) | `true / 1 / 4` |
+| `LIST_UNSUBSCRIBE_URL` | En-tête `List-Unsubscribe` (délivrabilité Gmail/Yahoo) | vide |
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `STRIPE_PRICE_*` | Paiement carte — activation plan immédiate au webhook | vide |
+| `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` / `PAYPAL_WEBHOOK_ID` / `PAYPAL_ENV` | PayPal (`live`/`sandbox`) | vide |
+| `CINETPAY_API_KEY` / `CINETPAY_SITE_ID` | Agrégateur mobile money (Orange/MTN/Wave…) | vide |
+| `PLAN_PRICE_{PRO,ENTERPRISE}[_YEARLY]` | Tarifs carte en `BILLING_CURRENCY` | `0` / `EUR` |
+| `PLAN_PRICE_{PRO,ENTERPRISE}_MOBILE[_YEARLY]` | Tarifs mobile en `BILLING_CURRENCY_MOBILE` | `0` / `XOF` |
+| `BILLING_BANK_DETAILS` / `BILLING_MOMO_NUMBER` / `BILLING_MOMO_NAME` / `BILLING_MANUAL_NOTE` | Coordonnées affichées pour les moyens manuels (virement, momo direct, autre) — validation admin | vide |
+| `BILLING_CHECK_INTERVAL_SECONDS` | Cadence expiration plans + rappels J-7/J-3/J-1 | `3600` |
 
 ### Persistance des données
 
@@ -150,15 +160,19 @@ global.
 | `POST` | `/v1/otp/send` | HMAC | OTP 6 chiffres — `{user_id (UUID), email, country_code, purpose, language?, magic_link?}` |
 | `POST` | `/v1/otp/verify` | HMAC | `{request_id, code (6 chiffres)}` → `{verified, attempts_remaining}` |
 | `GET` | `/v1/otp/confirm` | lien | Lien magique (`magic_link=true`) — consomme le code au clic |
-| `POST` | `/v1/email/send` | HMAC | Transactionnel — `{to_email, type, language?, data?, subject?, text_body?, html_body?}` |
+| `POST` | `/v1/email/send` | HMAC | Transactionnel — `{to_email, type, language?, data?, subject?, text_body?, html_body?}` → `{sent, status:"queued"\|"sent", message_id}` |
+| `GET` | `/v1/email/status/{message_id}` | HMAC | Statut d'un envoi — `queued` / `retry` / `sent` / `dead` + `attempts`, `error` |
+| `POST` | `/v1/billing/webhooks/{stripe,paypal,cinetpay}` | signature provider | Callbacks paiement — activation du plan dès confirmation |
 | `POST` | `/v1/admin/tenants` | `X-Admin-Key` | Créer un tenant |
 | `GET` | `/v1/admin/tenants` | `X-Admin-Key` | Lister les tenants |
 | `GET/PATCH/DELETE` | `/v1/admin/tenants/{id}` | `X-Admin-Key` | Gérer un tenant |
 | `GET` | `/health` | — | `{status, redis, version}` |
 
 **Signature** : `X-API-Key` + `X-Timestamp` (secondes, ±5 min) +
-`X-HMAC-Signature` = `hex(HMAC_SHA256(secret, body_brut + timestamp))`.
-Une signature n'est utilisable qu'une fois (nonce Redis, anti-rejeu).
+`X-HMAC-Signature` = `hex(HMAC_SHA256(secret, body_brut + timestamp [+ "|" + nonce]))`.
+`X-Nonce` (aléatoire par requête) est **recommandé** : sans lui, deux appels
+identiques dans la même seconde partageraient la même signature → `403 Replay
+detected`. Une signature n'est utilisable qu'une fois (nonce Redis, anti-rejeu).
 
 Types d'emails : `welcome` `{name}` · `notification` `{title, message}` ·
 `transaction` `{amount, currency, status}` · `custom` (`subject`+`text_body`
