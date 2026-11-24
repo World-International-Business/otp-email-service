@@ -65,6 +65,7 @@ _EVENT_LABELS = {
     "email_sent": ("Email envoyé", "bg-blue-100 text-blue-700"),
     "email_failed": ("Échec email", "bg-rose-100 text-rose-700"),
     "smtp_health_failed": ("SMTP en panne", "bg-rose-100 text-rose-700"),
+    "smtp_failover": ("SMTP secours", "bg-amber-100 text-amber-700"),
     "email_rate_limited": ("Rate limit", "bg-amber-100 text-amber-700"),
 }
 

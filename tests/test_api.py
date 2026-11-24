@@ -258,3 +258,95 @@ async def test_billing_reminder_sends_email(client, redis):
     assert spy.sent[0][0] == "boss@t.co" and "expire" in spy.sent[0][1]
     # Dédupliqué : un second passage n'envoie rien.
     assert await run_billing_reminders(redis, spy) == 0
+
+
+# ---------------------------------------------------------- SMTP failover
+
+class _FailoverProvider:
+    """Échoue via le SMTP custom du tenant, réussit via la plateforme."""
+
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    async def send_email(self, to_email, subject, text_body, html_body,
+                         sender=None):
+        self.calls.append(dict(sender or {}))
+        if (sender or {}).get("smtp_host") == "smtp.tenant-down.tld":
+            from src.email_providers.base import EmailSendError
+            raise EmailSendError("tenant smtp down")
+        return True
+
+
+async def test_otp_failover_to_platform_sender(client, redis):
+    """SMTP du tenant en panne => l'OTP part via l'expéditeur plateforme."""
+    from src.core.tenants import TenantStore
+    from src.services.events import get_events
+
+    await TenantStore(redis).update(
+        "default", {"smtp_host": "smtp.tenant-down.tld", "from_name": "Acme"})
+    prov = _FailoverProvider()
+    client.app.state.otp_service.email_provider = prov
+
+    resp = _post(client, "/v1/otp/send", {
+        "user_id": str(uuid.uuid4()), "email": "u@x.co",
+        "country_code": "FR", "purpose": "login_2fa"})
+    assert resp.status_code == 200, resp.text
+
+    # 2 tentatives : SMTP tenant (échoué) puis plateforme (succès)
+    assert len(prov.calls) == 2
+    assert prov.calls[0].get("smtp_host") == "smtp.tenant-down.tld"
+    assert "smtp_host" not in prov.calls[1]
+    assert prov.calls[1]["from_email"] == "noreply@test.dev"
+    assert prov.calls[1]["from_name"] == "Acme via MailHub Test"
+
+    tenant = await TenantStore(redis).get("default")
+    events = await get_events(redis, tenant)
+    assert any(e["type"] == "smtp_failover" for e in events)
+    sent = next(e for e in events if e["type"] == "otp_sent")
+    assert sent["via"] == "failover"
+
+
+async def test_email_failover_to_platform_sender(client, redis):
+    """Même bascule sur le chemin transactionnel (deliver)."""
+    from src.core.models import EmailSendRequest
+    from src.core.tenants import TenantStore
+
+    await TenantStore(redis).update(
+        "default", {"smtp_host": "smtp.tenant-down.tld"})
+    tenant = await TenantStore(redis).get("default")
+    svc = client.app.state.email_service
+    prov = _FailoverProvider()
+    svc.email_provider = prov
+
+    req = EmailSendRequest(to_email="u@x.co", type="notification",
+                           data={"title": "Hi", "message": "m"})
+    resp = await svc.send(tenant, req)
+    assert resp.sent is True and len(prov.calls) == 2
+    assert "smtp_host" not in prov.calls[1]
+
+
+async def test_failover_disabled_returns_502(client, redis):
+    """EMAIL_FAILOVER_ENABLED=false => l'échec remonte sans bascule."""
+    from src.core.tenants import TenantStore
+
+    await TenantStore(redis).update(
+        "default", {"smtp_host": "smtp.tenant-down.tld"})
+    client.app.state.otp_service.settings.email_failover_enabled = False
+    prov = _FailoverProvider()
+    client.app.state.otp_service.email_provider = prov
+
+    resp = _post(client, "/v1/otp/send", {
+        "user_id": str(uuid.uuid4()), "email": "u@x.co",
+        "country_code": "FR", "purpose": "login_2fa"})
+    assert resp.status_code == 502
+    assert len(prov.calls) == 1
+
+
+async def test_no_failover_without_custom_smtp(client, redis):
+    """Tenant sur le transport plateforme => pas de double tentative."""
+    prov = _SpyProvider(fail=True)
+    client.app.state.otp_service.email_provider = prov
+    resp = _post(client, "/v1/otp/send", {
+        "user_id": str(uuid.uuid4()), "email": "u@x.co",
+        "country_code": "FR", "purpose": "login_2fa"})
+    assert resp.status_code == 502

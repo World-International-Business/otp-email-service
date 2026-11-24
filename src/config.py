@@ -104,6 +104,11 @@ class Settings(BaseSettings):
     email_queue_poll_seconds: float = 1.0  # intervalle de poll du worker
     email_max_attempts: int = 4            # 1 essai + 3 retries (60s, 5min, 15min) puis dead
 
+    # Bascule d'expéditeur : si le SMTP custom d'un tenant échoue, l'envoi
+    # retente une fois via l'expéditeur plateforme (settings globaux).
+    # Le mail part alors de FROM_EMAIL plateforme — mieux qu'un échec.
+    email_failover_enabled: bool = True
+
     risky_countries: str = "CN,RU,BY,IR,KP"
     rollout_percentage: int = Field(default=100, ge=0, le=100)
 

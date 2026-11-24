@@ -14,6 +14,7 @@ from src.email_providers.base import EmailProvider, EmailSendError, SenderIdenti
 from src.services.email_queue import set_status
 from src.services.email_templates import otp_html, resolve_logo_url
 from src.services.events import incr_daily_stat, log_event, mask_email
+from src.services.failover import send_with_failover
 from src.services.rate_limiter import RateLimiter
 from src.services.webhooks import enqueue_webhook
 
@@ -133,11 +134,14 @@ class OTPService:
         subject, text_body, html_body = self._render_email(code, language, tenant, magic_url)
         reason = ""
         try:
-            success = await self.email_provider.send_email(
-                email, subject, text_body, html_body, sender=self._sender(tenant)
+            success, via_failover = await send_with_failover(
+                self.email_provider, self.settings, tenant, self.redis,
+                to_email=email, subject=subject, text_body=text_body,
+                html_body=html_body, sender=self._sender(tenant),
+                context={"request_id": request_id, "purpose": purpose},
             )
         except EmailSendError as exc:
-            success, reason = False, str(exc)[:150]
+            success, via_failover, reason = False, False, str(exc)[:150]
 
         if not success:
             await store.delete(request_id)
@@ -171,6 +175,7 @@ class OTPService:
             self.redis, tenant, "otp_sent",
             email=mask_email(email), purpose=purpose,
             country_code=country_code, request_id=request_id,
+            via="failover" if via_failover else "tenant",
         )
         await self.redis.incr(f"{tenant.key_prefix()}stats:otps_sent")
         await incr_daily_stat(self.redis, tenant, "otps_sent")

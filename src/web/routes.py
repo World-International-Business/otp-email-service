@@ -1598,6 +1598,8 @@ async def dashboard(
         "email_sent": ("Email envoyé", "bg-emerald-100 text-emerald-700"),
         "email_failed": ("Email échoué", "bg-rose-100 text-rose-700"),
         "email_rate_limited": ("Rate limit", "bg-amber-100 text-amber-700"),
+        "smtp_failover": ("SMTP secours", "bg-amber-100 text-amber-700"),
+        "smtp_health_failed": ("SMTP en panne", "bg-rose-100 text-rose-700"),
     }
     events = await get_events(redis, tenant, limit=200)
     atypes = sorted({e.get("type", "") for e in events if e.get("type")})
@@ -1875,7 +1877,8 @@ async def dashboard(
   </div>
   <p class="text-sm text-slate-500 mb-4">Configurez l'adresse email utilisée pour envoyer VOS emails —
   tout serveur SMTP est supporté (Gmail, Yahoo, iCloud, Outlook, IONOS, OVH, Zoho…).
-  Gmail, Yahoo et iCloud exigent un <a class="text-brand-600 underline" href="https://myaccount.google.com/apppasswords" target="_blank">mot de passe d'application</a>.</p>
+  Gmail, Yahoo et iCloud exigent un <a class="text-brand-600 underline" href="https://myaccount.google.com/apppasswords" target="_blank">mot de passe d'application</a>.
+  <span class="block mt-1 text-xs">Filet de sécurité : si votre serveur tombe en panne, les envois basculent automatiquement sur l'expéditeur plateforme (« VotreMarque via {_e(settings.from_name)} ») plutôt que d'échouer.</span></p>
   <form method="post" action="/dashboard/config" class="grid md:grid-cols-2 gap-4">
     <div><label class="text-xs font-semibold text-slate-600">Marque affichée</label>
     <input name="brand_name" class="input mt-1" value="{_e(tenant.brand_name)}"></div>
