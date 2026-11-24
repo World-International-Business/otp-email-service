@@ -54,6 +54,7 @@ from src.services.payments import (
     update_tx,
 )
 from src.web.i18n import (
+    _FLAGS,
     DEFAULT_LANG,
     LANG_COOKIE,
     LANG_COOKIE_MAX_AGE,
@@ -309,32 +310,51 @@ def _footer(logged_in: bool = False) -> str:
         '<a href="/register" class="hover:text-white transition">Créer un compte</a>\n'
         '        <a href="/login" class="hover:text-white transition">Connexion</a>'
     )
+    year = date.today().year
     return f"""
 <footer class="footer bg-[#0a0b14] text-slate-400">
-  <div class="max-w-6xl mx-auto px-6 py-10 md:py-14 grid md:grid-cols-3 gap-8 md:gap-10">
+  <div class="max-w-6xl mx-auto px-6 py-12 md:py-16 grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1fr]">
     <div>
       <div class="flex items-center gap-2.5 text-white font-extrabold mb-3">{LOGO_MARK}</div>
-      <p class="text-sm leading-relaxed">API d'emails transactionnels et de codes OTP.
+      <p class="text-sm leading-relaxed mb-5">API d'emails transactionnels et de codes OTP.
       Sécurisée, multi-tenant, self-hostable.</p>
+      <a href="/health" class="inline-flex items-center gap-2 text-xs font-semibold text-emerald-300 bg-emerald-400/10 border border-emerald-400/20 rounded-full px-3 py-1.5 hover:bg-emerald-400/15 transition">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Tous les systèmes opérationnels
+      </a>
+      <div class="flex items-center gap-2 mt-5 opacity-80">
+        {''.join(_FLAGS.values())}
+      </div>
+      <p class="text-[11px] text-slate-500 mt-2">Interface en 5 langues</p>
     </div>
     <div>
-      <p class="text-white font-semibold text-sm mb-3">Produit</p>
-      <div class="flex flex-col gap-2 text-sm">
-        <a href="/documentation" class="hover:text-white transition">Documentation</a>
-        {account}
+      <p class="text-white font-semibold text-sm mb-4">Produit</p>
+      <div class="flex flex-col gap-2.5 text-sm">
+        <a href="/#services" class="hover:text-white transition">Services</a>
+        <a href="/#pricing" class="hover:text-white transition">Tarifs</a>
+        <a href="/demo" class="hover:text-white transition">Console de démo</a>
+        <a href="/#pricing" class="hover:text-white transition">Passer au Pro</a>
       </div>
     </div>
     <div>
-      <p class="text-white font-semibold text-sm mb-3">Statut</p>
-      <a href="/health" class="inline-flex items-center gap-2 text-sm hover:text-white transition">
-        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Système opérationnel
-      </a>
+      <p class="text-white font-semibold text-sm mb-4">Développeurs</p>
+      <div class="flex flex-col gap-2.5 text-sm">
+        <a href="/documentation" class="hover:text-white transition">Documentation</a>
+        <a href="/docs" class="hover:text-white transition">Référence API (Swagger)</a>
+        <a href="/health" class="hover:text-white transition">Healthcheck</a>
+      </div>
+    </div>
+    <div>
+      <p class="text-white font-semibold text-sm mb-4">Compte</p>
+      <div class="flex flex-col gap-2.5 text-sm">
+        {account}
+        <a href="/dashboard#sec-support" class="hover:text-white transition">Support</a>
+      </div>
     </div>
   </div>
   <div class="border-t border-white/10">
     <div class="max-w-6xl mx-auto px-6 py-5 text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2 text-center">
-      <span>© MailHub — World International Business</span>
-      <span>FastAPI · Redis · HMAC-SHA256</span>
+      <span>© {year} MailHub — World International Business</span>
+      <span>Emails & OTP en un appel API.</span>
     </div>
   </div>
 </footer>"""
@@ -739,6 +759,63 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
       <div class="w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-accent-600 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">3</div>
       <h3 class="font-bold mb-2">Intégrez en un appel</h3>
       <p class="text-sm text-slate-500">POST signé HMAC vers <code>/v1/otp/send</code> ou <code>/v1/email/send</code>.</p>
+    </div>
+  </div>
+</section>
+
+<section class="max-w-6xl mx-auto px-6 py-14 md:py-20">
+  <div class="grid lg:grid-cols-2 gap-10 lg:gap-14 items-center">
+    <div class="reveal">
+      <p class="text-xs font-bold uppercase tracking-wider text-accent-500 mb-3">Délivrabilité</p>
+      <h2 class="text-3xl md:text-4xl font-extrabold mb-4">Vos emails arrivent à destination</h2>
+      <p class="text-slate-500 leading-relaxed mb-6">File de retry intelligente, fallback SMTP et fallback SMS
+      géographique : un envoi qui échoue retente automatiquement, jamais perdu.</p>
+      <ul class="space-y-3 text-sm text-slate-600">
+        <li class="flex gap-2.5"><span class="check"></span>File d'attente avec retries programmés — aucun email perdu</li>
+        <li class="flex gap-2.5"><span class="check"></span>Fallback SMS automatique pour les pays à risque</li>
+        <li class="flex gap-2.5"><span class="check"></span>Statut temps réel : queued, retry, sent, dead-letter</li>
+      </ul>
+      <a href="/documentation" class="inline-flex items-center gap-1.5 mt-7 text-sm font-semibold text-brand-600 hover:text-brand-700 transition">Voir la documentation →</a>
+    </div>
+    <div class="relative reveal reveal-d1">
+      <div class="absolute -inset-3 bg-gradient-to-br from-brand-200/70 to-accent-200/50 rounded-[1.6rem] -rotate-2"></div>
+      <img src="https://images.unsplash.com/photo-1596526131083-e8c633c948d2?w=1000&q=80&auto=format&fit=crop"
+           alt="Application email sur smartphone" loading="lazy"
+           class="relative rounded-2xl shadow-2xl w-full object-cover aspect-[4/3]">
+      <div class="floaty absolute -bottom-5 left-5 card px-4 py-3 flex items-center gap-3">
+        <span class="w-9 h-9 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">{UI_ICONS['check']}</span>
+        <div>
+          <p class="text-xs font-bold text-slate-800">Délivré en boîte de réception</p>
+          <p class="text-[11px] text-slate-400">OTP reçu — pas de spam</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="max-w-6xl mx-auto px-6 py-14 md:py-20">
+  <div class="grid lg:grid-cols-2 gap-10 lg:gap-14 items-center">
+    <div class="relative reveal">
+      <div class="absolute -inset-3 bg-gradient-to-br from-accent-200/50 to-brand-200/70 rounded-[1.6rem] rotate-2"></div>
+      <img src="https://images.unsplash.com/photo-1607799279861-4dd421887fb3?w=1000&q=80&auto=format&fit=crop"
+           alt="Code de l'API dans un éditeur" loading="lazy"
+           class="relative rounded-2xl shadow-2xl w-full object-cover aspect-[4/3]">
+      <div class="floaty floaty-2 absolute -top-5 right-5 bg-[#0d0f1e] rounded-xl shadow-xl border border-white/10 px-4 py-2.5">
+        <p class="font-mono text-[11px] text-slate-400">POST <span class="text-accent-400">/v1/otp/send</span>
+        <span class="text-emerald-400 ml-2">200 OK</span></p>
+      </div>
+    </div>
+    <div class="reveal reveal-d1">
+      <p class="text-xs font-bold uppercase tracking-wider text-brand-500 mb-3">API-first</p>
+      <h2 class="text-3xl md:text-4xl font-extrabold mb-4">Pensée pour les développeurs</h2>
+      <p class="text-slate-500 leading-relaxed mb-6">Documentation OpenAPI interactive, exemples clients prêts
+      à l'emploi, console de test intégrée et réponses JSON propres.</p>
+      <ul class="space-y-3 text-sm text-slate-600">
+        <li class="flex gap-2.5"><span class="check"></span>Swagger /docs pour tester chaque endpoint en direct</li>
+        <li class="flex gap-2.5"><span class="check"></span>Client Python d'exemple avec signature HMAC</li>
+        <li class="flex gap-2.5"><span class="check"></span>Idempotency-Key intégrée — zéro envoi en double</li>
+      </ul>
+      <a href="/docs" class="inline-flex items-center gap-1.5 mt-7 text-sm font-semibold text-brand-600 hover:text-brand-700 transition">Explorer l'API →</a>
     </div>
   </div>
 </section>

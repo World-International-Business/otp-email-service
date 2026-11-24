@@ -1183,6 +1183,98 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     "Référence": ("Reference", "Referenz", "Referencia", "المرجع"),
     "/mois": ("/month", "/Monat", "/mes", "/شهر"),
     "/an": ("/year", "/Jahr", "/año", "/سنة"),
+    "Délivrabilité": ("Deliverability", "Zustellbarkeit", "Entregabilidad", "قابلية التسليم"),
+    "Vos emails arrivent à destination": (
+        "Your emails reach their destination",
+        "Ihre E-Mails kommen an",
+        "Tus correos llegan a su destino",
+        "تصل رسائلك إلى وجهتها",
+    ),
+    "File de retry intelligente, fallback SMTP et fallback SMS géographique : un envoi qui échoue retente automatiquement, jamais perdu.": (
+        "Smart retry queue, SMTP fallback and geographic SMS fallback: a failed send retries automatically, never lost.",
+        "Intelligente Wiederholungswarteschlange, SMTP- und geografisches SMS-Fallback: ein fehlgeschlagener Versand wird automatisch wiederholt, nie verloren.",
+        "Cola de reintentos inteligente, fallback SMTP y fallback SMS geográfico: un envío fallido se reintenta automáticamente, nunca se pierde.",
+        "قائمة إعادة محاولة ذكية، وبديل SMTP وبديل SMS جغرافي: الإرسال الفاشل يُعاد تلقائيًا، لا يضيع أبدًا.",
+    ),
+    "File d’attente avec retries programmés — aucun email perdu": (
+        "Queue with scheduled retries — no email lost",
+        "Warteschlange mit geplanten Wiederholungen — keine E-Mail geht verloren",
+        "Cola con reintentos programados — ningún correo perdido",
+        "قائمة انتظار مع إعادة محاولات مجدولة — لا رسالة ضائعة",
+    ),
+    "Fallback SMS automatique pour les pays à risque": (
+        "Automatic SMS fallback for high-risk countries",
+        "Automatisches SMS-Fallback für Risikoländer",
+        "Fallback SMS automático para países de riesgo",
+        "بديل SMS تلقائي للدول عالية المخاطر",
+    ),
+    "Statut temps réel : queued, retry, sent, dead-letter": (
+        "Real-time status: queued, retry, sent, dead-letter",
+        "Echtzeit-Status: queued, retry, sent, dead-letter",
+        "Estado en tiempo real: queued, retry, sent, dead-letter",
+        "حالة فورية: queued، retry، sent، dead-letter",
+    ),
+    "Voir la documentation →": (
+        "See the documentation →", "Dokumentation ansehen →", "Ver la documentación →", "اطلع على الوثائق ←",
+    ),
+    "Délivré en boîte de réception": (
+        "Delivered to inbox", "Im Posteingang zugestellt", "Entregado en la bandeja de entrada", "تم التسليم إلى البريد الوارد",
+    ),
+    "OTP reçu — pas de spam": (
+        "OTP received — no spam", "OTP empfangen — kein Spam", "OTP recibido — sin spam", "تم استلام OTP — بلا سبام",
+    ),
+    "Pensée pour les développeurs": (
+        "Built for developers", "Für Entwickler gebaut", "Pensada para desarrolladores", "مصممة للمطورين",
+    ),
+    "Documentation OpenAPI interactive, exemples clients prêts à l’emploi, console de test intégrée et réponses JSON propres.": (
+        "Interactive OpenAPI docs, ready-to-use client examples, built-in test console and clean JSON responses.",
+        "Interaktive OpenAPI-Doku, einsatzbereite Client-Beispiele, integrierte Testkonsole und saubere JSON-Antworten.",
+        "Documentación OpenAPI interactiva, ejemplos de cliente listos, consola de pruebas integrada y respuestas JSON limpias.",
+        "وثائق OpenAPI تفاعلية، أمثلة عملاء جاهزة، وحدة اختبار مدمجة وردود JSON نظيفة.",
+    ),
+    "Swagger /docs pour tester chaque endpoint en direct": (
+        "Swagger /docs to test every endpoint live",
+        "Swagger /docs, um jeden Endpoint live zu testen",
+        "Swagger /docs para probar cada endpoint en directo",
+        "‎/docs Swagger لاختبار كل نقطة نهاية مباشرة",
+    ),
+    "Client Python d’exemple avec signature HMAC": (
+        "Example Python client with HMAC signature",
+        "Python-Beispielclient mit HMAC-Signatur",
+        "Cliente Python de ejemplo con firma HMAC",
+        "عميل Python تجريبي بتوقيع HMAC",
+    ),
+    "Idempotency-Key intégrée — zéro envoi en double": (
+        "Built-in Idempotency-Key — zero duplicate sends",
+        "Integrierter Idempotency-Key — keine doppelten Sendungen",
+        "Idempotency-Key integrada — cero envíos duplicados",
+        "مفتاح Idempotency مدمج — لا إرسال مكرر",
+    ),
+    "Explorer l’API →": ("Explore the API →", "API erkunden →", "Explorar la API →", "استكشف الواجهة ←"),
+    "@Application email sur smartphone": (
+        "Email app on a smartphone", "E-Mail-App auf einem Smartphone", "App de correo en un smartphone", "تطبيق بريد على هاتف ذكي",
+    ),
+    "@Code de l’API dans un éditeur": (
+        "API code in an editor", "API-Code in einem Editor", "Código de la API en un editor", "كود الواجهة في محرر",
+    ),
+    "Tous les systèmes opérationnels": (
+        "All systems operational", "Alle Systeme betriebsbereit", "Todos los sistemas operativos", "جميع الأنظمة تعمل",
+    ),
+    "Interface en 5 langues": (
+        "Interface in 5 languages", "Oberfläche in 5 Sprachen", "Interfaz en 5 idiomas", "الواجهة بخمس لغات",
+    ),
+    "Développeurs": ("Developers", "Entwickler", "Desarrolladores", "المطورون"),
+    "Console de démo": ("Demo console", "Demo-Konsole", "Consola de demo", "وحدة التجربة"),
+    "Passer au Pro": ("Go Pro", "Auf Pro wechseln", "Pasar a Pro", "الترقية إلى Pro"),
+    "Référence API (Swagger)": (
+        "API reference (Swagger)", "API-Referenz (Swagger)", "Referencia de API (Swagger)", "مرجع الواجهة (Swagger)",
+    ),
+    "Emails & OTP en un appel API.": (
+        "Emails & OTP in one API call.",
+        "E-Mails & OTP in einem API-Aufruf.",
+        "Emails y OTP en una llamada de API.",
+        "رسائل وOTP في استدعاء واجهة واحد.",
+    ),
     "Coordonnées de paiement": (
         "Payment details", "Zahlungsdaten", "Datos de pago", "بيانات الدفع",
     ),
