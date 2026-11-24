@@ -6,6 +6,7 @@ externe requis. EMAIL_QUEUE_POLL_SECONDS=3600 neutralise le worker de fond :
 les tests pilotent process_*_once() manuellement (déterministe).
 """
 
+import datetime as _dt
 import hashlib
 import hmac
 import json
@@ -258,3 +259,474 @@ async def test_billing_reminder_sends_email(client, redis):
     assert spy.sent[0][0] == "boss@t.co" and "expire" in spy.sent[0][1]
     # Dédupliqué : un second passage n'envoie rien.
     assert await run_billing_reminders(redis, spy) == 0
+
+
+# ---------------------------------------------------------- SMTP failover
+
+class _FailoverProvider:
+    """Échoue via le SMTP custom du tenant, réussit via la plateforme."""
+
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    async def send_email(self, to_email, subject, text_body, html_body,
+                         sender=None):
+        self.calls.append(dict(sender or {}))
+        if (sender or {}).get("smtp_host") == "smtp.tenant-down.tld":
+            from src.email_providers.base import EmailSendError
+            raise EmailSendError("tenant smtp down")
+        return True
+
+
+async def test_otp_failover_to_platform_sender(client, redis):
+    """SMTP du tenant en panne => l'OTP part via l'expéditeur plateforme."""
+    from src.core.tenants import TenantStore
+    from src.services.events import get_events
+
+    store = TenantStore(redis)
+    try:
+        await store.update(
+            "default", {"smtp_host": "smtp.tenant-down.tld",
+                        "from_name": "Acme"})
+        prov = _FailoverProvider()
+        client.app.state.otp_service.email_provider = prov
+
+        resp = _post(client, "/v1/otp/send", {
+            "user_id": str(uuid.uuid4()), "email": "u@x.co",
+            "country_code": "FR", "purpose": "login_2fa"})
+        assert resp.status_code == 200, resp.text
+
+        # 2 tentatives : SMTP tenant (échoué) puis plateforme (succès)
+        assert len(prov.calls) == 2
+        assert prov.calls[0].get("smtp_host") == "smtp.tenant-down.tld"
+        assert "smtp_host" not in prov.calls[1]
+        assert prov.calls[1]["from_email"] == "noreply@test.dev"
+        assert prov.calls[1]["from_name"] == "Acme via MailHub Test"
+
+        tenant = await store.get("default")
+        events = await get_events(redis, tenant)
+        assert any(e["type"] == "smtp_failover" for e in events)
+        sent = next(e for e in events if e["type"] == "otp_sent")
+        assert sent["via"] == "failover"
+    finally:
+        await store.update("default", {"smtp_host": None, "from_name": None})
+
+
+async def test_email_failover_to_platform_sender(client, redis):
+    """Même bascule sur le chemin transactionnel (deliver)."""
+    from src.core.models import EmailSendRequest
+    from src.core.tenants import TenantStore
+
+    store = TenantStore(redis)
+    try:
+        await store.update(
+            "default", {"smtp_host": "smtp.tenant-down.tld"})
+        tenant = await store.get("default")
+        svc = client.app.state.email_service
+        prov = _FailoverProvider()
+        svc.email_provider = prov
+
+        req = EmailSendRequest(to_email="u@x.co", type="notification",
+                               data={"title": "Hi", "message": "m"})
+        resp = await svc.send(tenant, req)
+        assert resp.sent is True and len(prov.calls) == 2
+        assert "smtp_host" not in prov.calls[1]
+    finally:
+        await store.update("default", {"smtp_host": None})
+
+
+async def test_failover_disabled_returns_502(client, redis):
+    """EMAIL_FAILOVER_ENABLED=false => l'échec remonte sans bascule."""
+    from src.core.tenants import TenantStore
+
+    store = TenantStore(redis)
+    try:
+        await store.update(
+            "default", {"smtp_host": "smtp.tenant-down.tld"})
+        client.app.state.otp_service.settings.email_failover_enabled = False
+        prov = _FailoverProvider()
+        client.app.state.otp_service.email_provider = prov
+
+        resp = _post(client, "/v1/otp/send", {
+            "user_id": str(uuid.uuid4()), "email": "u@x.co",
+            "country_code": "FR", "purpose": "login_2fa"})
+        assert resp.status_code == 502
+        assert len(prov.calls) == 1
+    finally:
+        await store.update("default", {"smtp_host": None})
+
+
+async def test_no_failover_without_custom_smtp(client, redis):
+    """Tenant sur le transport plateforme => pas de double tentative."""
+    prov = _SpyProvider(fail=True)
+    client.app.state.otp_service.email_provider = prov
+    resp = _post(client, "/v1/otp/send", {
+        "user_id": str(uuid.uuid4()), "email": "u@x.co",
+        "country_code": "FR", "purpose": "login_2fa"})
+    assert resp.status_code == 502
+
+
+# --------------------------------------------------- suppression / bounces
+
+_ADMIN = {"X-Admin-Key": "a" * 40}
+
+
+async def test_bounce_event_suppresses_recipient(client, redis):
+    """Webhook bounce => adresse supprimée => envois suivants refusés."""
+    r = client.post("/v1/events/email", headers=_ADMIN,
+                    json={"event": "hard_bounce", "email": "dead@x.co",
+                          "tenant_id": "default"})
+    assert r.status_code == 200, r.text
+    assert r.json()["suppressed"] is True
+
+    client.app.state.otp_service.email_provider = _SpyProvider()
+    resp = _post(client, "/v1/otp/send", {
+        "user_id": str(uuid.uuid4()), "email": "dead@x.co",
+        "country_code": "FR", "purpose": "login_2fa"})
+    assert resp.status_code == 422
+    assert "suppressed" in resp.json()["detail"]
+
+
+async def test_resend_format_normalized(client, redis):
+    """Le format Resend {type, data:{to}} est reconnu."""
+    r = client.post("/v1/events/email", headers=_ADMIN,
+                    json={"type": "email.bounced",
+                          "data": {"to": ["b1@x.co", "b2@x.co"]},
+                          "tenant_id": "default"})
+    assert r.status_code == 200 and r.json()["processed"] == 2
+
+
+async def test_global_suppression_blocks_all_tenants(client, redis):
+    """Sans tenant_id, un hard bounce supprime au niveau plateforme."""
+    from src.core.tenants import (
+        Tenant,
+        TenantStore,
+        generate_api_key,
+        generate_hmac_secret,
+        hash_api_key,
+    )
+    client.post("/v1/events/email", headers=_ADMIN,
+                json={"event": "hard_bounce", "email": "gone@x.co"})
+    key2 = generate_api_key()
+    await TenantStore(redis).create(Tenant(
+        tenant_id="t2", name="T2", api_key_hash=hash_api_key(key2),
+        hmac_secret=generate_hmac_secret(), allowed_purposes=["login_2fa"]))
+    from src.services.suppression import suppression_reason
+    assert await suppression_reason(redis, "t2", "gone@x.co") is not None
+
+
+async def test_soft_bounce_not_suppressed(client, redis):
+    """Soft bounce : compté dans les stats mais adresse toujours joignable."""
+    r = client.post("/v1/events/email", headers=_ADMIN,
+                    json={"event": "soft_bounce", "email": "full@x.co",
+                          "tenant_id": "default"})
+    assert r.json()["suppressed"] is False
+    from src.services.suppression import suppression_reason
+    assert await suppression_reason(redis, "default", "full@x.co") is None
+
+
+async def test_events_requires_admin_key(client):
+    assert client.post("/v1/events/email",
+                       json={"event": "hard_bounce", "email": "a@b.c"}
+                       ).status_code in (401, 403)
+
+
+# ------------------------------------------------------------ warm-up SMTP
+
+async def test_warmup_caps_new_smtp_sender(client, redis):
+    """SMTP custom neuf : au-delà du cap journalier warm-up -> 429."""
+    import time as _t
+    from datetime import date
+
+    from src.core.tenants import TenantStore
+
+    store = TenantStore(redis)
+    try:
+        await store.update("default", {
+            "smtp_host": "smtp.new.tld", "smtp_configured_at": _t.time()})
+        today = date.today().isoformat()
+        # Déjà au cap du jour 0 (50) : 40 emails + 10 OTP
+        await redis.set(f"t:default:stats_daily:emails_sent:{today}", 40)
+        await redis.set(f"t:default:stats_daily:otps_sent:{today}", 10)
+
+        resp = _post(client, "/v1/otp/send", {
+            "user_id": str(uuid.uuid4()), "email": "u@x.co",
+            "country_code": "FR", "purpose": "login_2fa"})
+        assert resp.status_code == 429
+        assert "warm-up" in resp.json()["detail"].lower()
+        assert int(resp.headers["retry-after"]) > 0
+    finally:
+        await store.update("default", {
+            "smtp_host": None, "smtp_configured_at": None})
+        await redis.delete(
+            f"t:default:stats_daily:emails_sent:{today}",
+            f"t:default:stats_daily:otps_sent:{today}")
+
+
+async def test_warmup_allows_under_cap(client, redis):
+    """Sous le cap, l'envoi passe normalement."""
+    import time as _t
+    from datetime import date
+
+    from src.core.tenants import TenantStore
+
+    store = TenantStore(redis)
+    try:
+        await store.update("default", {
+            "smtp_host": "smtp.new.tld", "smtp_configured_at": _t.time()})
+        # fakeredis est partagé entre tests : on fixe le compteur du jour.
+        today = date.today().isoformat()
+        await redis.set(f"t:default:stats_daily:emails_sent:{today}", 5)
+        await redis.set(f"t:default:stats_daily:otps_sent:{today}", 5)
+        client.app.state.otp_service.email_provider = _SpyProvider()
+        resp = _post(client, "/v1/otp/send", {
+            "user_id": str(uuid.uuid4()), "email": "u@x.co",
+            "country_code": "FR", "purpose": "login_2fa"})
+        assert resp.status_code == 200
+    finally:
+        await store.update("default", {
+            "smtp_host": None, "smtp_configured_at": None})
+        await redis.delete(
+            f"t:default:stats_daily:emails_sent:{today}",
+            f"t:default:stats_daily:otps_sent:{today}")
+
+
+async def test_warmup_cap_growth_and_expiry(client, redis):
+    """Cap : jour0=50, jour1=75 ; fini après WARMUP_DAYS ; inactif sans SMTP."""
+    import time as _t
+
+    from src.core.tenants import TenantStore
+    from src.services.warmup import warmup_cap
+
+    settings = client.app.state.settings
+    store = TenantStore(redis)
+    base = {"smtp_host": "smtp.new.tld"}
+
+    try:
+        await store.update(
+            "default", {**base, "smtp_configured_at": _t.time()})
+        t = await store.get("default")
+        assert warmup_cap(settings, t) == settings.warmup_start_volume
+
+        await store.update("default", {
+            "smtp_configured_at": _t.time() - 86400})
+        t = await store.get("default")
+        assert warmup_cap(settings, t) == int(
+            settings.warmup_start_volume * settings.warmup_growth)
+
+        await store.update("default", {
+            "smtp_configured_at": _t.time()
+            - 86400 * (settings.warmup_days + 1)})
+        t = await store.get("default")
+        assert warmup_cap(settings, t) is None
+
+        await store.update("default", {"smtp_host": None})
+        t = await store.get("default")
+        assert warmup_cap(settings, t) is None
+
+        settings.warmup_enabled = False
+        await store.update("default", {
+            "smtp_host": "smtp.new.tld",
+            "smtp_configured_at": _t.time()})
+        t = await store.get("default")
+        assert warmup_cap(settings, t) is None
+    finally:
+        await store.update("default", {
+            "smtp_host": None, "smtp_configured_at": None})
+
+
+# --------------------------------------------------------------- /metrics
+
+async def test_metrics_prometheus_format(client):
+    """GET /metrics (X-Admin-Key) : texte Prometheus avec gauges + compteurs."""
+    r = client.get("/metrics", headers=_ADMIN)
+    assert r.status_code == 200
+    assert "version=0.0.4" in r.headers["content-type"]
+    body = r.text
+    assert "mailhub_tenants_total" in body
+    assert "mailhub_email_queue_depth" in body
+    assert 'mailhub_otps_sent_total{tenant="default"}' in body
+    assert 'mailhub_tenant_smtp_ok{tenant="default"}' in body
+
+
+async def test_metrics_requires_admin_key(client):
+    assert client.get("/metrics").status_code in (401, 403)
+
+
+# ------------------------------------------------------------- scheduling
+
+async def test_send_at_schedules_delivery(client, redis):
+    """send_at futur : job différé, status=queued + scheduled_for, 0 livraison."""
+    from src.services.email_queue import process_email_queue_once
+
+    future = (_dt.datetime.now(_dt.timezone.utc)
+              + _dt.timedelta(hours=2)).isoformat()
+    spy = _SpyProvider()
+    client.app.state.email_service.email_provider = spy
+    resp = _post(client, "/v1/email/send", {
+        "to_email": "later@x.co", "type": "notification",
+        "send_at": future,
+        "data": {"title": "T", "message": "m"}})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "queued"
+    assert resp.json()["scheduled_for"]
+
+    mid = resp.json()["message_id"]
+    st = _get(client, f"/v1/email/status/{mid}").json()
+    assert st["status"] == "queued" and st["scheduled_for"]
+
+    # Le worker ne le prend pas avant l'échéance.
+    processed = await process_email_queue_once(
+        redis, client.app.state.email_service)
+    assert processed == 0 and len(spy.sent) == 0
+
+
+async def test_send_at_rejects_over_30_days(client):
+    future = (_dt.datetime.now(_dt.timezone.utc)
+              + _dt.timedelta(days=40)).isoformat()
+    resp = _post(client, "/v1/email/send", {
+        "to_email": "x@x.co", "type": "notification",
+        "send_at": future, "data": {"title": "T", "message": "m"}})
+    assert resp.status_code == 422
+
+
+async def test_send_at_past_sends_immediately(client):
+    """send_at dans le passé = envoi normal immédiat."""
+    past = (_dt.datetime.now(_dt.timezone.utc)
+            - _dt.timedelta(hours=1)).isoformat()
+    resp = _post(client, "/v1/email/send", {
+        "to_email": "x@x.co", "type": "notification",
+        "send_at": past, "data": {"title": "T", "message": "m"}})
+    assert resp.status_code == 200
+    assert resp.json()["scheduled_for"] is None
+
+
+# ---------------------------------------------------------------- sandbox
+
+async def test_sandbox_captures_without_smtp(client, redis):
+    """tenant.sandbox => aucun appel provider, envois capturés en outbox."""
+    from src.core.tenants import TenantStore
+    from src.services.events import get_events
+    from src.services.sandbox import list_outbox
+
+    store = TenantStore(redis)
+    try:
+        await store.update("default", {"sandbox": True})
+        prov = _SpyProvider()
+        client.app.state.otp_service.email_provider = prov
+        client.app.state.email_service.email_provider = prov
+
+        resp = _post(client, "/v1/otp/send", {
+            "user_id": str(uuid.uuid4()), "email": "u@x.co",
+            "country_code": "FR", "purpose": "login_2fa"})
+        assert resp.status_code == 200, resp.text
+        assert len(prov.sent) == 0  # aucun mail réel
+
+        box = await list_outbox(redis, "default")
+        assert len(box) == 1
+        assert box[0]["type"] == "otp" and box[0]["to"] == "u@x.co"
+        assert re.search(r"\b\d{6}\b", box[0]["text_body"])
+
+        tenant = await store.get("default")
+        events = await get_events(redis, tenant)
+        sent = next(e for e in events if e["type"] == "otp_sent")
+        assert sent["via"] == "sandbox"
+    finally:
+        await store.update("default", {"sandbox": False})
+        await redis.delete("t:default:sandbox_outbox")
+
+
+async def test_sandbox_transactional_captured(client, redis):
+    """Le chemin transactionnel capture aussi (deliver)."""
+    from src.core.models import EmailSendRequest
+    from src.core.tenants import TenantStore
+    from src.services.sandbox import list_outbox
+
+    store = TenantStore(redis)
+    try:
+        await store.update("default", {"sandbox": True})
+        prov = _SpyProvider()
+        client.app.state.email_service.email_provider = prov
+        tenant = await store.get("default")
+        req = EmailSendRequest(to_email="u@x.co", type="notification",
+                               data={"title": "Hi", "message": "m"})
+        resp = await client.app.state.email_service.send(tenant, req)
+        assert resp.sent is True and len(prov.sent) == 0
+        box = await list_outbox(redis, "default")
+        assert any(m["type"] == "notification" for m in box)
+    finally:
+        await store.update("default", {"sandbox": False})
+        await redis.delete("t:default:sandbox_outbox")
+
+
+# --------------------------------------------------------------- tracking
+
+class _HtmlSpy(_SpyProvider):
+    """Capture aussi le HTML envoyé."""
+
+    async def send_email(self, to_email, subject, text_body, html_body,
+                         sender=None):
+        await super().send_email(to_email, subject, text_body, html_body,
+                                 sender)
+        self.last_html = html_body
+        return True
+
+
+async def test_tracking_pixel_and_click_wrap(client, redis):
+    """Tracking actif : pixel injecté + liens réécrits en /v1/track."""
+    from src.core.models import EmailSendRequest
+    from src.core.tenants import TenantStore
+
+    svc = client.app.state.email_service
+    svc.settings.public_base_url = "https://hub.test"
+    spy = _HtmlSpy()
+    svc.email_provider = spy
+    tenant = await TenantStore(redis).get("default")
+
+    req = EmailSendRequest(to_email="u@x.co", type="custom",
+                           subject="S", text_body="t",
+                           html_body='<html><body><a href="https://ex.com/x">go</a></body></html>')
+    resp = await svc.send(tenant, req)
+    assert resp.sent
+
+    html = spy.last_html
+    assert f"/v1/track/o/{resp.message_id}.gif" in html
+    assert f"/v1/track/c/{resp.message_id}?u=" in html
+    assert "https%3A%2F%2Fex.com%2Fx" in html
+
+    # Le pixel attribue l'ouverture au tenant et incrémente les stats.
+    r = client.get(f"/v1/track/o/{resp.message_id}.gif")
+    assert r.status_code == 200 and r.content[:6] == b"GIF89a"
+    assert int(await redis.get("t:default:stats:emails_opened") or 0) >= 1
+
+    # Le clic redirige vers la cible et compte.
+    r2 = client.get(
+        f"/v1/track/c/{resp.message_id}?u=https%3A%2F%2Fex.com%2Fx",
+        follow_redirects=False)
+    assert r2.status_code == 302
+    assert r2.headers["location"] == "https://ex.com/x"
+    assert int(await redis.get("t:default:stats:emails_clicked") or 0) >= 1
+
+
+async def test_tracking_disabled_without_base_url(client, redis):
+    """Pas de PUBLIC_BASE_URL => aucune modification du HTML."""
+    from src.core.models import EmailSendRequest
+    from src.core.tenants import TenantStore
+
+    svc = client.app.state.email_service
+    svc.settings.public_base_url = ""
+    spy = _HtmlSpy()
+    svc.email_provider = spy
+    tenant = await TenantStore(redis).get("default")
+
+    req = EmailSendRequest(to_email="u@x.co", type="custom",
+                           subject="S", text_body="t",
+                           html_body='<html><body><a href="https://ex.com">x</a></body></html>')
+    resp = await svc.send(tenant, req)
+    assert resp.sent and "/v1/track/" not in spy.last_html
+
+
+async def test_track_rejects_invalid_url(client):
+    r = client.get("/v1/track/c/msg_x?u=javascript:alert(1)",
+                   follow_redirects=False)
+    assert r.status_code == 400

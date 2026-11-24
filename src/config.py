@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     # None = auto : SSL implicite si port 465, STARTTLS sinon
     smtp_use_ssl: bool | None = None
+    # URL de désinscription ajoutée en en-tête List-Unsubscribe (délivrabilité
+    # Gmail/Yahoo) — ex: https://mailhub.io/unsubscribe ou mailto:stop@x.io
+    list_unsubscribe_url: str = ""
 
     brevo_api_key: str | None = None
     resend_api_key: str | None = None
@@ -93,11 +96,29 @@ class Settings(BaseSettings):
 
     # Résiliation automatique des abonnements expirés (secondes entre chaque balayage)
     billing_check_interval_seconds: int = 3600
+    # Healthcheck SMTP par tenant (connexion + login, sans envoi) — 0 = off
+    smtp_health_check_interval_seconds: int = 3600
 
     # File d'envoi d'emails (livraison asynchrone + retries) et webhooks sortants
     email_queue_enabled: bool = True      # False = envoi synchrone comme avant
     email_queue_poll_seconds: float = 1.0  # intervalle de poll du worker
     email_max_attempts: int = 4            # 1 essai + 3 retries (60s, 5min, 15min) puis dead
+
+    # Bascule d'expéditeur : si le SMTP custom d'un tenant échoue, l'envoi
+    # retente une fois via l'expéditeur plateforme (settings globaux).
+    # Le mail part alors de FROM_EMAIL plateforme — mieux qu'un échec.
+    email_failover_enabled: bool = True
+
+    # Warm-up expéditeur : un SMTP neuf d'un tenant est plafonné en volume
+    # journalier puis croît exponentiellement (jour n = start * growth^n).
+    warmup_enabled: bool = True
+    warmup_days: int = 14
+    warmup_start_volume: int = 50
+    warmup_growth: float = 1.5
+
+    # Tracking ouvertures/clics (transactionnel uniquement, jamais les OTP).
+    # Nécessite PUBLIC_BASE_URL pour construire les URLs de tracking.
+    email_tracking_enabled: bool = True
 
     risky_countries: str = "CN,RU,BY,IR,KP"
     rollout_percentage: int = Field(default=100, ge=0, le=100)

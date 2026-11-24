@@ -69,6 +69,47 @@ router = APIRouter(tags=["web"], include_in_schema=False, route_class=I18nRoute)
 logger = logging.getLogger(__name__)
 
 
+def _pager(
+    base: str,
+    page: int,
+    total: int,
+    per_page: int,
+    page_param: str,
+    params: dict | None = None,
+    anchor: str = "",
+) -> str:
+    """Nav « ‹ Préc | Page x/y | Suiv › » — conserve les paramètres d'URL."""
+    pages = max(1, -(-total // per_page))
+    if pages <= 1:
+        return ""
+    page = max(1, min(page, pages))
+
+    def _url(p_: int) -> str:
+        q = dict(params or {})
+        q[page_param] = p_
+        qs = "&".join(
+            f"{k}={quote(str(v))}" for k, v in q.items()
+            if v not in (None, "", 1)
+        )
+        return f"{base}?{qs}{anchor}" if qs else f"{base}{anchor}"
+
+    prev = (
+        f'<a href="{_url(page - 1)}" class="btn-soft text-xs">‹ Préc.</a>'
+        if page > 1
+        else '<span class="btn-soft text-xs opacity-40 cursor-default">‹ Préc.</span>'
+    )
+    nxt = (
+        f'<a href="{_url(page + 1)}" class="btn-soft text-xs">Suiv ›</a>'
+        if page < pages
+        else '<span class="btn-soft text-xs opacity-40 cursor-default">Suiv ›</span>'
+    )
+    return (
+        '<div class="flex items-center gap-3 justify-end px-5 py-3 '
+        'border-t border-slate-100 text-xs text-slate-500">'
+        f"{prev}<span>Page {page} / {pages}</span>{nxt}</div>"
+    )
+
+
 def _e(value) -> str:
     """Échappe une valeur avant injection dans le HTML (anti-XSS)."""
     return html.escape(str(value), quote=True)
@@ -1373,6 +1414,10 @@ async def dashboard(
     request: Request,
     test: str = "",
     billing: str = "",
+    apage: int = 1,
+    atype: str = "",
+    ppage: int = 1,
+    pstatus: str = "",
     settings: Settings = Depends(get_settings),
 ) -> HTMLResponse:
     user = await _require_user(request)
@@ -1440,6 +1485,73 @@ async def dashboard(
          '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
          "bg-emerald-50 text-emerald-600"),
     ]
+    # Santé expéditeur : badge SMTP + résultat DNS en cache
+    if tenant.smtp_status == "ok":
+        smtp_status_badge = '<span class="badge bg-emerald-100 text-emerald-700">SMTP OK</span>'
+    elif tenant.smtp_status == "failed":
+        smtp_status_badge = '<span class="badge bg-rose-100 text-rose-700">SMTP EN PANNE</span>'
+    else:
+        smtp_status_badge = '<span class="badge bg-slate-100 text-slate-500">SMTP non testé</span>'
+    # Warm-up : SMTP custom récent = volume journalier plafonné progressif
+    from src.services.warmup import warmup_state
+    wu_remaining, wu_cap, wu_sent = await warmup_state(redis, settings, tenant)
+    if wu_cap is not None:
+        days_left = ""
+        if tenant.smtp_configured_at:
+            d = int((time.time() - tenant.smtp_configured_at) / 86400) + 1
+            days_left = f"· jour {min(d, settings.warmup_days)}/{settings.warmup_days}"
+        smtp_status_badge += (
+            f' <span class="badge bg-amber-100 text-amber-700" '
+            f'title="Montée en charge : le volume autorisé augmente '
+            f'automatiquement chaque jour">Warm-up {days_left} · '
+            f'{wu_sent}/{wu_cap} aujourd\'hui</span>'
+        )
+    if tenant.smtp_status == "failed":
+        smtp_health_html = (
+            f'<p class="text-xs text-rose-600 font-semibold">Échec : '
+            f'{_e(tenant.smtp_status_error)}</p>'
+        )
+    elif tenant.smtp_status == "ok":
+        smtp_health_html = (
+            '<p class="text-xs text-emerald-600">Connexion et identifiants '
+            'vérifiés — les emails peuvent partir.</p>'
+        )
+    else:
+        smtp_health_html = (
+            '<p class="text-xs text-slate-400">Testez la connexion (EHLO, TLS, '
+            'identifiants) sans envoyer de mail — contrôle auto toutes les heures.</p>'
+        )
+
+    dns_raw = await redis.get(f"{tenant.key_prefix()}dnscheck")
+    dns = json.loads(dns_raw) if dns_raw else None
+    if dns:
+        def _b(ok: bool, label: str, detail: str = "") -> str:
+            cls = "bg-emerald-100 text-emerald-700" if ok else "bg-rose-100 text-rose-700"
+            tip = f' title="{_e(detail)}"' if detail else ""
+            return (f'<span class="badge {cls} cursor-help"{tip}>'
+                    f'{"✓" if ok else "✗"} {label}</span>')
+        all_ok = all((dns["mx"], dns["spf_ok"], dns["dkim_ok"], dns["dmarc_ok"]))
+        dns_check_html = (
+            f'<p class="text-[11px] text-slate-400 mb-1.5">Domaine : '
+            f'<code>{_e(dns["domain"])}</code></p>'
+            f'<div class="flex flex-wrap gap-1.5">'
+            f'{_b(dns["mx"], "MX")}'
+            f'{_b(dns["spf_ok"], "SPF", dns["spf"])}'
+            f'{_b(dns["dkim_ok"], "DKIM", dns["dkim_selector"])}'
+            f'{_b(dns["dmarc_ok"], "DMARC", dns["dmarc"])}'
+            f'</div>'
+            + ('<p class="text-[11px] text-emerald-600 mt-1.5">Domaine vérifié — '
+               'délivrabilité optimale.</p>' if all_ok
+               else '<p class="text-[11px] text-rose-600 mt-1.5">Enregistrements '
+                    'manquants : ajoutez-les dans la zone DNS du domaine (chez '
+                    'votre hébergeur), sinon vos mails arriveront en spam.</p>')
+        )
+    else:
+        dns_check_html = (
+            '<p class="text-[11px] text-slate-400">Vérifiez MX / SPF / DKIM / DMARC '
+            'du domaine expéditeur — les 4 enregistrements qui évitent les spams.</p>'
+        )
+
     stats_cards = ""
     for label, key, ic, icc in stats_keys:
         val = await redis.get(f"{tenant.key_prefix()}{key}") or "0"
@@ -1451,6 +1563,27 @@ async def dashboard(
             <p class="kpi-num mt-0.5">{_e(val)}</p>
           </div>
         </div>"""
+
+    # Engagement : ouvertures, clics, bounces, plaintes (compteurs tracking)
+    engagement_html = ""
+    _engage = [
+        ("Ouvertures", "stats:emails_opened"),
+        ("Clics", "stats:emails_clicked"),
+        ("Bounces", "stats:emails_bounced"),
+        ("Plaintes spam", "stats:emails_complained"),
+    ]
+    pipe = redis.pipeline()
+    for _, key in _engage:
+        pipe.get(f"{tenant.key_prefix()}{key}")
+    _evals = await pipe.execute()
+    _ecards = "".join(
+        f"""<div class="card p-4 text-center">
+          <p class="kpi-num text-lg">{_e(str(int(v or 0)))}</p>
+          <p class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mt-1">{label}</p>
+        </div>"""
+        for (label, _), v in zip(_engage, _evals, strict=True)
+    )
+    engagement_html = f'<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">{_ecards}</div>'
 
     # Graphique 7 derniers jours (OTP envoyés/vérifiés + emails transactionnels)
     from datetime import date, timedelta
@@ -1500,24 +1633,54 @@ async def dashboard(
         "email_sent": ("Email envoyé", "bg-emerald-100 text-emerald-700"),
         "email_failed": ("Email échoué", "bg-rose-100 text-rose-700"),
         "email_rate_limited": ("Rate limit", "bg-amber-100 text-amber-700"),
+        "smtp_failover": ("SMTP secours", "bg-amber-100 text-amber-700"),
+        "smtp_health_failed": ("SMTP en panne", "bg-rose-100 text-rose-700"),
+        "email_bounced": ("Bounce", "bg-rose-100 text-rose-700"),
+        "email_softbounced": ("Bounce léger", "bg-amber-100 text-amber-700"),
+        "email_complained": ("Plainte spam", "bg-rose-100 text-rose-700"),
+        "email_suppressed": ("Destinataire supprimé", "bg-slate-200 text-slate-600"),
+        "otp_suppressed": ("OTP supprimé", "bg-slate-200 text-slate-600"),
+        "warmup_limited": ("Limite warm-up", "bg-amber-100 text-amber-700"),
+        "email_opened": ("Email ouvert", "bg-sky-100 text-sky-700"),
+        "email_clicked": ("Lien cliqué", "bg-violet-100 text-violet-700"),
     }
-    events = await get_events(redis, tenant, limit=20)
-    if events:
+    events = await get_events(redis, tenant, limit=200)
+    atypes = sorted({e.get("type", "") for e in events if e.get("type")})
+    if atype:
+        events = [e for e in events if e.get("type") == atype]
+    A_PER = 15
+    atotal = len(events)
+    apage = max(1, apage)
+    events_page = events[(apage - 1) * A_PER: apage * A_PER]
+    type_opts = '<option value="">Tous les types</option>' + "".join(
+        f'<option value="{_e(t)}"{" selected" if t == atype else ""}>{_e(t)}</option>'
+        for t in atypes
+    )
+    apager = _pager("/dashboard", apage, atotal, A_PER, "apage",
+                    {"atype": atype}, anchor="#sec-activity")
+    if events_page:
         rows = "".join(
             f"""<tr class="hover:bg-slate-50 transition">
               <td class="py-2.5 pr-3 whitespace-nowrap"><span class="badge {cls}">{lbl}</span></td>
               <td class="py-2.5 pr-3 text-slate-500 text-xs whitespace-nowrap">{_e(e.get('ts','')[11:19])} {_e(e.get('ts','')[:10])}</td>
               <td class="py-2.5 text-slate-600 text-xs truncate max-w-[220px]">{_e(e.get('email') or e.get('request_id') or e.get('email_type') or '—')}</td>
             </tr>"""
-            for e in events
+            for e in events_page
             for lbl, cls in [event_labels.get(e.get("type", ""), (e.get("type", "?"), "bg-slate-100 text-slate-600"))]
         )
         activity_html = f"""
 <div id="sec-activity" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
-  <h2 class="font-bold mb-4">Activité récente</h2>
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="font-bold">Activité récente</h2>
+    <form method="get" action="/dashboard#sec-activity">
+      <select name="atype" onchange="this.form.submit()"
+              class="input !py-1.5 !px-2 text-xs">{type_opts}</select>
+    </form>
+  </div>
   <div class="overflow-x-auto"><table class="w-full text-sm">
     <tbody class="divide-y divide-slate-100">{rows}</tbody>
   </table></div>
+  {apager}
 </div>"""
     else:
         activity_html = f"""
@@ -1651,7 +1814,24 @@ async def dashboard(
     </form>
   </div>"""
 
-    payments = await list_payments(redis, tenant.tenant_id, limit=8)
+    payments = await list_payments(redis, tenant.tenant_id, limit=500)
+    pstatuses = sorted({p.get("status") for p in payments})
+    if pstatus:
+        payments = [p for p in payments if p.get("status") == pstatus]
+    P_PER = 8
+    ptotal = len(payments)
+    ppage = max(1, ppage)
+    payments = payments[(ppage - 1) * P_PER: ppage * P_PER]
+    _pst_names = {"paid": "Payé", "created": "En attente",
+                  "pending_manual": "En attente",
+                  "pending_verification": "À vérifier", "failed": "Échoué"}
+    pst_opts = '<option value="">Tous les statuts</option>' + "".join(
+        f'<option value="{_e(st)}"{" selected" if st == pstatus else ""}>'
+        f'{_e(_pst_names.get(st, st))}</option>'
+        for st in pstatuses
+    )
+    ppager = _pager("/dashboard", ppage, ptotal, P_PER, "ppage",
+                    {"pstatus": pstatus}, anchor="#sec-payments")
     pay_history = ""
     if payments:
         _st = {"paid": ("Payé", "bg-emerald-100 text-emerald-700"),
@@ -1670,9 +1850,16 @@ async def dashboard(
         )
         pay_history = f"""
 <div id="sec-payments" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
-  <h2 class="font-bold mb-4">Historique des paiements</h2>
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="font-bold">Historique des paiements</h2>
+    <form method="get" action="/dashboard#sec-payments">
+      <select name="pstatus" onchange="this.form.submit()"
+              class="input !py-1.5 !px-2 text-xs">{pst_opts}</select>
+    </form>
+  </div>
   <div class="overflow-x-auto"><table class="w-full text-sm">
     <tbody class="divide-y divide-slate-100">{prow}</tbody></table></div>
+  {ppager}
 </div>"""
 
     plan_card_html = f"""
@@ -1690,6 +1877,37 @@ async def dashboard(
         if tenant.unlimited else
         f'<span class="badge bg-brand-50 text-brand-700 border border-brand-100">{plan_label}</span>'
     )
+    # Mode sandbox : bannière + boîte de capture des envois simulés
+    sandbox_html = ""
+    if tenant.sandbox:
+        from src.services.sandbox import list_outbox
+        outbox = await list_outbox(redis, tenant.tenant_id, 10)
+        sb_rows = ""
+        for m in outbox:
+            ts = time.strftime("%Y-%m-%d %H:%M", time.localtime(m.get("ts", 0)))
+            sb_rows += f"""
+        <tr class="border-t border-slate-100">
+          <td class="py-2 pl-5 pr-4 text-xs text-slate-500 whitespace-nowrap">{ts}</td>
+          <td class="py-2 pr-4 text-xs">{_e(m.get("to") or "")}</td>
+          <td class="py-2 pr-4"><span class="badge bg-slate-100 text-slate-600">{_e(m.get("type") or "")}</span></td>
+          <td class="py-2 pr-4 text-xs font-semibold">{_e(m.get("subject") or "")}</td>
+          <td class="py-2 pr-5 text-xs">
+            <details><summary class="cursor-pointer text-brand-600">corps</summary>
+            <pre class="mt-1 p-2 bg-slate-50 rounded text-[11px] whitespace-pre-wrap max-h-40 overflow-auto">{_e(m.get("text_body") or "")}</pre></details>
+          </td>
+        </tr>"""
+        sandbox_html = f"""
+<div class="card p-4 sm:p-6 mb-6 border-amber-300 border-2">
+  <div class="flex items-center gap-2 mb-2">
+    <span class="badge bg-amber-100 text-amber-700">MODE SANDBOX</span>
+    <p class="text-xs text-slate-500">Aucun email réel n'est envoyé — les
+    envois sont capturés ci-dessous pour vos tests d'intégration.</p>
+  </div>
+  <div class="overflow-x-auto"><table class="w-full min-w-[640px]"><tbody>
+    {sb_rows or '<tr><td class="py-6 text-center text-sm text-slate-400">Aucun envoi capturé pour le moment.</td></tr>'}
+  </tbody></table></div>
+</div>"""
+
     content = f"""
 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-8">
   <div>
@@ -1702,8 +1920,11 @@ async def dashboard(
   </div>
 </div>
 
-<div class="grid md:grid-cols-3 gap-5 mb-8">{stats_cards}</div>
+{sandbox_html}
 
+<div class="grid md:grid-cols-3 gap-5 mb-6">{stats_cards}</div>
+
+{engagement_html}
 {chart_html}
 {activity_html}
 
@@ -1727,10 +1948,14 @@ async def dashboard(
 {plan_card_html}
 {pay_history}
 <div id="sec-smtp" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
-  <h2 class="font-bold mb-1">Configuration de votre expéditeur email</h2>
+  <div class="flex items-center justify-between mb-1">
+    <h2 class="font-bold">Configuration de votre expéditeur email</h2>
+    {smtp_status_badge}
+  </div>
   <p class="text-sm text-slate-500 mb-4">Configurez l'adresse email utilisée pour envoyer VOS emails —
   tout serveur SMTP est supporté (Gmail, Yahoo, iCloud, Outlook, IONOS, OVH, Zoho…).
-  Gmail, Yahoo et iCloud exigent un <a class="text-brand-600 underline" href="https://myaccount.google.com/apppasswords" target="_blank">mot de passe d'application</a>.</p>
+  Gmail, Yahoo et iCloud exigent un <a class="text-brand-600 underline" href="https://myaccount.google.com/apppasswords" target="_blank">mot de passe d'application</a>.
+  <span class="block mt-1 text-xs">Filet de sécurité : si votre serveur tombe en panne, les envois basculent automatiquement sur l'expéditeur plateforme (« VotreMarque via {_e(settings.from_name)} ») plutôt que d'échouer.</span></p>
   <form method="post" action="/dashboard/config" class="grid md:grid-cols-2 gap-4">
     <div><label class="text-xs font-semibold text-slate-600">Marque affichée</label>
     <input name="brand_name" class="input mt-1" value="{_e(tenant.brand_name)}"></div>
@@ -1761,6 +1986,25 @@ async def dashboard(
     <input name="test_to" type="email" class="input sm:max-w-xs" placeholder="envoyer un email de test à..." required>
     <button class="text-xs font-semibold text-brand-600 border border-blue-200 rounded-lg px-4 py-2.5 hover:bg-blue-50 whitespace-nowrap">Tester l'envoi</button>
   </form>
+
+  <div class="mt-4 pt-4 border-t border-slate-100 grid md:grid-cols-2 gap-4">
+    <div>
+      <p class="text-xs font-semibold text-slate-600 mb-2">Santé de la connexion SMTP</p>
+      {smtp_health_html}
+      <form method="post" action="/dashboard/smtp-check" class="mt-2">
+        <button class="btn-soft text-xs">Tester la connexion</button>
+      </form>
+    </div>
+    <div>
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-xs font-semibold text-slate-600">Délivrabilité du domaine</p>
+        <form method="post" action="/dashboard/dns-check">
+          <button class="btn-soft text-xs">Vérifier le DNS</button>
+        </form>
+      </div>
+      {dns_check_html}
+    </div>
+  </div>
 </div>
 
 <div id="sec-branding" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
@@ -1911,14 +2155,20 @@ async def dashboard_config(
         if not 1 <= port <= 65535:
             raise HTTPException(status_code=422, detail="Port SMTP invalide")
     store = TenantStore(request.app.state.redis)
+    tenant = await store.get(user.tenant_id)
+    new_host = smtp_host.strip() or None
     updates = {
         "brand_name": brand_name.strip() or "SendBID",
         "from_email": from_email.strip() or None,
         "from_name": from_name.strip() or None,
-        "smtp_host": smtp_host.strip() or None,
+        "smtp_host": new_host,
         "smtp_port": port,
         "smtp_user": smtp_user.strip() or None,
     }
+    # Horodatage warm-up : première config ou changement de serveur ->
+    # le compteur repart à zéro ; SMTP retiré -> warm-up désactivé.
+    if tenant and new_host != tenant.smtp_host:
+        updates["smtp_configured_at"] = time.time() if new_host else None
     wh = webhook_url.strip()
     updates["webhook_url"] = wh if wh.startswith(("http://", "https://")) else None
     if smtp_password.strip():
@@ -2564,6 +2814,63 @@ async def dashboard_test_email(
     except Exception:
         return RedirectResponse("/dashboard?test=erreur%20d%27envoi", status_code=303)
     return RedirectResponse("/dashboard?test=ok", status_code=303)
+
+
+@router.post("/dashboard/smtp-check")
+async def dashboard_smtp_check(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    _: None = Depends(require_same_origin),
+):
+    """Healthcheck SMTP à la demande (EHLO/TLS/login, sans envoi)."""
+    user = await _require_user(request)
+    redis = request.app.state.redis
+    tenant = await TenantStore(redis).get(user.tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant introuvable")
+
+    from src.services.smtp_health import check_smtp_health
+    host = tenant.smtp_host or settings.smtp_host
+    port = tenant.smtp_port or settings.smtp_port
+    user_ = tenant.smtp_user or settings.smtp_user
+    pwd = tenant.smtp_password or settings.smtp_password
+    use_ssl = tenant.smtp_use_ssl
+    if use_ssl is None:
+        use_ssl = settings.smtp_use_ssl
+    if use_ssl is None:
+        use_ssl = int(port) == 465
+    res = await check_smtp_health(host, int(port), user_, pwd, use_ssl)
+    await TenantStore(redis).update(tenant.tenant_id, {
+        "smtp_status": "ok" if res["ok"] else "failed",
+        "smtp_status_error": "" if res["ok"]
+            else f'{res["stage"]}: {res["error"]}',
+        "smtp_checked_at": res["checked_at"],
+    })
+    return RedirectResponse("/dashboard#sec-smtp", status_code=303)
+
+
+@router.post("/dashboard/dns-check")
+async def dashboard_dns_check(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    _: None = Depends(require_same_origin),
+):
+    """Vérification MX/SPF/DKIM/DMARC du domaine de l'expéditeur."""
+    user = await _require_user(request)
+    redis = request.app.state.redis
+    tenant = await TenantStore(redis).get(user.tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant introuvable")
+
+    from src.services.dns_check import check_email_domain
+    from_email = tenant.from_email or settings.from_email
+    domain = from_email.split("@")[-1] if "@" in from_email else ""
+    if domain:
+        result = await check_email_domain(domain)
+        await redis.set(
+            f"{tenant.key_prefix()}dnscheck", json.dumps(result), ex=7 * 24 * 3600
+        )
+    return RedirectResponse("/dashboard#sec-smtp", status_code=303)
 
 
 # =====================================================================

@@ -1,5 +1,6 @@
 """Schémas Pydantic pour les requêtes et réponses."""
 
+from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
@@ -94,6 +95,11 @@ class EmailSendRequest(BaseModel):
         default=None,
         description="Corps HTML libre — optionnel si type=custom",
     )
+    send_at: datetime | None = Field(
+        default=None,
+        description="Envoi programmé (ISO 8601) — max 30 jours, "
+                    "nécessite EMAIL_QUEUE_ENABLED. Passé = envoi immédiat.",
+    )
 
 
 class EmailSendResponse(BaseModel):
@@ -103,6 +109,10 @@ class EmailSendResponse(BaseModel):
     status: str = Field(
         default="sent",
         description="queued (file+retry) | sent — consulter GET /v1/emails/status/{message_id}",
+    )
+    scheduled_for: str | None = Field(
+        default=None,
+        description="Horodatage ISO si l'envoi est programmé (send_at)",
     )
 
 
@@ -116,6 +126,7 @@ class EmailStatusResponse(BaseModel):
     attempts: int = 0
     error: str | None = None
     updated: int = 0
+    scheduled_for: str | None = None
 
 
 # ------------------------------------------------------------------

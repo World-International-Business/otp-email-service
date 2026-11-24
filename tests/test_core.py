@@ -1,5 +1,8 @@
 """Tests unitaires — crypto, OTP store (fakeredis), templates, config."""
 
+import smtplib
+from types import SimpleNamespace
+
 import fakeredis.aioredis
 import pytest
 
@@ -120,13 +123,19 @@ def test_generic_html_en():
 # ------------------------------------------------- responsive & branding
 
 def test_email_responsive_structure():
-    """La carte fait 100% de large avec max-width fixe + media queries mobiles."""
+    """Layout fluid-first : tient sur mobile SANS media query, media query en bonus."""
     html = otp_html("123456", "MonApp", "fr")
     assert 'width="100%"' in html
     assert "max-width:520px" in html
     assert "@media only screen and (max-width:560px)" in html
-    for cls in ("mh-wrap", "mh-px", "mh-digit", "mh-foot", "mh-h1"):
-        assert f".{cls}" in html and f'class="{cls}"' in html
+    # règles responsives + classes présentes sur les éléments
+    for cls in ("mh-wrap", "mh-px", "mh-digit", "mh-gap"):
+        assert f".{cls}" in html and f'class="{cls}' in html
+    # les chiffres tiennent dans un écran 320px même sans media query :
+    # 6×38px + 5×6px = 258px ≤ 264px de contenu dispo
+    assert "width:38px" in html and 'class="mh-gap" style="width:6px' in html
+    # preheader invisible même sur clients basiques
+    assert "mso-hide:all" in html
 
 
 def test_otp_html_respects_branding():
@@ -172,3 +181,193 @@ def test_resolve_logo_url_absolute():
     assert resolve_logo_url("/brand/t1/logo", "https://api.mh.io/") == "https://api.mh.io/brand/t1/logo"
     assert resolve_logo_url("https://cdn.x.io/l.png", "https://api.mh.io") == "https://cdn.x.io/l.png"
     assert resolve_logo_url("/brand/t1/logo", "") == "/brand/t1/logo"
+
+
+# ------------------------------------------------- SMTP : pas de doublons
+
+class _FakeSMTP:
+    """Faux serveur SMTP — quit() tombe en panne comme Gmail/ proxies le font."""
+
+    sent = 0
+    refused: dict = {}
+
+    def __init__(self, *a, **k):
+        pass
+
+    def ehlo_or_helo_if_needed(self):
+        pass
+
+    def has_extn(self, name):
+        return False
+
+    def login(self, user, password):
+        pass
+
+    last_msg = ""
+
+    def sendmail(self, from_email, to, msg):
+        type(self).sent += 1
+        type(self).last_msg = msg
+        return dict(type(self).refused)
+
+    def quit(self):
+        raise smtplib.SMTPServerDisconnected("connexion fermée par le serveur")
+
+    def close(self):
+        pass
+
+
+def _smtp_settings():
+    return SimpleNamespace(
+        from_email="noreply@mh.io", from_name="MailHub",
+        smtp_host="smtp.x.io", smtp_port=587,
+        smtp_user="u", smtp_password="p", smtp_use_ssl=False,
+        list_unsubscribe_url="https://mh.io/unsub",
+    )
+
+
+async def test_smtp_quit_failure_counts_as_success(monkeypatch):
+    """Un QUIT qui échoue APRES sendmail ne doit pas déclencher de retry
+    (sinon le destinataire reçoit des doublons)."""
+    from src.email_providers.smtp import SMTPProvider
+
+    _FakeSMTP.sent = 0
+    _FakeSMTP.refused = {}
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
+    ok = await SMTPProvider(_smtp_settings()).send_email(
+        "a@b.c", "s", "texte", "<p>html</p>"
+    )
+    assert ok is True
+    assert _FakeSMTP.sent == 1  # un seul envoi réel
+
+
+async def test_smtp_refused_recipient_raises(monkeypatch):
+    """RCPT refusé (sendmail retourne un dict) = vraie erreur -> retry légitime."""
+    from src.email_providers.base import EmailSendError
+    from src.email_providers.smtp import SMTPProvider
+
+    _FakeSMTP.sent = 0
+    _FakeSMTP.refused = {"a@b.c": (550, b"user unknown")}
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
+    with pytest.raises(EmailSendError):
+        await SMTPProvider(_smtp_settings()).send_email(
+            "a@b.c", "s", "texte", "<p>html</p>"
+        )
+
+
+async def test_smtp_message_has_antispam_headers(monkeypatch):
+    """Date + Message-ID (domaine expéditeur) + List-Unsubscribe + sujet encodé."""
+    from src.email_providers.smtp import SMTPProvider
+
+    _FakeSMTP.sent = 0
+    _FakeSMTP.refused = {}
+    _FakeSMTP.last_msg = ""
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
+    await SMTPProvider(_smtp_settings()).send_email(
+        "a@b.c", "Vérification ✓", "texte", "<p>html</p>"
+    )
+    raw = _FakeSMTP.last_msg
+    assert "\nDate: " in raw or raw.startswith("Date:")
+    assert "Message-ID: <" in raw and "@mh.io>" in raw
+    assert "List-Unsubscribe: <https://mh.io/unsub>" in raw
+    assert "Reply-To: noreply@mh.io" in raw
+    assert "utf-8?" in raw  # sujet accentué encodé, pas cassé
+
+
+async def test_queue_lock_prevents_double_processing(tenant):
+    """Un job verrouillé par un autre worker n'est pas traité une 2e fois."""
+    from unittest.mock import AsyncMock
+
+    from src.core.tenants import TenantStore
+    from src.services.email_queue import QUEUE_KEY, enqueue, process_email_queue_once
+
+    redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    await TenantStore(redis).create(tenant)
+    await enqueue(redis, tenant.tenant_id, "a@b.c", "notification",
+                  "s", "texte", "<p>h</p>")
+    job_id = (await redis.zrange(QUEUE_KEY, 0, -1))[0]
+
+    # Un autre worker a déjà pris le job -> rien n'est livré.
+    await redis.set(f"mail:lock:{job_id}", "1", nx=True, ex=120)
+    service = SimpleNamespace(deliver=AsyncMock())
+    assert await process_email_queue_once(redis, service) == 0
+    service.deliver.assert_not_called()
+
+    # Lock libéré -> le job est livré une seule fois.
+    await redis.delete(f"mail:lock:{job_id}")
+    assert await process_email_queue_once(redis, service) == 1
+    service.deliver.assert_awaited_once()
+    assert await process_email_queue_once(redis, service) == 0
+
+
+# ------------------------------------------------- santé SMTP + DNS
+
+async def test_smtp_health_ok(monkeypatch):
+    """Connexion + login réussis -> ok."""
+    from src.services.smtp_health import check_smtp_health
+
+    _FakeSMTP.sent = 0
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
+    res = await check_smtp_health("smtp.x.io", 587, "u", "p", False)
+    assert res["ok"] and res["stage"] == "ok" and res["latency_ms"] >= 0
+
+
+async def test_smtp_health_bad_credentials(monkeypatch):
+    """Login refusé -> stage 'login', ok=False (tenant alerté)."""
+    from src.services.smtp_health import check_smtp_health
+
+    class _BadSMTP(_FakeSMTP):
+        def login(self, u, p):
+            raise smtplib.SMTPAuthenticationError(535, b"credentials denied")
+
+    monkeypatch.setattr(smtplib, "SMTP", _BadSMTP)
+    res = await check_smtp_health("smtp.x.io", 587, "u", "p", False)
+    assert not res["ok"] and res["stage"] == "login"
+    assert "535" in res["error"]
+
+
+async def test_smtp_health_unreachable(monkeypatch):
+    """Hôte injoignable -> stage 'connect'."""
+    from src.services.smtp_health import check_smtp_health
+
+    def _boom(*a, **k):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(smtplib, "SMTP", _boom)
+    res = await check_smtp_health("down.x.io", 587, "u", "p", False)
+    assert not res["ok"] and res["stage"] == "connect"
+
+
+def test_domain_verdict_all_ok():
+    from src.services.dns_check import domain_verdict
+    ok = {"mx": True, "spf_ok": True, "dkim_ok": True, "dmarc_ok": True}
+    assert domain_verdict(ok) == "ok"
+    missing = {"mx": True, "spf_ok": False, "dkim_ok": False, "dmarc_ok": True}
+    assert "SPF" in domain_verdict(missing) and "DKIM" in domain_verdict(missing)
+
+
+async def test_dns_check_parses_records(monkeypatch):
+    """MX + SPF + DMARC + sélecteur DKIM détectés correctement."""
+    import src.services.dns_check as dc
+
+    class _R:
+        def __init__(self, s): self.strings = [s.encode()]
+
+    def fake_resolve(domain, rtype, lifetime=5):
+        if rtype == "MX" and domain == "x.io":
+            return ["mx"]
+        if rtype == "TXT":
+            if domain == "x.io":
+                return [_R("v=spf1 include:_spf.x.io ~all")]
+            if domain == "_dmarc.x.io":
+                return [_R("v=DMARC1; p=quarantine")]
+            if domain == "mail._domainkey.x.io":
+                return [_R("v=DKIM1; k=rsa; p=abc")]
+        raise dns.resolver.NXDOMAIN
+
+    import dns.resolver
+    monkeypatch.setattr(dns.resolver, "resolve", fake_resolve)
+    res = await dc.check_email_domain("x.io")
+    assert res["mx"] and res["spf_ok"] and res["dkim_ok"] and res["dmarc_ok"]
+    assert res["dkim_selector"] == "mail"
+    assert dc.domain_verdict(res) == "ok"

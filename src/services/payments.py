@@ -50,7 +50,7 @@ async def record_tx(redis, tx_id: str, data: dict) -> None:
         key = f"tenant:{tenant_id}:payments"
         await redis.lrem(key, 0, tx_id)
         await redis.lpush(key, tx_id)
-        await redis.ltrim(key, 0, 24)
+        await redis.ltrim(key, 0, 499)
 
 
 async def get_tx(redis, tx_id: str) -> dict | None:

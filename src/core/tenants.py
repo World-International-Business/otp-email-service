@@ -27,6 +27,9 @@ class Tenant(BaseModel):
     smtp_user: str | None = None   # None = fallback global
     smtp_password: str | None = None
     smtp_use_ssl: bool | None = None  # None = auto (SSL si port 465)
+    smtp_configured_at: float | None = None  # pose du SMTP custom (warm-up)
+    sandbox: bool = False            # True = envois capturés, pas de SMTP réel
+    track_emails: bool = True        # pixel ouverture + redirection clics
     risky_countries: list[str] = Field(default_factory=list)
     rollout_percentage: int = Field(default=100, ge=0, le=100)
     allowed_purposes: list[str] = Field(default_factory=lambda: ["login_2fa"])
@@ -48,6 +51,9 @@ class Tenant(BaseModel):
     email_logo_url: str | None = None
     email_footer: str | None = None
     webhook_url: str | None = None  # POST signé HMAC : email.sent/failed/dead, otp.*
+    smtp_status: str = ""          # ok | failed | "" (jamais testé)
+    smtp_status_error: str = ""    # détail de l'échec (étape + raison)
+    smtp_checked_at: int = 0       # timestamp du dernier healthcheck
     max_sends_per_user_per_10min: int = 3
     max_sends_per_ip_per_10min: int = 3
     cooldown_seconds: int = 60

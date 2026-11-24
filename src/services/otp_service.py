@@ -14,7 +14,11 @@ from src.email_providers.base import EmailProvider, EmailSendError, SenderIdenti
 from src.services.email_queue import set_status
 from src.services.email_templates import otp_html, resolve_logo_url
 from src.services.events import incr_daily_stat, log_event, mask_email
+from src.services.failover import send_with_failover
 from src.services.rate_limiter import RateLimiter
+from src.services.sandbox import capture_send
+from src.services.suppression import suppression_reason
+from src.services.warmup import seconds_until_midnight, warmup_state
 from src.services.webhooks import enqueue_webhook
 
 logger = logging.getLogger(__name__)
@@ -79,6 +83,37 @@ class OTPService:
 
         channel = self._choose_channel(tenant, user_id, country_code)
 
+        # Liste de suppression : adresse en bounce/plainte = refus net
+        # (protège la réputation — l'admin peut la retirer manuellement).
+        if channel == Channel.email:
+            reason = await suppression_reason(
+                self.redis, tenant.tenant_id, email)
+            if reason:
+                await log_event(
+                    self.redis, tenant, "otp_suppressed",
+                    email=mask_email(email), purpose=purpose, reason=reason,
+                )
+                raise HTTPException(
+                    status_code=422,
+                    detail="Recipient address is suppressed "
+                           "(previous bounce or complaint)",
+                )
+            # Warm-up : SMTP neuf du tenant = cap journalier progressif.
+            remaining, cap, _ = await warmup_state(
+                self.redis, self.settings, tenant)
+            if remaining == 0:
+                retry = seconds_until_midnight()
+                await log_event(
+                    self.redis, tenant, "warmup_limited",
+                    email=mask_email(email), purpose=purpose, daily_cap=cap,
+                )
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Sender warm-up in progress — daily cap "
+                           f"{cap} reached, increases automatically",
+                    headers={"Retry-After": str(retry)},
+                )
+
         if channel == Channel.sms_fallback:
             logger.info(
                 "sms_fallback_selected",
@@ -132,12 +167,25 @@ class OTPService:
 
         subject, text_body, html_body = self._render_email(code, language, tenant, magic_url)
         reason = ""
-        try:
-            success = await self.email_provider.send_email(
-                email, subject, text_body, html_body, sender=self._sender(tenant)
+        if tenant.sandbox:
+            # Sandbox : pipeline complet, capture au lieu de l'envoi SMTP.
+            await capture_send(
+                self.redis, tenant.tenant_id, to=email, subject=subject,
+                text_body=text_body, html_body=html_body,
+                kind="otp", ref=request_id,
             )
-        except EmailSendError as exc:
-            success, reason = False, str(exc)[:150]
+            success, via = True, "sandbox"
+        else:
+            try:
+                success, via_failover = await send_with_failover(
+                    self.email_provider, self.settings, tenant, self.redis,
+                    to_email=email, subject=subject, text_body=text_body,
+                    html_body=html_body, sender=self._sender(tenant),
+                    context={"request_id": request_id, "purpose": purpose},
+                )
+            except EmailSendError as exc:
+                success, via_failover, reason = False, False, str(exc)[:150]
+            via = "failover" if via_failover else "tenant"
 
         if not success:
             await store.delete(request_id)
@@ -171,6 +219,7 @@ class OTPService:
             self.redis, tenant, "otp_sent",
             email=mask_email(email), purpose=purpose,
             country_code=country_code, request_id=request_id,
+            via=via,
         )
         await self.redis.incr(f"{tenant.key_prefix()}stats:otps_sent")
         await incr_daily_stat(self.redis, tenant, "otps_sent")

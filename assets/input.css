@@ -2,14 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-@font-face {
-  font-family: 'Moncera';
-  src: local('Moncera'), url('/static/fonts/moncera.woff2') format('woff2');
-  font-weight: 400 800;
-  font-style: normal;
-  font-display: swap;
-}
-
 @layer base {
   :root {
     --brand: #5060a8;
@@ -31,7 +23,7 @@
   }
 
   h1, h2, h3, h4, .font-display {
-    font-family: 'Moncera', 'Space Grotesk', 'Inter', sans-serif;
+    font-family: 'Space Grotesk', 'Inter', sans-serif;
     letter-spacing: -0.015em;
   }
 

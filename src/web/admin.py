@@ -15,6 +15,7 @@ import html
 import json
 import re
 import secrets
+import time
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -33,7 +34,7 @@ from src.core.tenants import (
 from src.services.events import get_events
 from src.services.payments import list_payments
 from src.web.i18n import I18nRoute
-from src.web.routes import LOGO_FULL, LOGO_MARK, UI_ICONS, _head
+from src.web.routes import LOGO_FULL, LOGO_MARK, UI_ICONS, _head, _pager
 from src.web.users import WebUserStore
 
 router = APIRouter(
@@ -64,6 +65,16 @@ _EVENT_LABELS = {
     "otp_send_failed": ("Échec envoi OTP", "bg-rose-100 text-rose-700"),
     "email_sent": ("Email envoyé", "bg-blue-100 text-blue-700"),
     "email_failed": ("Échec email", "bg-rose-100 text-rose-700"),
+    "smtp_health_failed": ("SMTP en panne", "bg-rose-100 text-rose-700"),
+    "smtp_failover": ("SMTP secours", "bg-amber-100 text-amber-700"),
+    "email_bounced": ("Bounce", "bg-rose-100 text-rose-700"),
+    "email_softbounced": ("Bounce léger", "bg-amber-100 text-amber-700"),
+    "email_complained": ("Plainte spam", "bg-rose-100 text-rose-700"),
+    "email_suppressed": ("Supprimé", "bg-slate-200 text-slate-600"),
+    "otp_suppressed": ("OTP supprimé", "bg-slate-200 text-slate-600"),
+    "warmup_limited": ("Limite warm-up", "bg-amber-100 text-amber-700"),
+    "email_opened": ("Ouvert", "bg-sky-100 text-sky-700"),
+    "email_clicked": ("Clic", "bg-violet-100 text-violet-700"),
     "email_rate_limited": ("Rate limit", "bg-amber-100 text-amber-700"),
 }
 
@@ -213,19 +224,42 @@ async def _tenant_stats(redis, tenant: Tenant) -> dict[str, str]:
 
 @router.get("", response_class=HTMLResponse)
 async def admin_dashboard(
-    request: Request, settings: Settings = Depends(get_settings)
+    request: Request,
+    q: str = "",
+    etype: str = "",
+    tpage: int = 1,
+    epage: int = 1,
+    xpage: int = 1,
+    settings: Settings = Depends(get_settings),
 ) -> HTMLResponse:
     await _require_admin(request, settings)
     redis = request.app.state.redis
     tenants = await TenantStore(redis).list()
 
+    # Filtre + pagination du tableau tenants (les KPI restent globaux)
+    ql = q.strip().lower()
+    view = [
+        t for t in tenants
+        if not ql or ql in t.name.lower() or ql in t.tenant_id.lower()
+        or ql in (t.brand_name or "").lower() or ql in t.plan
+    ]
+    T_PER = 10
+    tpage = max(1, tpage)
+    page_ids = {t.tenant_id for t in view[(tpage - 1) * T_PER: tpage * T_PER]}
+    tpager = _pager("/admin", tpage, len(view), T_PER, "tpage",
+                    {"q": q, "etype": etype, "epage": epage if epage > 1 else None})
+
     from datetime import date
     today = date.today().isoformat()
     rows = ""
     all_events: list[dict] = []
+    pending_payments: list[tuple[Tenant, dict]] = []
     today_otps = today_emails = 0
     active_count = 0
     for t in tenants:
+        for tx in await list_payments(redis, t.tenant_id, limit=500):
+            if tx.get("status") in ("pending_manual", "pending_verification"):
+                pending_payments.append((t, tx))
         active_count += 1 if t.is_active else 0
         stats = await _tenant_stats(redis, t)
         pipe = redis.pipeline()
@@ -252,7 +286,8 @@ async def admin_dashboard(
                 f' <span class="badge bg-amber-50 text-amber-600 border border-amber-200 inline-flex items-center gap-1">'
                 f'{UI_ICONS["clock"]} {_e(t.plan_requested.upper())} demandé</span>'
             )
-        rows += f"""<tr class="hover:bg-slate-50 transition align-top">
+        if t.tenant_id in page_ids:
+            rows += f"""<tr class="hover:bg-slate-50 transition align-top">
   <td class="py-4 pl-5 pr-4">
     <p class="font-bold">{_e(t.name)}</p>
     <p class="text-xs text-slate-400"><code>{_e(t.tenant_id)}</code> · {_e(t.brand_name)}
@@ -284,8 +319,21 @@ async def admin_dashboard(
                 "<p>Aucun tenant — créez le premier.</p></div></td></tr>")
 
     all_events.sort(key=lambda e: e.get("ts", ""), reverse=True)
+    etypes = sorted({ev.get("type", "") for ev in all_events if ev.get("type")})
+    if etype:
+        all_events = [ev for ev in all_events if ev.get("type") == etype]
+    E_PER = 15
+    etotal = len(all_events)
+    epage = max(1, epage)
+    all_events = all_events[(epage - 1) * E_PER: epage * E_PER]
+    etype_opts = '<option value="">Tous les types</option>' + "".join(
+        f'<option value="{_e(t)}"{" selected" if t == etype else ""}>{_e(t)}</option>'
+        for t in etypes
+    )
+    epager = _pager("/admin", epage, etotal, E_PER, "epage",
+                    {"q": q, "etype": etype, "tpage": tpage if tpage > 1 else None})
     event_rows = ""
-    for ev in all_events[:50]:
+    for ev in all_events:
         label, cls = _EVENT_LABELS.get(
             ev.get("type", ""), (ev.get("type", "?"), "bg-slate-100 text-slate-600")
         )
@@ -305,6 +353,43 @@ async def admin_dashboard(
                       "<p>Aucune interaction enregistrée.</p></div></td></tr>")
 
     open_support = int(await redis.llen("support:open") or 0)
+    queue_len = int(await redis.zcard("mail:queue") or 0)
+
+    _pst = {"pending_manual": ("En attente", "bg-amber-100 text-amber-700"),
+            "pending_verification": ("À vérifier", "bg-sky-100 text-sky-700")}
+    X_PER = 10
+    xpage = max(1, xpage)
+    paypage = pending_payments[(xpage - 1) * X_PER: xpage * X_PER]
+    xpager = _pager("/admin", xpage, len(pending_payments), X_PER, "xpage",
+                    {"q": q, "etype": etype,
+                     "tpage": tpage if tpage > 1 else None,
+                     "epage": epage if epage > 1 else None})
+    pay_rows = ""
+    for t, tx in paypage:
+        label, cls = _pst.get(tx.get("status"), ("?", "bg-slate-100 text-slate-500"))
+        ref = ""
+        if tx.get("payer_ref"):
+            ref = (f'<code class="text-[11px] text-brand-600">{_e(tx["payer_ref"])}</code>'
+                   + (f'<br><span class="text-[11px] text-slate-400">{_e(tx["payer_info"])}</span>'
+                      if tx.get("payer_info") else ""))
+        period = " / annuel" if tx.get("period") == "yearly" else ""
+        pay_rows += f'''<tr class="border-t border-slate-100 hover:bg-slate-50">
+  <td class="py-3 pl-5 pr-4">
+    <p class="font-semibold text-sm">{_e(t.name)}</p>
+    <code class="text-[11px] text-slate-400">{_e(t.tenant_id)}</code>
+  </td>
+  <td class="py-3 pr-4 text-sm font-bold">{_e((tx.get("plan") or "—").upper())}
+    <span class="text-[11px] font-normal text-slate-400">{period}</span></td>
+  <td class="py-3 pr-4 text-sm whitespace-nowrap">{_e(str(tx.get("amount") or "—"))} {_e(tx.get("currency") or "")}</td>
+  <td class="py-3 pr-4 text-xs text-slate-500">{_e(tx.get("method") or tx.get("provider") or "—")}</td>
+  <td class="py-3 pr-4">{ref or '<span class="text-xs text-slate-300">—</span>'}</td>
+  <td class="py-3 pr-4"><span class="badge {cls}">{_e(label)}</span></td>
+  <td class="py-3 pr-5 text-right"><a href="/admin/tenants/{_e(t.tenant_id)}" class="btn-soft">Traiter</a></td>
+</tr>'''
+    if not pay_rows:
+        pay_rows = ('<tr><td colspan="7"><div class="empty">'
+                    f"<span class='empty-ic'>{UI_ICONS['inbox']}</span>"
+                    "<p>Aucun paiement en attente de validation.</p></div></td></tr>")
 
     content = f"""
 <div class="flex items-center justify-between mb-6">
@@ -315,7 +400,7 @@ async def admin_dashboard(
   <a href="/admin/tenants/new" class="btn-primary text-sm">+ Nouveau tenant</a>
 </div>
 
-<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+<div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
 
   <div class="card kpi p-4">
     <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Tenants</p>
@@ -331,6 +416,16 @@ async def admin_dashboard(
     <p class="kpi-num mt-1" style="font-size:1.5rem">{today_emails}</p>
   </div>
   <div class="card kpi p-4">
+    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">File d'emails</p>
+    <p class="kpi-num mt-1" style="font-size:1.5rem">{queue_len}
+      <span class="text-xs font-semibold text-slate-400">en cours</span></p>
+  </div>
+  <div class="card kpi p-4">
+    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Paiements à valider</p>
+    <p class="kpi-num mt-1" style="font-size:1.5rem">{len(pending_payments)}
+      <span class="text-xs font-semibold text-amber-600">action requise</span></p>
+  </div>
+  <div class="card kpi p-4">
     <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Support</p>
     <p class="kpi-num mt-1" style="font-size:1.5rem">{open_support}
       <a href="/admin/support" class="text-xs font-semibold text-brand-600">voir →</a></p>
@@ -338,7 +433,36 @@ async def admin_dashboard(
 </div>
 
 <div class="card overflow-hidden mb-8">
-  <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-bold">Tenants</h2></div>
+  <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+    <h2 class="font-bold">Paiements en attente de validation</h2>
+    <span class="badge bg-amber-100 text-amber-700">{len(pending_payments)}</span>
+  </div>
+  <div class="overflow-x-auto">
+  <table class="w-full min-w-[860px]">
+    <thead><tr class="text-left text-xs text-slate-400 border-b border-slate-100">
+      <th class="pl-5 py-2 font-semibold">Tenant</th>
+      <th class="py-2 font-semibold">Plan</th>
+      <th class="py-2 font-semibold">Montant</th>
+      <th class="py-2 font-semibold">Moyen</th>
+      <th class="py-2 font-semibold">Référence déclarée</th>
+      <th class="py-2 font-semibold">Statut</th>
+      <th class="pr-5"></th>
+    </tr></thead>
+    <tbody>{pay_rows}</tbody>
+  </table>
+  </div>
+  {xpager}
+</div>
+
+<div class="card overflow-hidden mb-8">
+  <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
+    <h2 class="font-bold">Tenants</h2>
+    <form method="get" action="/admin" class="flex items-center gap-2">
+      <input name="q" value="{_e(q)}" placeholder="Rechercher (nom, id, plan)…"
+             class="input !py-1.5 !px-3 text-xs w-52">
+      <button class="btn-soft text-xs">Filtrer</button>
+    </form>
+  </div>
   <div class="overflow-x-auto">
   <table class="dt min-w-[860px]">
     <thead><tr>
@@ -351,18 +475,26 @@ async def admin_dashboard(
     <tbody>{rows}</tbody>
   </table>
   </div>
+  {tpager}
 </div>
 
 <div class="card overflow-hidden">
-  <div class="px-5 py-4 border-b border-slate-100">
-    <h2 class="font-bold">Journal des interactions</h2>
-    <p class="text-xs text-slate-500 mt-0.5">50 derniers événements, tous tenants confondus.</p>
+  <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
+    <div>
+      <h2 class="font-bold">Journal des interactions</h2>
+      <p class="text-xs text-slate-500 mt-0.5">Derniers événements, tous tenants confondus.</p>
+    </div>
+    <form method="get" action="/admin">
+      <select name="etype" onchange="this.form.submit()"
+              class="input !py-1.5 !px-2 text-xs">{etype_opts}</select>
+    </form>
   </div>
   <div class="overflow-x-auto">
   <table class="w-full min-w-[720px]">
     <tbody>{event_rows}</tbody>
   </table>
   </div>
+  {epager}
 </div>"""
     return _admin_page("Administration", content)
 
@@ -404,6 +536,7 @@ def _tenant_form(action: str, t: Tenant | None, include_account: bool) -> str:
         for p in PAYMENT_PROVIDERS
     )
     unlimited_checked = " checked" if t and t.unlimited else ""
+    sandbox_checked = " checked" if t and t.sandbox else ""
 
     id_field = ""
     if t is None:
@@ -492,6 +625,12 @@ def _tenant_form(action: str, t: Tenant | None, include_account: bool) -> str:
     <input name="unlimited" type="checkbox" id="unlimited" class="h-4 w-4"{unlimited_checked}>
     <label for="unlimited" class="text-sm font-semibold text-brand-700">
       Partenaire — quotas et cooldown illimités (bypass total du rate-limit)</label>
+  </div>
+  <div class="md:col-span-2 flex items-center gap-2 bg-slate-50 rounded-lg p-3">
+    <input name="sandbox" type="checkbox" id="sandbox" class="h-4 w-4"{sandbox_checked}>
+    <label for="sandbox" class="text-sm font-semibold text-slate-700">
+      Mode sandbox — les envois passent le pipeline complet mais sont capturés
+      (aucun mail réel) ; visibles dans son dashboard</label>
   </div>
   <div><label class="text-xs font-semibold text-slate-600">Statut de facturation</label>
   <select name="billing_status" class="input mt-1">{billing_options}</select></div>
@@ -675,6 +814,7 @@ async def admin_edit_tenant(
     request: Request,
     settings: Settings = Depends(get_settings),
     saved: str = "",
+    hpage: int = 1,
 ) -> HTMLResponse:
     await _require_admin(request, settings)
     tenant = await TenantStore(request.app.state.redis).get(tenant_id)
@@ -752,7 +892,39 @@ async def admin_edit_tenant(
       <input type="hidden" name="action" value="reject_plan">
       <button class="text-xs font-semibold text-slate-600 border border-slate-200 rounded-lg px-4 py-2 hover:bg-slate-50">Refuser la demande</button>
     </form>"""
-    payments = await list_payments(request.app.state.redis, tenant_id)
+    from src.services.suppression import list_suppressions
+
+    suppressions = await list_suppressions(request.app.state.redis, tenant_id)
+    supp_html = ""
+    if suppressions:
+        _srows = "".join(
+            f'<tr class="border-t border-slate-100">'
+            f'<td class="py-2 pr-3 text-xs">{_e(s["email"])}</td>'
+            f'<td class="py-2 pr-3"><span class="badge bg-rose-100 text-rose-700">'
+            f'{_e(s.get("reason") or "—")}</span></td>'
+            f'<td class="py-2 pr-3 text-xs text-slate-400">{_e(s.get("source") or "—")}</td>'
+            f'<td class="py-2 text-right">'
+            f'<form method="post" action="/admin/tenants/{_e(tenant_id)}/unsuppress" class="inline">'
+            f'<input type="hidden" name="email" value="{_e(s["email"])}">'
+            f'<button class="btn-soft text-xs" data-confirm="Retirer la suppression ? '
+            f'l\'adresse redeviendra joignable." data-confirm-ok="Retirer">Retirer</button>'
+            f'</form></td></tr>'
+            for s in suppressions[:20]
+        )
+        supp_html = f"""
+  <div class="mt-4 pt-4 border-t border-slate-100">
+    <p class="text-xs font-semibold text-rose-600 mb-2">Liste de suppression —
+    {len(suppressions)} adresse(s) bloquée(s) (bounce/plainte)</p>
+    <div class="overflow-x-auto"><table class="w-full"><tbody>{_srows}</tbody></table></div>
+    {f'<p class="text-[11px] text-slate-400 mt-1">… et {len(suppressions) - 20} autre(s)</p>' if len(suppressions) > 20 else ""}
+  </div>"""
+
+    payments = await list_payments(request.app.state.redis, tenant_id, limit=500)
+    hpage = max(1, hpage)
+    hpager = _pager(
+        f"/admin/tenants/{tenant_id}", hpage, len(payments), 10, "hpage"
+    )
+    payments = payments[(hpage - 1) * 10: hpage * 10]
     payments_html = ""
     if payments:
         _pst = {"paid": ("Payé", "bg-emerald-100 text-emerald-700"),
@@ -786,6 +958,7 @@ async def admin_edit_tenant(
   <div class="mt-4 pt-4 border-t border-slate-100">
     <p class="text-xs font-semibold text-slate-600 mb-2">Transactions en ligne</p>
     <div class="overflow-x-auto"><table class="w-full"><tbody>{_prow}</tbody></table></div>
+    {hpager}
   </div>"""
     content = f"""
 <div class="flex items-center justify-between mb-6">
@@ -831,6 +1004,7 @@ async def admin_edit_tenant(
     {reject_plan_form}
   </div>
   {payments_html}
+  {supp_html}
   <p class="text-[11px] text-slate-400 mt-3">À utiliser si Stripe / PayPal / mobile money est
   indisponible ou pour un paiement reçu hors ligne — la trace reste via le prestataire « manual ».</p>
 </div>
@@ -883,6 +1057,7 @@ async def admin_update_tenant(
     rollout_percentage: int = Form(100),
     plan: str = Form("free"),
     unlimited: str = Form(""),
+    sandbox: str = Form(""),
     billing_status: str = Form("trialing"),
     paid_until: str = Form(""),
     payment_provider: str = Form(""),
@@ -918,6 +1093,7 @@ async def admin_update_tenant(
         "allowed_purposes": _csv(allowed_purposes) or ["login_2fa"],
         "plan": plan,
         "unlimited": unlimited == "on",
+        "sandbox": sandbox == "on",
         "billing_status": (
             billing_status if billing_status in BILLING_STATUSES else "trialing"
         ),
@@ -932,6 +1108,12 @@ async def admin_update_tenant(
     }
     if smtp_password.strip():
         updates["smtp_password"] = smtp_password.strip()
+
+    # Horodatage warm-up : nouveau serveur SMTP -> compteur à zéro.
+    _cur = await TenantStore(request.app.state.redis).get(tenant_id)
+    _nh = _opt(smtp_host)
+    if _cur and _nh != _cur.smtp_host:
+        updates["smtp_configured_at"] = time.time() if _nh else None
 
     # Les champs optionnels vides repassent à None (= fallback config globale)
     tenant = await TenantStore(request.app.state.redis).update(tenant_id, updates)
@@ -1047,11 +1229,17 @@ async def admin_toggle_tenant(
 
 @router.get("/support", response_class=HTMLResponse)
 async def admin_support(
-    request: Request, settings: Settings = Depends(get_settings)
+    request: Request,
+    spage: int = 1,
+    settings: Settings = Depends(get_settings),
 ) -> HTMLResponse:
     await _require_admin(request, settings)
     redis = request.app.state.redis
-    ids = await redis.lrange("support:open", 0, 99)
+    all_ids = await redis.lrange("support:open", 0, -1)
+    S_PER = 15
+    spage = max(1, spage)
+    spager = _pager("/admin/support", spage, len(all_ids), S_PER, "spage")
+    ids = all_ids[(spage - 1) * S_PER: spage * S_PER]
     rows = ""
     for rid in ids:
         raw = await redis.get(f"support:{rid}")
@@ -1085,11 +1273,12 @@ async def admin_support(
     content = f"""
 <div class="flex items-center justify-between mb-6">
   <h1 class="text-2xl font-extrabold">Demandes support</h1>
-  <span class="badge bg-brand-100 text-brand-700">{len(ids)} en attente</span>
+  <span class="badge bg-brand-100 text-brand-700">{len(all_ids)} en attente</span>
 </div>
 <div class="card overflow-hidden">
   <table class="w-full text-sm"><tbody class="divide-y divide-slate-100">
   {rows}{empty}</tbody></table>
+  {spager}
 </div>"""
     return _admin_page("Support", content)
 
@@ -1117,6 +1306,21 @@ async def admin_support_resolve(
 # ---------------------------------------------------------------------
 # Gestion complète du compte client — utilisateurs + suppression tenant
 # ---------------------------------------------------------------------
+
+@router.post("/tenants/{tenant_id}/unsuppress")
+async def admin_unsuppress(
+    tenant_id: str,
+    request: Request,
+    email: str = Form(""),
+    settings: Settings = Depends(get_settings),
+    _: None = Depends(require_same_origin),
+):
+    """Retire une adresse de la liste de suppression du tenant."""
+    await _require_admin(request, settings)
+    from src.services.suppression import remove_suppression
+    await remove_suppression(request.app.state.redis, tenant_id, email)
+    return RedirectResponse(f"/admin/tenants/{tenant_id}", status_code=303)
+
 
 @router.post("/tenants/{tenant_id}/users/{user_id}/delete")
 async def admin_delete_user(

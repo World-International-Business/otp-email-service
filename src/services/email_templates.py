@@ -28,19 +28,16 @@ def resolve_logo_url(logo_url: str | None, public_base_url: str) -> str | None:
     return logo_url
 
 
-# Styles mobiles (clients qui honorent les media queries : Gmail, Apple
-# Mail, Outlook mobile). Les styles inline restent la référence pour les
-# clients qui les ignorent (Outlook desktop) — le layout reste lisible.
+# Design « fluid-first » : les styles de base inline sont déjà optimisés
+# mobile (la plupart des clients mobiles — Gmail pour comptes externes,
+# Samsung Mail, webmails — ignorent les <style>/media queries). La media
+# query n'apporte que des ajustements bonus pour les clients qui la lisent.
 _MEDIA_CSS = (
     "@media only screen and (max-width:560px){"
-    ".mh-wrap{padding:14px 8px!important}"
-    ".mh-px{padding-left:20px!important;padding-right:20px!important}"
-    ".mh-py{padding-top:22px!important;padding-bottom:22px!important}"
-    ".mh-body{padding-top:26px!important;padding-bottom:26px!important}"
-    ".mh-h1{font-size:19px!important}"
-    ".mh-digit{width:38px!important;height:48px!important;font-size:24px!important}"
-    ".mh-btn{padding:12px 22px!important;font-size:14px!important}"
-    ".mh-foot{font-size:11px!important}"
+    ".mh-wrap{padding:10px 6px!important}"
+    ".mh-px{padding-left:16px!important;padding-right:16px!important}"
+    ".mh-digit{width:36px!important;height:46px!important;font-size:22px!important}"
+    ".mh-gap{width:5px!important}"
     "}"
 )
 
@@ -82,28 +79,30 @@ def email_layout(
 </head>
 <body style="margin:0; padding:0; background:#eef0f6;
      font-family:'Segoe UI', Arial, sans-serif; -webkit-font-smoothing:antialiased;">
-  <div style="display:none; max-height:0; overflow:hidden;">{_esc(preheader)}</div>
+  <div style="display:none; max-height:0; overflow:hidden; mso-hide:all;
+       font-size:1px; line-height:1px; color:#eef0f6;">{_esc(preheader)}</div>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-         class="mh-wrap" style="background:#eef0f6; padding:32px 16px;">
+         class="mh-wrap" style="background:#eef0f6; padding:18px 8px;">
     <tr><td align="center">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
              style="width:100%; max-width:520px;">
 
         <!-- Header marque -->
-        <tr><td class="mh-px mh-py" style="background:{accent};
-              border-radius:16px 16px 0 0; padding:26px 32px;">
+        <tr><td class="mh-px" style="background:{accent};
+              border-radius:16px 16px 0 0; padding:20px 20px;">
           {logo}
         </td></tr>
 
         <!-- Corps -->
-        <tr><td class="mh-px mh-body" style="background:#ffffff; padding:36px 32px;
-              border-left:1px solid #e5e7f0; border-right:1px solid #e5e7f0;">
+        <tr><td class="mh-px" style="background:#ffffff; padding:30px 20px;
+              border-left:1px solid #e5e7f0; border-right:1px solid #e5e7f0;
+              overflow-wrap:break-word; word-break:break-word;">
           {content_html}
         </td></tr>
 
         <!-- Footer -->
         <tr><td class="mh-px" style="background:#f8f9fd; border:1px solid #e5e7f0; border-top:none;
-              border-radius:0 0 16px 16px; padding:20px 32px; text-align:center;">
+              border-radius:0 0 16px 16px; padding:16px 20px; text-align:center;">
           <p class="mh-foot" style="margin:0; color:#9aa0b4; font-size:12px; line-height:1.6;">
             {footer_text}<br>
             Propulsé par MailHub
@@ -148,12 +147,12 @@ def otp_html(
         warning = "Ne partagez jamais ce code, même avec notre support."
         preheader = f"Votre code {brand} est {c}"
 
-    digits = "".join(
-        f'<td align="center" class="mh-digit" style="width:44px; height:56px;'
-        f' background:#eef2ff; border:1.5px solid #c7d2fe; border-radius:10px;'
-        f' font-size:30px; font-weight:800; color:{_sanitize_color(color)};'
+    gap = '<td class="mh-gap" style="width:6px;"></td>'
+    digits = gap.join(
+        f'<td align="center" class="mh-digit" style="width:38px; height:50px;'
+        f' background:#eef2ff; border:1.5px solid #c7d2fe; border-radius:9px;'
+        f' font-size:26px; font-weight:800; color:{_sanitize_color(color)};'
         f' font-family:Consolas,monospace;">{_esc(d)}</td>'
-        f'<td style="width:8px;"></td>'
         for d in c
     )
     button = ""
@@ -168,7 +167,7 @@ def otp_html(
       </div>"""
 
     content = f"""
-      <h1 class="mh-h1" style="margin:0 0 8px; font-size:22px; font-weight:800;
+      <h1 class="mh-h1" style="margin:0 0 8px; font-size:20px; font-weight:800;
          color:#111827;">{title}</h1>
       <p style="margin:0 0 24px; color:#4b5563; font-size:15px; line-height:1.6;">{intro}</p>
       <table role="presentation" cellpadding="0" cellspacing="0"
@@ -194,7 +193,7 @@ def generic_html(
     fragment HTML déjà titré (évite le double titre)."""
     t = _esc(title) if title else ""
     h1 = (
-        f'<h1 class="mh-h1" style="margin:0 0 16px; font-size:22px;'
+        f'<h1 class="mh-h1" style="margin:0 0 16px; font-size:20px;'
         f' font-weight:800; color:#111827;">{t}</h1>'
         if t else ""
     )

@@ -50,8 +50,9 @@ otp-email-service/
 │   ├── api/                        # Transport HTTP — API REST /v1
 │   │   ├── dependencies.py         # Redis/provider/service + IP client fiable + CSRF web
 │   │   ├── middleware.py           # Logs JSON (request_id, IP, durée) + headers de sécurité
-│   │   ├── routes.py               # /v1/otp/send, /v1/otp/verify, /v1/email/send, /health
-│   │   └── admin_routes.py         # /v1/admin/tenants CRUD (X-Admin-Key)
+│   │   ├── routes.py               # /v1/otp/*, /v1/email/send + /v1/email/status/{id}
+│   │   ├── admin_routes.py         # /v1/admin/tenants CRUD (X-Admin-Key)
+│   │   └── billing_routes.py       # /v1/billing/webhooks/{stripe,paypal,cinetpay}
 │   │
 │   ├── core/                       # Domaine — sans HTTP
 │   │   ├── auth.py                 # API key + timestamp ±300 s + HMAC + nonce anti-rejeu

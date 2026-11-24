@@ -14,6 +14,7 @@ une application web, mobile ou backend. Tout ce qu'il faut savoir, étape par
 | `POST` | `/v1/otp/verify` | Vérifier le code saisi par l'utilisateur | HMAC |
 | `GET` | `/v1/otp/confirm` | Lien magique de vérification (clic dans l'email) | aucune (le lien est le secret) |
 | `POST` | `/v1/email/send` | Envoyer un email transactionnel | HMAC |
+| `GET` | `/v1/email/status/{message_id}` | Statut d'un envoi (`queued`/`retry`/`sent`/`dead`) | HMAC |
 | `GET` | `/health` | Healthcheck (`status`, `redis`, `version`) | aucune |
 | `POST` | `/v1/admin/tenants` | Créer un tenant (clé + secret affichés une fois) | `X-Admin-Key` |
 | `GET` | `/v1/admin/tenants` | Lister les tenants | `X-Admin-Key` |
@@ -119,12 +120,19 @@ endpoint, signé par `X-MailHub-Signature: sha256=<HMAC(body, hmac_secret)>` :
 
 | `X-MailHub-Event` | Données (`data`) |
 |---|---|
-| `email.sent` | message_id, to, type, subject |
+| `email.sent` | message_id, to, type, subject, via |
 | `email.failed` | message_id, to, type, error, attempts, will_retry |
 | `email.dead` | message_id, to, type, error, attempts (plus de retry) |
+| `email.opened` | message_id, to (pixel ouverture) |
+| `email.clicked` | message_id, to, url (lien cliqué) |
 | `otp.sent` | request_id, to, purpose, expires_in |
 | `otp.failed` | request_id, to, purpose, error |
 | `otp.verified` | request_id |
+| `tenant.smtp_failed` | smtp_host, error (healthcheck SMTP en échec) |
+| `tenant.smtp_failover` | to, smtp_host, primary_error (bascule expéditeur) |
+| `recipient.bounced` | email, kind, reason (hard bounce) |
+| `recipient.deferred` | email, kind, reason (soft bounce) |
+| `recipient.complained` | email, kind, reason (plainte spam) |
 
 3 tentatives (immédiat, +60 s, +5 min). Répondez 2xx pour acquitter.
 

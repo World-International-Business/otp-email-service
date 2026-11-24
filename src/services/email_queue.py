@@ -53,6 +53,7 @@ async def set_status(
     type_: str = "",
     error: str = "",
     attempts: int | None = None,
+    send_at_ts: float | None = None,
 ) -> None:
     """Met à jour le statut d'un envoi (merge avec l'existant)."""
     data = await get_status(redis, message_id) or {}
@@ -61,6 +62,10 @@ async def set_status(
         data["to"] = to
     if type_:
         data["type"] = type_
+    if send_at_ts:
+        from datetime import datetime, timezone
+        data["scheduled_for"] = datetime.fromtimestamp(
+            send_at_ts, tz=timezone.utc).isoformat()
     if error:
         data["error"] = error[:200]
     elif status != "dead":
@@ -84,6 +89,7 @@ async def enqueue(
     text_body: str,
     html_body: str,
     client_ip: str = "unknown",
+    send_at_ts: float | None = None,
 ) -> str:
     """Ajoute un email à la file. Retourne le message_id consultable."""
     message_id = f"msg_{secrets.token_urlsafe(16)}"
@@ -103,9 +109,10 @@ async def enqueue(
     }
     await redis.set(_job_key(job_id), json.dumps(job), ex=JOB_TTL)
     await set_status(
-        redis, message_id, tenant_id, "queued", to=to_email, type_=email_type, attempts=0
+        redis, message_id, tenant_id, "queued", to=to_email,
+        type_=email_type, attempts=0, send_at_ts=send_at_ts,
     )
-    await redis.zadd(QUEUE_KEY, {job_id: time.time()})
+    await redis.zadd(QUEUE_KEY, {job_id: send_at_ts or time.time()})
     return message_id
 
 
@@ -118,69 +125,132 @@ async def process_email_queue_once(redis, email_service, max_attempts: int = 4) 
     due = await redis.zrangebyscore(QUEUE_KEY, "-inf", now, start=0, num=10)
     processed = 0
     for job_id in due:
-        raw = await redis.get(_job_key(job_id))
-        if not raw:
-            await redis.zrem(QUEUE_KEY, job_id)
-            continue
-        job = json.loads(raw)
-        job["attempts"] += 1
-        tenant = await TenantStore(redis).get(job["tenant_id"])
-
-        async def _finish(status: str, error: str = "") -> None:
-            await set_status(
-                redis, job["message_id"], job["tenant_id"], status,
-                error=error, attempts=job["attempts"],
-            )
-            await redis.delete(_job_key(job_id))
-            await redis.zrem(QUEUE_KEY, job_id)
-
-        if not tenant or not tenant.is_active:
-            await _finish("dead", "tenant_missing_or_inactive")
+        # Claim atomique : un seul worker traite un job donné, même si deux
+        # répliques polluent la file en même temps (déploiement multi-instance).
+        # Le verrou est TOUJOURS relâché en fin d'itération : sur le chemin
+        # retry le job est reprogrammé à plus tard, sinon il resterait
+        # bloqué jusqu'à l'expiration du verrou.
+        if not await redis.set(f"mail:lock:{job_id}", "1", nx=True, ex=120):
             continue
         try:
-            await email_service.deliver(
-                tenant,
-                job["to"],
-                job["subject"],
-                job["text_body"],
-                job["html_body"],
-                job["message_id"],
-                job["type"],
-                client_ip=job.get("client_ip", "queue"),
-            )
-        except EmailSendError as exc:
-            reason = str(exc)[:200]
-            if job["attempts"] >= max_attempts:
-                await _finish("dead", reason)
-                # Rendre le quota réservé au POST : l'email n'est jamais parti.
-                from src.services.rate_limiter import RateLimiter
-
-                await RateLimiter(redis, tenant).release_email(job["to"])
-                await log_event(
-                    redis, tenant, "email_dead",
-                    message_id=job["message_id"], error=reason[:100],
-                )
-                await enqueue_webhook(
-                    redis, tenant, "email.dead",
-                    {"message_id": job["message_id"], "to": job["to"],
-                     "type": job["type"], "error": reason,
-                     "attempts": job["attempts"]},
-                )
-            else:
-                delay = RETRY_DELAYS[min(job["attempts"] - 1, len(RETRY_DELAYS) - 1)]
-                await redis.set(_job_key(job_id), json.dumps(job), ex=JOB_TTL)
-                await redis.zadd(QUEUE_KEY, {job_id: now + delay})
-                await set_status(
-                    redis, job["message_id"], job["tenant_id"], "retry",
-                    error=reason, attempts=job["attempts"],
-                )
-                await enqueue_webhook(
-                    redis, tenant, "email.failed",
-                    {"message_id": job["message_id"], "to": job["to"],
-                     "type": job["type"], "error": reason,
-                     "attempts": job["attempts"], "will_retry": True},
-                )
-        else:
-            await _finish("sent")
-        processed += 1
+            processed += await _process_one(redis, email_service, job_id,
+                                          now, max_attempts)
+        except Exception:
+            # Erreur inattendue (JSON corrompu, bug interne…) : reprogrammer
+            # à +60s au lieu de laisser le job échéant repris à chaque poll —
+            # sinon boucle infinie de traitements (et envois potentiels).
+            logger.exception("email_queue_job_error", extra={"job_id": job_id})
+            await redis.zadd(QUEUE_KEY, {job_id: time.time() + 60})
+        finally:
+            await redis.delete(f"mail:lock:{job_id}")
     return processed
+
+
+async def _process_one(redis, email_service, job_id: str, now: float,
+                       max_attempts: int) -> int:
+    raw = await redis.get(_job_key(job_id))
+    if not raw:
+        await redis.zrem(QUEUE_KEY, job_id)
+        return 0
+    job = json.loads(raw)
+    job["attempts"] += 1
+    tenant = await TenantStore(redis).get(job["tenant_id"])
+
+    async def _finish(status: str, error: str = "") -> None:
+        await set_status(
+            redis, job["message_id"], job["tenant_id"], status,
+            error=error, attempts=job["attempts"],
+        )
+        await redis.delete(_job_key(job_id))
+        await redis.zrem(QUEUE_KEY, job_id)
+
+    if not tenant or not tenant.is_active:
+        await _finish("dead", "tenant_missing_or_inactive")
+        return 1
+
+    # Re-contrôle à la livraison : un bounce/plainte arrivé depuis l'enqueue
+    # doit bloquer l'envoi ; un cap warm-up atteint replanifie à demain
+    # sans brûler de tentative (le quota destinataire reste réservé).
+    from src.services.suppression import suppression_reason
+    from src.services.warmup import seconds_until_midnight, warmup_state
+
+    reason = await suppression_reason(redis, tenant.tenant_id, job["to"])
+    if reason:
+        from src.services.events import mask_email
+        from src.services.rate_limiter import RateLimiter
+
+        await RateLimiter(redis, tenant).release_email(job["to"])
+        await log_event(
+            redis, tenant, "email_suppressed",
+            email=mask_email(job["to"]), reason=reason,
+            message_id=job["message_id"],
+        )
+        await _finish("dead", "recipient_suppressed")
+        return 1
+    _settings = getattr(email_service, "settings", None)
+    remaining, cap, _ = (
+        await warmup_state(redis, _settings, tenant)
+        if _settings is not None else (None, None, 0)
+    )
+    if remaining == 0:
+        job["attempts"] -= 1  # pas une vraie tentative d'envoi
+        await redis.set(_job_key(job_id), json.dumps(job), ex=JOB_TTL)
+        await redis.zadd(QUEUE_KEY, {job_id: now + seconds_until_midnight()})
+        await set_status(
+            redis, job["message_id"], tenant.tenant_id, "retry",
+            error="warmup_daily_cap", attempts=job["attempts"],
+        )
+        from src.services.events import mask_email
+        await log_event(
+            redis, tenant, "warmup_limited",
+            email=mask_email(job["to"]), daily_cap=cap,
+            message_id=job["message_id"],
+        )
+        return 1
+
+    try:
+        await email_service.deliver(
+            tenant,
+            job["to"],
+            job["subject"],
+            job["text_body"],
+            job["html_body"],
+            job["message_id"],
+            job["type"],
+            client_ip=job.get("client_ip", "queue"),
+        )
+    except EmailSendError as exc:
+        reason = str(exc)[:200]
+        if job["attempts"] >= max_attempts:
+            await _finish("dead", reason)
+            # Rendre le quota réservé au POST : l'email n'est jamais parti.
+            from src.services.rate_limiter import RateLimiter
+
+            await RateLimiter(redis, tenant).release_email(job["to"])
+            await log_event(
+                redis, tenant, "email_dead",
+                message_id=job["message_id"], error=reason[:100],
+            )
+            await enqueue_webhook(
+                redis, tenant, "email.dead",
+                {"message_id": job["message_id"], "to": job["to"],
+                 "type": job["type"], "error": reason,
+                 "attempts": job["attempts"]},
+            )
+        else:
+            delay = RETRY_DELAYS[min(job["attempts"] - 1, len(RETRY_DELAYS) - 1)]
+            await redis.set(_job_key(job_id), json.dumps(job), ex=JOB_TTL)
+            await redis.zadd(QUEUE_KEY, {job_id: now + delay})
+            await set_status(
+                redis, job["message_id"], job["tenant_id"], "retry",
+                error=reason, attempts=job["attempts"],
+            )
+            await enqueue_webhook(
+                redis, tenant, "email.failed",
+                {"message_id": job["message_id"], "to": job["to"],
+                 "type": job["type"], "error": reason,
+                 "attempts": job["attempts"], "will_retry": True},
+            )
+    else:
+        await _finish("sent")
+    return 1
