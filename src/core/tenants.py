@@ -28,6 +28,7 @@ class Tenant(BaseModel):
     smtp_password: str | None = None
     smtp_use_ssl: bool | None = None  # None = auto (SSL si port 465)
     smtp_configured_at: float | None = None  # pose du SMTP custom (warm-up)
+    sandbox: bool = False            # True = envois capturés, pas de SMTP réel
     risky_countries: list[str] = Field(default_factory=list)
     rollout_percentage: int = Field(default=100, ge=0, le=100)
     allowed_purposes: list[str] = Field(default_factory=lambda: ["login_2fa"])

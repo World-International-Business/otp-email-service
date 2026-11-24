@@ -534,6 +534,7 @@ def _tenant_form(action: str, t: Tenant | None, include_account: bool) -> str:
         for p in PAYMENT_PROVIDERS
     )
     unlimited_checked = " checked" if t and t.unlimited else ""
+    sandbox_checked = " checked" if t and t.sandbox else ""
 
     id_field = ""
     if t is None:
@@ -622,6 +623,12 @@ def _tenant_form(action: str, t: Tenant | None, include_account: bool) -> str:
     <input name="unlimited" type="checkbox" id="unlimited" class="h-4 w-4"{unlimited_checked}>
     <label for="unlimited" class="text-sm font-semibold text-brand-700">
       Partenaire — quotas et cooldown illimités (bypass total du rate-limit)</label>
+  </div>
+  <div class="md:col-span-2 flex items-center gap-2 bg-slate-50 rounded-lg p-3">
+    <input name="sandbox" type="checkbox" id="sandbox" class="h-4 w-4"{sandbox_checked}>
+    <label for="sandbox" class="text-sm font-semibold text-slate-700">
+      Mode sandbox — les envois passent le pipeline complet mais sont capturés
+      (aucun mail réel) ; visibles dans son dashboard</label>
   </div>
   <div><label class="text-xs font-semibold text-slate-600">Statut de facturation</label>
   <select name="billing_status" class="input mt-1">{billing_options}</select></div>
@@ -1048,6 +1055,7 @@ async def admin_update_tenant(
     rollout_percentage: int = Form(100),
     plan: str = Form("free"),
     unlimited: str = Form(""),
+    sandbox: str = Form(""),
     billing_status: str = Form("trialing"),
     paid_until: str = Form(""),
     payment_provider: str = Form(""),
@@ -1083,6 +1091,7 @@ async def admin_update_tenant(
         "allowed_purposes": _csv(allowed_purposes) or ["login_2fa"],
         "plan": plan,
         "unlimited": unlimited == "on",
+        "sandbox": sandbox == "on",
         "billing_status": (
             billing_status if billing_status in BILLING_STATUSES else "trialing"
         ),

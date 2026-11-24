@@ -1854,6 +1854,37 @@ async def dashboard(
         if tenant.unlimited else
         f'<span class="badge bg-brand-50 text-brand-700 border border-brand-100">{plan_label}</span>'
     )
+    # Mode sandbox : bannière + boîte de capture des envois simulés
+    sandbox_html = ""
+    if tenant.sandbox:
+        from src.services.sandbox import list_outbox
+        outbox = await list_outbox(redis, tenant.tenant_id, 10)
+        sb_rows = ""
+        for m in outbox:
+            ts = time.strftime("%Y-%m-%d %H:%M", time.localtime(m.get("ts", 0)))
+            sb_rows += f"""
+        <tr class="border-t border-slate-100">
+          <td class="py-2 pl-5 pr-4 text-xs text-slate-500 whitespace-nowrap">{ts}</td>
+          <td class="py-2 pr-4 text-xs">{_e(m.get("to") or "")}</td>
+          <td class="py-2 pr-4"><span class="badge bg-slate-100 text-slate-600">{_e(m.get("type") or "")}</span></td>
+          <td class="py-2 pr-4 text-xs font-semibold">{_e(m.get("subject") or "")}</td>
+          <td class="py-2 pr-5 text-xs">
+            <details><summary class="cursor-pointer text-brand-600">corps</summary>
+            <pre class="mt-1 p-2 bg-slate-50 rounded text-[11px] whitespace-pre-wrap max-h-40 overflow-auto">{_e(m.get("text_body") or "")}</pre></details>
+          </td>
+        </tr>"""
+        sandbox_html = f"""
+<div class="card p-4 sm:p-6 mb-6 border-amber-300 border-2">
+  <div class="flex items-center gap-2 mb-2">
+    <span class="badge bg-amber-100 text-amber-700">MODE SANDBOX</span>
+    <p class="text-xs text-slate-500">Aucun email réel n'est envoyé — les
+    envois sont capturés ci-dessous pour vos tests d'intégration.</p>
+  </div>
+  <div class="overflow-x-auto"><table class="w-full min-w-[640px]"><tbody>
+    {sb_rows or '<tr><td class="py-6 text-center text-sm text-slate-400">Aucun envoi capturé pour le moment.</td></tr>'}
+  </tbody></table></div>
+</div>"""
+
     content = f"""
 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-8">
   <div>
@@ -1865,6 +1896,8 @@ async def dashboard(
     <a href="/demo" class="btn-outline text-xs py-2 px-4">Tester l'API</a>
   </div>
 </div>
+
+{sandbox_html}
 
 <div class="grid md:grid-cols-3 gap-5 mb-8">{stats_cards}</div>
 

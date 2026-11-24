@@ -599,3 +599,61 @@ async def test_send_at_past_sends_immediately(client):
         "send_at": past, "data": {"title": "T", "message": "m"}})
     assert resp.status_code == 200
     assert resp.json()["scheduled_for"] is None
+
+
+# ---------------------------------------------------------------- sandbox
+
+async def test_sandbox_captures_without_smtp(client, redis):
+    """tenant.sandbox => aucun appel provider, envois capturés en outbox."""
+    from src.core.tenants import TenantStore
+    from src.services.events import get_events
+    from src.services.sandbox import list_outbox
+
+    store = TenantStore(redis)
+    try:
+        await store.update("default", {"sandbox": True})
+        prov = _SpyProvider()
+        client.app.state.otp_service.email_provider = prov
+        client.app.state.email_service.email_provider = prov
+
+        resp = _post(client, "/v1/otp/send", {
+            "user_id": str(uuid.uuid4()), "email": "u@x.co",
+            "country_code": "FR", "purpose": "login_2fa"})
+        assert resp.status_code == 200, resp.text
+        assert len(prov.sent) == 0  # aucun mail réel
+
+        box = await list_outbox(redis, "default")
+        assert len(box) == 1
+        assert box[0]["type"] == "otp" and box[0]["to"] == "u@x.co"
+        assert re.search(r"\b\d{6}\b", box[0]["text_body"])
+
+        tenant = await store.get("default")
+        events = await get_events(redis, tenant)
+        sent = next(e for e in events if e["type"] == "otp_sent")
+        assert sent["via"] == "sandbox"
+    finally:
+        await store.update("default", {"sandbox": False})
+        await redis.delete("t:default:sandbox_outbox")
+
+
+async def test_sandbox_transactional_captured(client, redis):
+    """Le chemin transactionnel capture aussi (deliver)."""
+    from src.core.models import EmailSendRequest
+    from src.core.tenants import TenantStore
+    from src.services.sandbox import list_outbox
+
+    store = TenantStore(redis)
+    try:
+        await store.update("default", {"sandbox": True})
+        prov = _SpyProvider()
+        client.app.state.email_service.email_provider = prov
+        tenant = await store.get("default")
+        req = EmailSendRequest(to_email="u@x.co", type="notification",
+                               data={"title": "Hi", "message": "m"})
+        resp = await client.app.state.email_service.send(tenant, req)
+        assert resp.sent is True and len(prov.sent) == 0
+        box = await list_outbox(redis, "default")
+        assert any(m["type"] == "notification" for m in box)
+    finally:
+        await store.update("default", {"sandbox": False})
+        await redis.delete("t:default:sandbox_outbox")

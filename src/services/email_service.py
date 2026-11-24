@@ -17,6 +17,7 @@ from src.services.email_templates import generic_html, resolve_logo_url
 from src.services.events import incr_daily_stat, log_event, mask_email
 from src.services.failover import send_with_failover
 from src.services.rate_limiter import RateLimiter
+from src.services.sandbox import capture_send
 from src.services.suppression import suppression_reason
 from src.services.warmup import seconds_until_midnight, warmup_state
 from src.services.webhooks import enqueue_webhook
@@ -119,15 +120,25 @@ class EmailService:
         Lève EmailSendError — l'appelant décide : 502 (synchrone) ou retry
         (file d'attente).
         """
-        try:
-            _success, via_failover = await send_with_failover(
-                self.email_provider, self.settings, tenant, self.redis,
-                to_email=to_email, subject=subject, text_body=text_body,
-                html_body=html_body, sender=self._sender(tenant),
-                context={"message_id": message_id, "type": email_type},
+        if tenant.sandbox:
+            # Sandbox : pipeline complet mais capture au lieu de l'envoi SMTP.
+            await capture_send(
+                self.redis, tenant.tenant_id, to=to_email, subject=subject,
+                text_body=text_body, html_body=html_body,
+                kind=email_type, ref=message_id,
             )
-        except EmailSendError as exc:
-            raise EmailSendError(str(exc)[:150]) from exc
+            via = "sandbox"
+        else:
+            try:
+                _success, via_failover = await send_with_failover(
+                    self.email_provider, self.settings, tenant, self.redis,
+                    to_email=to_email, subject=subject, text_body=text_body,
+                    html_body=html_body, sender=self._sender(tenant),
+                    context={"message_id": message_id, "type": email_type},
+                )
+            except EmailSendError as exc:
+                raise EmailSendError(str(exc)[:150]) from exc
+            via = "failover" if via_failover else "tenant"
 
         await self.redis.incr(f"{tenant.key_prefix()}stats:emails_sent")
         await incr_daily_stat(self.redis, tenant, "emails_sent")
@@ -135,7 +146,7 @@ class EmailService:
             self.redis, tenant, "email_sent",
             email=mask_email(to_email),
             email_type=email_type, message_id=message_id,
-            via="failover" if via_failover else "tenant",
+            via=via,
             client_ip=client_ip,
         )
         logger.info(
@@ -151,7 +162,7 @@ class EmailService:
             self.redis, tenant, "email.sent",
             {"message_id": message_id, "to": to_email,
              "type": email_type, "subject": subject,
-             "via": "failover" if via_failover else "tenant"},
+             "via": via},
         )
 
     async def send(
