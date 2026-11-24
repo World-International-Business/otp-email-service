@@ -18,6 +18,7 @@ from src.services.email_queue import set_status
 from src.services.email_templates import generic_html, resolve_logo_url
 from src.services.events import incr_daily_stat, log_event, mask_email
 from src.services.failover import send_with_failover
+from src.services.quotas import check_quota, seconds_until_next_month
 from src.services.rate_limiter import RateLimiter
 from src.services.sandbox import capture_send
 from src.services.suppression import suppression_reason
@@ -102,6 +103,22 @@ class EmailService:
                 status_code=429,
                 detail=f"Sender warm-up in progress — daily cap "
                        f"{cap} reached, increases automatically",
+                headers={"Retry-After": str(retry)},
+            )
+
+        # Quota mensuel du plan (0/illimité = pas de contrôle).
+        allowed_q, used_q, quota_q = await check_quota(
+            self.redis, tenant, "emails_sent")
+        if not allowed_q:
+            retry = seconds_until_next_month()
+            await log_event(
+                self.redis, tenant, "email_quota_exceeded",
+                email=mask_email(to_email), used=used_q, quota=quota_q,
+            )
+            raise HTTPException(
+                status_code=429,
+                detail=f"Monthly plan quota reached ({used_q}/{quota_q} emails) "
+                       "— upgrade your plan",
                 headers={"Retry-After": str(retry)},
             )
 

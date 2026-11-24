@@ -15,6 +15,7 @@ from src.services.email_queue import set_status
 from src.services.email_templates import otp_html, resolve_logo_url
 from src.services.events import incr_daily_stat, log_event, mask_email
 from src.services.failover import send_with_failover
+from src.services.quotas import check_quota, seconds_until_next_month
 from src.services.rate_limiter import RateLimiter
 from src.services.sandbox import capture_send
 from src.services.suppression import suppression_reason
@@ -132,6 +133,23 @@ class OTPService:
                 channel=Channel.sms_fallback,
                 request_id="",
                 expires_in=0,
+            )
+
+        # Quota mensuel du plan (0/illimité = pas de contrôle).
+        allowed_q, used_q, quota_q = await check_quota(
+            self.redis, tenant, "otps_sent")
+        if not allowed_q:
+            retry = seconds_until_next_month()
+            await log_event(
+                self.redis, tenant, "otp_quota_exceeded",
+                email=mask_email(email), purpose=purpose,
+                used=used_q, quota=quota_q,
+            )
+            raise HTTPException(
+                status_code=429,
+                detail=f"Monthly plan quota reached ({used_q}/{quota_q} OTP) "
+                       "— upgrade your plan",
+                headers={"Retry-After": str(retry)},
             )
 
         allowed, retry_after = await self._rate_limiter(tenant).try_send(user_id, client_ip)

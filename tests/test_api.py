@@ -1168,3 +1168,201 @@ async def test_forgot_unknown_email_no_enumeration(client):
     assert "/forgot/verify?t=" in r.headers["location"]
     r2 = client.get(r.headers["location"])
     assert r2.status_code == 200 and "Code à 6 chiffres" in r2.text
+
+
+# ------------------------------------------------------ quotas mensuels
+
+async def test_monthly_otp_quota_blocks_at_cap(client, redis):
+    """Quota OTP mensuel atteint -> 429 + Retry-After ; illimité -> passe."""
+    from src.core.tenants import TenantStore
+    from src.services.events import incr_daily_stat
+
+    store = TenantStore(redis)
+    try:
+        # Free-plan counter au plafond : 300 OTP ce mois-ci.
+        for _ in range(300):
+            await incr_daily_stat(redis, await store.get("default"), "otps_sent")
+        await store.update("default", {"quota_otp_month": 300})
+        resp = _post(client, "/v1/otp/send", {
+            "user_id": str(uuid.uuid4()), "email": "q@x.co",
+            "country_code": "FR", "purpose": "login_2fa"})
+        assert resp.status_code == 429
+        assert "quota" in resp.json()["detail"].lower()
+        assert int(resp.headers["retry-after"]) > 0
+        # Illimité -> le même envoi passe.
+        await store.update("default", {"unlimited": True})
+        client.app.state.otp_service.email_provider = _SpyProvider()
+        resp = _post(client, "/v1/otp/send", {
+            "user_id": str(uuid.uuid4()), "email": "q@x.co",
+            "country_code": "FR", "purpose": "login_2fa"})
+        assert resp.status_code == 200, resp.text
+    finally:
+        await store.update(
+            "default", {"quota_otp_month": 0, "unlimited": False})
+
+
+async def test_quota_80_percent_warns_once(client, redis):
+    """À 80 % du quota : event quota_warning + une seule fois par mois."""
+    import time as _t
+
+    from src.core.tenants import TenantStore
+    from src.services.events import get_events
+
+    store = TenantStore(redis)
+    month = _t.strftime("%Y-%m", _t.gmtime())
+    mkey = f"t:default:stats_monthly:emails_sent:{month}"
+    saved = await redis.get(mkey)  # fakeredis partagé : restaurer après
+    try:
+        await store.update("default", {"quota_email_month": 10})
+        await redis.set(mkey, 8)  # 80 % du quota de 10
+        resp = _post(client, "/v1/email/send",
+                     {"to_email": "w@x.co", "type": "notification", "data": {}})
+        assert resp.status_code == 200, resp.text
+        resp = _post(client, "/v1/email/send",
+                     {"to_email": "w2@x.co", "type": "notification", "data": {}})
+        assert resp.status_code == 200
+        events = await get_events(redis, await store.get("default"))
+        warns = [e for e in events if e["type"] == "quota_warning"]
+        assert len(warns) == 1  # alerte unique par mois + métrique
+    finally:
+        await store.update("default", {"quota_email_month": 0})
+        await redis.delete(f"t:default:quota_warn:emails_sent:{month}")
+        if saved is None:
+            await redis.delete(mkey)
+        else:
+            await redis.set(mkey, saved)
+
+
+# ------------------------------------------------------ audit log admin
+
+async def test_admin_audit_trails_plan_change(client, redis):
+    """Chaque action admin sensible est consignée dans admin:audit."""
+    from src.core.tenants import TenantStore, plan_quota_updates
+    from src.services.audit import get_admin_audit
+
+    store = TenantStore(redis)
+    before = await store.get("default")
+    target = "pro" if before.plan != "pro" else "enterprise"
+    r = client.patch("/v1/admin/tenants/default",
+                     headers=_ADMIN, json={"plan": target})
+    assert r.status_code == 200
+    client.delete("/v1/admin/tenants/default", headers=_ADMIN)
+    entries = await get_admin_audit(redis, limit=10)
+    update = next(e for e in entries if e["action"] == "tenant.update")
+    assert update["tenant_id"] == "default"
+    assert update["detail"]["plan"] == f"{before.plan}->{target}"
+    assert any(e["action"] == "tenant.deactivate" for e in entries)
+    assert all("api_key" not in str(e["detail"]).lower()
+               and "secret" not in str(e["detail"]).lower()
+               and "password" not in str(e["detail"]).lower()
+               for e in entries)
+    # Rétablir le tenant pour les tests suivants
+    await TenantStore(redis).update(
+        "default", {"is_active": True, "plan": "free",
+                    **plan_quota_updates("free")})
+
+
+async def test_admin_audit_endpoint(client):
+    r = client.get("/v1/admin/audit?limit=5", headers=_ADMIN)
+    assert r.status_code == 200
+    assert isinstance(r.json(), list) and len(r.json()) <= 5
+    r2 = client.get("/v1/admin/audit")
+    assert r2.status_code == 401  # sans X-Admin-Key
+
+
+# ------------------------------------------------------ export RGPD
+
+async def test_tenant_export_rgpd(client, redis):
+    """L'export contient config sans secrets + templates + suppressions."""
+    from src.services.suppression import add_suppression
+
+    await add_suppression(redis, "default", "exp@x.co", "unsubscribe")
+    try:
+        r = client.get("/v1/admin/tenants/default/export", headers=_ADMIN)
+        assert r.status_code == 200, r.text
+        data = r.json()
+        cfg = data["tenant"]
+        assert cfg["tenant_id"] == "default" and cfg["brand_name"]
+        # Jamais de secrets exportés
+        for f in ("api_key_hash", "hmac_secret", "hmac_secret_prev",
+                  "smtp_password"):
+            assert f not in cfg
+            assert f in data["secrets_excluded"]
+        assert "templates" in data and "suppressions" in data
+        assert any(s["email"] == "exp@x.co" for s in data["suppressions"])
+        assert data["stats"]["month"]
+        assert isinstance(data["web_users"], list)
+        # L'export lui-même est audité (données personnelles)
+        r3 = client.get("/v1/admin/audit?limit=1", headers=_ADMIN)
+        assert r3.json()[0]["action"] == "tenant.export"
+    finally:
+        from src.services.suppression import remove_suppression
+        await remove_suppression(redis, "default", "exp@x.co")
+    r4 = client.get("/v1/admin/tenants/nope/export", headers=_ADMIN)
+    assert r4.status_code == 404
+
+
+# ------------------------------------------------------ prorata
+
+async def test_prorata_credit_calculation(redis):
+    """Upgrade à mi-période : crédit = moitié du prix du plan courant."""
+    from datetime import date, timedelta
+
+    from src.config import Settings
+    from src.core.tenants import TenantStore
+    from src.services.payments import prorata_credit, record_tx
+
+    s = Settings(api_key="k" * 40, hmac_secret="s" * 20,
+                 from_email="a@x.co", plan_price_pro=30,
+                 plan_price_enterprise=90)
+    store = TenantStore(redis)
+    try:
+        await store.update("default", {
+            "plan": "pro",
+            "paid_until": (date.today() + timedelta(days=15)).isoformat(),
+            "payment_ref": "tx_prev"})
+        tenant = await store.get("default")
+        await record_tx(redis, "tx_prev", {"period": "monthly"})
+        credit, days = await prorata_credit(redis, s, tenant, "stripe")
+        assert days == 15
+        assert credit == 15.0  # 30 € × 15/30 jours
+        # Plan free ou sans période payée -> pas de crédit
+        await store.update("default", {"plan": "free"})
+        credit2, _ = await prorata_credit(
+            redis, s, await store.get("default"), "stripe")
+        assert credit2 == 0
+    finally:
+        await store.update("default", {
+            "plan": "free", "paid_until": None, "payment_ref": None})
+
+
+async def test_prorated_apply_resets_paid_until(redis):
+    """Un achat proratisé redémarre une période complète au lieu de prolonger."""
+    from datetime import date, timedelta
+
+    from src.core.tenants import TenantStore
+    from src.services.payments import apply_paid_plan, record_tx
+
+    store = TenantStore(redis)
+    future = (date.today() + timedelta(days=20)).isoformat()
+    try:
+        await store.update("default", {"paid_until": future})
+        # Renouvellement classique -> prolonge depuis paid_until
+        await apply_paid_plan(redis, tx_id="tx_renew",
+                              tenant_id="default", plan="pro",
+                              provider="manual", period="monthly")
+        t = await store.get("default")
+        assert t.paid_until > future  # prolongé au-delà des 20 jours restants
+        # Achat proratisé -> repart d'aujourd'hui + 30 j
+        await store.update("default", {"paid_until": future})
+        await record_tx(redis, "tx_pro", {"prorata_credit": 10})
+        await apply_paid_plan(redis, tx_id="tx_pro",
+                              tenant_id="default", plan="enterprise",
+                              provider="stripe", period="monthly")
+        t = await store.get("default")
+        expected = (date.today() + timedelta(days=30)).isoformat()
+        assert t.paid_until == expected
+    finally:
+        await store.update(
+            "default", {"paid_until": None, "plan": "free",
+                        "payment_ref": None})

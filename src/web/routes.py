@@ -58,6 +58,7 @@ from src.services.payments import (
     manual_method_details,
     new_tx_id,
     plan_price,
+    prorata_credit,
     record_tx,
     update_tx,
 )
@@ -2135,11 +2136,56 @@ async def dashboard(
   {ppager}
 </div>"""
 
+    # Consommation du mois calendaire vs quotas du plan (0 = illimité).
+    from src.services.quotas import monthly_usage
+    month_use = await monthly_usage(redis, tenant)
+
+    def _usage_bar(label: str, used: int, quota: int) -> str:
+        if tenant.unlimited or not quota:
+            lim_txt, pct = "illimité", 0
+        else:
+            lim_txt = f"{quota:,}".replace(",", " ")
+            pct = min(100, round(100 * used / quota))
+        bar = (
+            "bg-red-500" if pct >= 100
+            else "bg-amber-500" if pct >= 80 else "bg-brand-500"
+        )
+        warn = ""
+        if pct >= 100:
+            warn = ('<p class="text-[11px] font-semibold text-red-600 mt-1.5">'
+                    "Quota atteint — envois bloqués jusqu'au 1er du mois. "
+                    '<a href="#sec-plan" class="underline">Upgrader</a></p>')
+        elif pct >= 80:
+            warn = ('<p class="text-[11px] font-semibold text-amber-600 mt-1.5">'
+                    "Quota bientôt atteint — anticipez un upgrade.</p>")
+        return f"""
+      <div>
+        <div class="flex justify-between text-xs mb-1.5">
+          <span class="font-semibold text-slate-600">{label}</span>
+          <span class="text-slate-500"><b>{used:,}</b> / {lim_txt}</span>
+        </div>
+        <div class="h-2 rounded-full bg-slate-100 overflow-hidden">
+          <div class="{bar} h-full rounded-full transition-all"
+               style="width:{max(pct, 2 if used else 0)}%"></div>
+        </div>{warn}
+      </div>"""
+
+    usage_html = f"""
+  <div class="border border-slate-200 rounded-xl p-4 mb-4">
+    <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-3">
+      Consommation ce mois</p>
+    <div class="grid sm:grid-cols-2 gap-x-6 gap-y-4">
+      {_usage_bar("OTP envoyés", month_use["otps_sent"]["used"], month_use["otps_sent"]["quota"])}
+      {_usage_bar("Emails transactionnels", month_use["emails_sent"]["used"], month_use["emails_sent"]["quota"])}
+    </div>
+  </div>"""
+
     plan_card_html = f"""
 <div id="sec-plan" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
   <h2 class="font-bold mb-1">Votre abonnement</h2>
   <p class="text-sm text-slate-500 mb-4">Plan actuel : <b>{_e(PLANS[cur_plan]['label'])}</b> —
   les plans payants sont activés après validation du paiement.</p>
+  {usage_html}
   <div class="grid sm:grid-cols-3 gap-3">{plan_cards}</div>
   {pending_panel}
 </div>"""
@@ -2969,7 +3015,12 @@ async def dashboard_billing_page(
         amt, cur = plan_price(settings, plan, prov, period)
         if not amt:
             continue
-        total = f"{amt:g} {cur}"
+        # Upgrade en cours de période : le temps non consommé du plan
+        # courant est déduit (prorata) — recalculé par provider/devise.
+        credit_p, _rem = await prorata_credit(redis, settings, tenant, prov)
+        effective = max(0.0, round(amt - credit_p, 2))
+        total = f"{effective:g} {cur}"
+        credit_lbl = f"-{credit_p:g} {cur}" if credit_p else ""
         if checked:
             initial_total = total
         tabs += (
@@ -2977,7 +3028,7 @@ async def dashboard_billing_page(
             'px-3 py-2.5 text-center text-slate-500 transition '
             'has-[:checked]:bg-white has-[:checked]:text-slate-900 has-[:checked]:shadow">'
             f'<input type="radio" name="provider" value="{_e(prov)}" required{checked} '
-            f'data-total="{_e(total)}" class="sr-only">'
+            f'data-total="{_e(total)}" data-credit="{_e(credit_lbl)}" class="sr-only">'
             '<span class="flex items-center justify-center gap-1 h-5 mb-1">'
             f'{PAY_ICON.get(prov, "")}</span>'
             f'<span class="block text-sm font-semibold">{_e(meta["label"])}</span>'
@@ -3072,6 +3123,7 @@ async def dashboard_billing_page(
       </div>
       <div class="text-sm space-y-1.5 text-right shrink-0 min-w-[11rem]">
         <p class="flex justify-between gap-8"><span class="text-slate-500">Sous-total</span><span id="co-subtotal">{initial_total}</span></p>
+        <p id="co-credit-line" class="flex justify-between gap-8 hidden"><span class="text-slate-500">Crédit plan actuel (prorata)</span><span id="co-credit" class="text-emerald-600 font-semibold"></span></p>
         <p class="flex justify-between gap-8 border-t border-slate-100 pt-1.5"><span class="text-slate-500">Total</span><b id="co-total" class="text-brand-700">{initial_total}</b></p>
       </div>
     </div>
@@ -3121,6 +3173,13 @@ async def dashboard_billing_page(
       var el = document.getElementById(id);
       if (el) el.textContent = t;
     }});
+    var c = sel.getAttribute('data-credit') || '';
+    var cl = document.getElementById('co-credit-line');
+    var ce = document.getElementById('co-credit');
+    if (cl && ce) {{
+      cl.classList.toggle('hidden', !c);
+      ce.textContent = c;
+    }}
   }}
   radios.forEach(function (r) {{ r.addEventListener('change', sync); }});
   sync();
@@ -3170,6 +3229,10 @@ async def dashboard_billing_submit(
         raise HTTPException(status_code=404, detail="Tenant introuvable")
     if is_manual:
         tx_id = new_tx_id()
+        # Prorata enregistré pour l'admin : l'upgrade manuel en cours de
+        # période doit être facturé prix − crédit du plan courant.
+        credit_m, rem_m = await prorata_credit(
+            redis, settings, tenant, provider)
         await record_tx(
             redis,
             tx_id,
@@ -3182,6 +3245,8 @@ async def dashboard_billing_submit(
                 "currency": "",
                 "status": "pending_manual",
                 "period": period,
+                "prorata_credit": credit_m or None,
+                "prorata_days": rem_m or None,
                 "ts": int(time.time()),
                 "date": date.today().isoformat(),
                 "billing_name": tenant.billing_name,
@@ -3194,6 +3259,9 @@ async def dashboard_billing_submit(
     res = await create_checkout(provider, plan, tenant, settings, base, redis, period=period)
     if "error" in res:
         return RedirectResponse(f"/dashboard/billing?plan={plan}&err=provider", status_code=303)
+    if res.get("applied"):
+        # Prorata : le crédit du plan courant couvrait le prix entier.
+        return RedirectResponse("/dashboard?billing=ok", status_code=303)
     return RedirectResponse(res["url"], status_code=303)
 
 
@@ -3217,6 +3285,8 @@ async def dashboard_billing_checkout(
     res = await create_checkout(provider, plan, tenant, settings, base, redis, period=period)
     if "error" in res:
         return RedirectResponse("/dashboard?billing=err", status_code=303)
+    if res.get("applied"):
+        return RedirectResponse("/dashboard?billing=ok", status_code=303)
     return RedirectResponse(res["url"], status_code=303)
 
 

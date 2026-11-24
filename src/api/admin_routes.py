@@ -1,7 +1,10 @@
 """Routes d'administration des tenants — protégées par X-Admin-Key."""
 
+import time
+
 from fastapi import APIRouter, HTTPException, Request
 
+from src.api.dependencies import get_client_ip
 from src.core.auth import require_admin
 from src.core.models import (
     TenantCreateRequest,
@@ -19,6 +22,7 @@ from src.core.tenants import (
     hash_api_key,
     plan_quota_updates,
 )
+from src.services.audit import get_admin_audit, log_admin_action
 
 admin_router = APIRouter(prefix="/v1/admin", dependencies=[require_admin])
 
@@ -90,6 +94,11 @@ async def create_tenant(
         for field, value in plan_quota_updates(payload.plan).items():
             setattr(tenant, field, value)
     await store.create(tenant)
+    await log_admin_action(
+        request.app.state.redis, "tenant.create",
+        actor_ip=get_client_ip(request), tenant_id=tenant.tenant_id,
+        detail={"plan": payload.plan},
+    )
 
     return TenantCreateResponse(
         tenant_id=tenant.tenant_id,
@@ -146,9 +155,18 @@ async def update_tenant(
         # Changer de plan applique les quotas du plan au tenant
         updates.update(plan_quota_updates(updates["plan"]))
 
+    before = await store.get(tenant_id)
     tenant = await store.update(tenant_id, updates)
     if tenant is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
+    # Noms des champs modifiés seulement — jamais les valeurs (smtp_password…)
+    detail = {"fields": sorted(payload.model_fields_set)}
+    if "plan" in updates and before and before.plan != tenant.plan:
+        detail["plan"] = f"{before.plan}->{tenant.plan}"
+    await log_admin_action(
+        request.app.state.redis, "tenant.update",
+        actor_ip=get_client_ip(request), tenant_id=tenant_id, detail=detail,
+    )
     return _info(tenant)
 
 
@@ -171,11 +189,17 @@ async def rotate_tenant_key(
     )
     if tenant is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
+    grace = max(0, min(grace_seconds, 7 * 86400))
+    await log_admin_action(
+        request.app.state.redis, "tenant.rotate_key",
+        actor_ip=get_client_ip(request), tenant_id=tenant_id,
+        detail={"grace_seconds": grace},
+    )
     return {
         "tenant_id": tenant_id,
         "api_key": api_key,
         "hmac_secret": hmac_secret,
-        "grace_seconds": max(0, min(grace_seconds, 7 * 86400)),
+        "grace_seconds": grace,
     }
 
 
@@ -188,4 +212,93 @@ async def deactivate_tenant(tenant_id: str, request: Request):
     ok = await store.deactivate(tenant_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Tenant not found")
+    await log_admin_action(
+        request.app.state.redis, "tenant.deactivate",
+        actor_ip=get_client_ip(request), tenant_id=tenant_id,
+    )
     return {"deactivated": True, "tenant_id": tenant_id}
+
+
+@admin_router.get(
+    "/audit",
+    summary="Journal des actions d'administration",
+    response_description="Actions récentes, plus récente d'abord",
+)
+async def admin_audit(request: Request, limit: int = 100):
+    """Traçabilité : qui a suspendu un tenant, changé un plan, roté une clé…"""
+    return await get_admin_audit(
+        request.app.state.redis, limit=max(1, min(limit, 500)))
+
+
+# ---------------------------------------------------------------------
+# Export RGPD — toutes les données d'un tenant (sans les secrets)
+# ---------------------------------------------------------------------
+
+# Champs exclus de l'export : secrets non exportables par design — une
+# migration se fait en régénérant les credentials, pas en les copiant.
+EXPORT_SECRET_FIELDS = (
+    "api_key_hash", "hmac_secret", "hmac_secret_prev", "smtp_password",
+)
+
+
+@admin_router.get(
+    "/tenants/{tenant_id}/export",
+    summary="Exporter toutes les données d'un tenant (RGPD / migration)",
+    response_description=(
+        "JSON : config sans secrets + templates + suppressions + stats "
+        "+ paiements + comptes web"
+    ),
+)
+async def export_tenant(tenant_id: str, request: Request):
+    """Export complet tenant (art. 20 RGPD — portabilité). Permet aussi de
+    migrer un branding/templates d'un environnement à un autre : réinjecter
+    les champs via PATCH /tenants/{id}. Les secrets (clé API, secret HMAC,
+    mot de passe SMTP) ne sont JAMAIS exportés."""
+    redis = request.app.state.redis
+    store = TenantStore(redis)
+    tenant = await store.get(tenant_id)
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    from src.services.custom_templates import list_templates
+    from src.services.events import monthly_stat
+    from src.services.payments import list_payments
+    from src.services.quotas import QUOTA_FIELDS
+    from src.services.suppression import list_suppressions
+    from src.web.users import WebUserStore
+
+    config = tenant.model_dump()
+    for f in EXPORT_SECRET_FIELDS:
+        config.pop(f, None)
+
+    month_usage = {
+        metric: await monthly_stat(redis, tenant, metric)
+        for metric in QUOTA_FIELDS
+    }
+    users = await WebUserStore(redis).list_by_tenant(tenant_id)
+
+    await log_admin_action(
+        redis, "tenant.export",
+        actor_ip=get_client_ip(request), tenant_id=tenant_id,
+    )
+    return {
+        "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "secrets_excluded": list(EXPORT_SECRET_FIELDS),
+        "tenant": config,
+        "templates": await list_templates(redis, tenant_id),
+        "suppressions": await list_suppressions(redis, tenant_id),
+        "stats": {
+            "month": time.strftime("%Y-%m", time.gmtime()),
+            "monthly_usage": month_usage,
+            "otps_sent_total": int(
+                await redis.get(f"{tenant.key_prefix()}stats:otps_sent") or 0),
+            "emails_sent_total": int(
+                await redis.get(f"{tenant.key_prefix()}stats:emails_sent") or 0),
+        },
+        "payments": await list_payments(redis, tenant_id, limit=100),
+        "web_users": [
+            {"email": u.email, "app_name": u.app_name,
+             "created_at": u.created_at}
+            for u in users
+        ],
+    }

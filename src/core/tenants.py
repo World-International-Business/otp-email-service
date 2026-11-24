@@ -63,6 +63,8 @@ class Tenant(BaseModel):
     cooldown_seconds: int = 60
     max_verify_attempts: int = 5
     otp_ttl_seconds: int = 300
+    quota_otp_month: int = 0    # OTP max / mois calendaire — 0 = illimité
+    quota_email_month: int = 0  # emails transactionnels max / mois — 0 = illimité
     is_active: bool = True
 
     def key_prefix(self) -> str:
@@ -97,6 +99,8 @@ PLANS: dict[str, dict] = {
         "cooldown_seconds": 60,
         "max_verify_attempts": 5,
         "otp_ttl_seconds": 300,
+        "quota_otp_month": 300,
+        "quota_email_month": 500,
     },
     "pro": {
         "label": "Pro",
@@ -107,6 +111,8 @@ PLANS: dict[str, dict] = {
         "cooldown_seconds": 10,
         "max_verify_attempts": 10,
         "otp_ttl_seconds": 300,
+        "quota_otp_month": 5000,
+        "quota_email_month": 15000,
     },
     "enterprise": {
         "label": "Enterprise",
@@ -117,6 +123,8 @@ PLANS: dict[str, dict] = {
         "cooldown_seconds": 1,
         "max_verify_attempts": 10,
         "otp_ttl_seconds": 600,
+        "quota_otp_month": 50000,
+        "quota_email_month": 150000,
     },
 }
 
@@ -127,6 +135,8 @@ PLAN_QUOTA_FIELDS = (
     "cooldown_seconds",
     "max_verify_attempts",
     "otp_ttl_seconds",
+    "quota_otp_month",
+    "quota_email_month",
 )
 
 
