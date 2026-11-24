@@ -318,10 +318,7 @@ def _footer(logged_in: bool = False) -> str:
       <div class="flex items-center gap-2.5 text-white font-extrabold mb-3">{LOGO_MARK}</div>
       <p class="text-sm leading-relaxed mb-5">API d'emails transactionnels et de codes OTP.
       Sécurisée, multi-tenant, self-hostable.</p>
-      <a href="/health" class="inline-flex items-center gap-2 text-xs font-semibold text-emerald-300 bg-emerald-400/10 border border-emerald-400/20 rounded-full px-3 py-1.5 hover:bg-emerald-400/15 transition">
-        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Tous les systèmes opérationnels
-      </a>
-      <div class="flex items-center gap-2 mt-5 opacity-80">
+      <div class="flex items-center gap-2 opacity-80">
         {''.join(_FLAGS.values())}
       </div>
       <p class="text-[11px] text-slate-500 mt-2">Interface en 5 langues</p>
@@ -595,8 +592,8 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
          "border-rose-200"),
     ]
     services_html = "".join(
-        f"""<div class="card card-lift p-6 transition-all border-t-4 reveal reveal-d{si % 3 + 1} {bc}">
-          <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-50 to-accent-100 border border-brand-100 flex items-center justify-center mb-4">{icon}</div>
+        f"""<div class="card svc p-6 transition-all border-t-4 reveal reveal-d{si % 3 + 1} {bc}">
+          <div class="svc-ic w-11 h-11 rounded-xl bg-gradient-to-br from-brand-50 to-accent-100 border border-brand-100 flex items-center justify-center mb-4">{icon}</div>
           <h3 class="font-bold mb-1.5">{t}</h3>
           <p class="text-sm text-slate-500 leading-relaxed">{d}</p>
         </div>"""
@@ -745,18 +742,18 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
     <p class="text-slate-500 mt-2">Trois étapes et votre application envoie des emails.</p>
   </div>
   <div class="grid md:grid-cols-3 gap-6">
-    <div class="card card-lift p-7 text-center transition-all reveal">
-      <div class="w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-accent-600 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">1</div>
+    <div class="card step p-7 text-center transition-all reveal">
+      <div class="step-ic w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-accent-600 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">1</div>
       <h3 class="font-bold mb-2">Créez votre compte</h3>
       <p class="text-sm text-slate-500">Un tenant + une clé API + un secret HMAC sont générés instantanément.</p>
     </div>
-    <div class="card card-lift p-7 text-center transition-all reveal reveal-d1">
-      <div class="w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-accent-600 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">2</div>
+    <div class="card step p-7 text-center transition-all reveal reveal-d1">
+      <div class="step-ic w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-accent-600 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">2</div>
       <h3 class="font-bold mb-2">Configurez votre expéditeur</h3>
       <p class="text-sm text-slate-500">Votre adresse email et votre SMTP dans le dashboard — test intégré.</p>
     </div>
-    <div class="card card-lift p-7 text-center transition-all reveal reveal-d2">
-      <div class="w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-accent-600 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">3</div>
+    <div class="card step p-7 text-center transition-all reveal reveal-d2">
+      <div class="step-ic w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-accent-600 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">3</div>
       <h3 class="font-bold mb-2">Intégrez en un appel</h3>
       <p class="text-sm text-slate-500">POST signé HMAC vers <code>/v1/otp/send</code> ou <code>/v1/email/send</code>.</p>
     </div>
@@ -777,11 +774,13 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
       </ul>
       <a href="/documentation" class="inline-flex items-center gap-1.5 mt-7 text-sm font-semibold text-brand-600 hover:text-brand-700 transition">Voir la documentation →</a>
     </div>
-    <div class="relative reveal reveal-d1">
-      <div class="absolute -inset-3 bg-gradient-to-br from-brand-200/70 to-accent-200/50 rounded-[1.6rem] -rotate-2"></div>
+    <div class="relative reveal reveal-d1 img-frame">
+      <div class="frame-deco absolute -inset-3 bg-gradient-to-br from-brand-200/70 to-accent-200/50 rounded-[1.6rem] -rotate-2"></div>
+      <div class="img-zoom relative rounded-2xl shadow-2xl">
       <img src="https://images.unsplash.com/photo-1596526131083-e8c633c948d2?w=1000&q=80&auto=format&fit=crop"
            alt="Application email sur smartphone" loading="lazy"
-           class="relative rounded-2xl shadow-2xl w-full object-cover aspect-[4/3]">
+           class="rounded-2xl w-full object-cover aspect-[4/3]">
+      </div>
       <div class="floaty absolute -bottom-5 left-5 card px-4 py-3 flex items-center gap-3">
         <span class="w-9 h-9 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">{UI_ICONS['check']}</span>
         <div>
@@ -795,11 +794,13 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
 
 <section class="max-w-6xl mx-auto px-6 py-14 md:py-20">
   <div class="grid lg:grid-cols-2 gap-10 lg:gap-14 items-center">
-    <div class="relative reveal">
-      <div class="absolute -inset-3 bg-gradient-to-br from-accent-200/50 to-brand-200/70 rounded-[1.6rem] rotate-2"></div>
+    <div class="relative reveal img-frame">
+      <div class="frame-deco absolute -inset-3 bg-gradient-to-br from-accent-200/50 to-brand-200/70 rounded-[1.6rem] rotate-2"></div>
+      <div class="img-zoom relative rounded-2xl shadow-2xl">
       <img src="https://images.unsplash.com/photo-1607799279861-4dd421887fb3?w=1000&q=80&auto=format&fit=crop"
            alt="Code de l'API dans un éditeur" loading="lazy"
-           class="relative rounded-2xl shadow-2xl w-full object-cover aspect-[4/3]">
+           class="rounded-2xl w-full object-cover aspect-[4/3]">
+      </div>
       <div class="floaty floaty-2 absolute -top-5 right-5 bg-[#0d0f1e] rounded-xl shadow-xl border border-white/10 px-4 py-2.5">
         <p class="font-mono text-[11px] text-slate-400">POST <span class="text-accent-400">/v1/otp/send</span>
         <span class="text-emerald-400 ml-2">200 OK</span></p>
