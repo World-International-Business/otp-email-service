@@ -37,9 +37,29 @@ async def get_events(redis, tenant: Tenant, limit: int = 50) -> list[dict]:
 
 
 async def incr_daily_stat(redis, tenant: Tenant, metric: str) -> None:
-    """Incrémente un compteur journalier : t:{id}:stats_daily:{metric}:{YYYY-MM-DD}."""
+    """Incrémente les compteurs journalier ET mensuel d'une métrique.
+
+    Le compteur mensuel ``stats_monthly:{metric}:{YYYY-MM}`` alimente les
+    quotas de plan (facturation) — le journalier sert aux graphiques."""
     from datetime import date
 
-    key = f"{tenant.key_prefix()}stats_daily:{metric}:{date.today().isoformat()}"
-    await redis.incr(key)
-    await redis.expire(key, 60 * 60 * 24 * 31)  # 31 jours
+    today = date.today()
+    pipe = redis.pipeline()
+    dkey = f"{tenant.key_prefix()}stats_daily:{metric}:{today.isoformat()}"
+    mkey = f"{tenant.key_prefix()}stats_monthly:{metric}:{today.strftime('%Y-%m')}"
+    pipe.incr(dkey)
+    pipe.expire(dkey, 60 * 60 * 24 * 31)   # 31 jours
+    pipe.incr(mkey)
+    pipe.expire(mkey, 60 * 60 * 24 * 62)   # ~2 mois
+    await pipe.execute()
+
+
+async def monthly_stat(redis, tenant: Tenant, metric: str) -> int:
+    """Compteur de la métrique sur le mois calendaire courant."""
+    from datetime import date
+
+    key = (
+        f"{tenant.key_prefix()}stats_monthly:{metric}:"
+        f"{date.today().strftime('%Y-%m')}"
+    )
+    return int(await redis.get(key) or 0)

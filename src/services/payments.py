@@ -25,7 +25,7 @@ from datetime import date, timedelta
 
 import httpx
 
-from src.core.tenants import TenantStore, plan_quota_updates
+from src.core.tenants import PLANS, TenantStore, plan_quota_updates
 
 logger = logging.getLogger(__name__)
 
@@ -111,9 +111,14 @@ async def apply_paid_plan(
     if not tenant:
         logger.error("payment_tenant_missing", extra={"tx_id": tx_id, "tenant_id": tenant_id})
         return False
-    # Renouvellement : prolonge depuis la fin de période courante si future
+    # Renouvellement : prolonge depuis la fin de période courante si future.
+    # Exception : un achat PRORATISÉ (upgrade en cours de période) redémarre
+    # une période complète — le temps restant de l'ancien plan a déjà été
+    # déduit du prix payé, il ne doit pas être reporté.
     base = date.today()
-    if tenant.paid_until and tenant.paid_until > base.isoformat():
+    prev_tx = await get_tx(redis, tx_id)
+    prorated = bool(prev_tx and prev_tx.get("prorata_credit"))
+    if not prorated and tenant.paid_until and tenant.paid_until > base.isoformat():
         base = date.fromisoformat(tenant.paid_until)
     days = PERIODS.get(period, PERIODS["monthly"])["days"]
     updates = {
@@ -208,6 +213,42 @@ def plan_price(
 
 
 # ---------------------------------------------------------------------
+# Prorata — crédit du temps non consommé lors d'un changement de plan
+# ---------------------------------------------------------------------
+
+
+async def prorata_credit(
+    redis, settings, tenant, provider: str
+) -> tuple[float, int]:
+    """(crédit, jours restants) du plan payant courant — upgrade en cours
+    de période.
+
+    Le crédit est recalculé au prix du plan courant DANS la devise du
+    provider demandé (jamais le montant historique du tx — sinon EUR et
+    XOF se mélangeraient). (0, 0) hors cas : pas de période payée en cours,
+    plan free, ou plan non tarifé pour ce provider."""
+    if (
+        not tenant
+        or tenant.plan not in PLANS
+        or tenant.plan == "free"
+        or not tenant.paid_until
+        or tenant.paid_until <= date.today().isoformat()
+    ):
+        return 0, 0
+    prev = await get_tx(redis, tenant.payment_ref) if tenant.payment_ref else None
+    old_period = (prev or {}).get("period") or "monthly"
+    old_amount, _ = plan_price(settings, tenant.plan, provider, old_period)
+    if not old_amount:
+        return 0, 0
+    period_days = PERIODS.get(old_period, PERIODS["monthly"])["days"]
+    remaining = (date.fromisoformat(tenant.paid_until) - date.today()).days
+    remaining = min(remaining, period_days)
+    if remaining <= 0:
+        return 0, 0
+    return round(old_amount * remaining / period_days, 2), remaining
+
+
+# ---------------------------------------------------------------------
 # Création des sessions de paiement
 # ---------------------------------------------------------------------
 
@@ -221,13 +262,38 @@ async def create_checkout(
     redis,
     period: str = "monthly",
 ) -> dict:
-    """Retourne {"url": ...} ou {"error": ...}. Enregistre le tx en 'created'."""
+    """Retourne {"url": ...} / {"applied": True} / {"error": ...}.
+
+    Upgrade en cours de période : le temps non consommé du plan courant est
+    déduit du montant (prorata). Si le crédit couvre tout, le plan est
+    appliqué immédiatement sans paiement."""
     amount, currency = plan_price(settings, plan, provider, period)
     if not amount:
         return {"error": "no_price"}
+    credit, remaining_days = await prorata_credit(
+        redis, settings, tenant, provider)
     tx_id = new_tx_id()
     days = PERIODS.get(period, PERIODS["monthly"])["days"]
     ret = f"{base_url}/dashboard/billing/return"
+
+    effective = round(amount - credit, 2)
+    if credit and effective <= 0:
+        # Le crédit couvre le prix entier : upgrade gratuit immédiat.
+        await record_tx(
+            redis, tx_id,
+            {"tenant_id": tenant.tenant_id, "plan": plan,
+             "provider": provider, "amount": 0, "currency": currency,
+             "status": "created", "period": period,
+             "prorata_credit": credit, "prorata_days": remaining_days,
+             "list_amount": amount,
+             "ts": int(time.time()), "date": date.today().isoformat()},
+        )
+        await apply_paid_plan(
+            redis, tx_id=tx_id, tenant_id=tenant.tenant_id, plan=plan,
+            provider=provider, amount=0, currency=currency, period=period)
+        return {"applied": True, "plan": plan, "credit": credit}
+
+    amount = effective
     try:
         if provider == "stripe":
             url = await _stripe_checkout(settings, tx_id, tenant, plan, amount, currency, ret, days)
@@ -255,6 +321,9 @@ async def create_checkout(
             "currency": currency,
             "status": "created",
             "period": period,
+            "prorata_credit": credit or None,
+            "prorata_days": remaining_days or None,
+            "list_amount": round(amount + credit, 2) if credit else None,
             "ts": int(time.time()),
             "date": date.today().isoformat(),
         },
