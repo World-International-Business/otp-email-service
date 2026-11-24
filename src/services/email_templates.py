@@ -36,8 +36,13 @@ _MEDIA_CSS = (
     "@media only screen and (max-width:560px){"
     ".mh-wrap{padding:10px 6px!important}"
     ".mh-px{padding-left:16px!important;padding-right:16px!important}"
+    ".mh-h1{font-size:18px!important}"
     ".mh-digit{width:36px!important;height:46px!important;font-size:22px!important}"
     ".mh-gap{width:5px!important}"
+    # Contenu client (type=custom) : images/tableaux surdimensionnés ne
+    # doivent pas faire déborder la carte sur mobile.
+    "img{max-width:100%!important;height:auto!important}"
+    "table{max-width:100%!important}"
     "}"
 )
 
@@ -85,12 +90,14 @@ def email_layout(
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="x-apple-disable-message-reformatting">
 <title>{b}</title>
 <style>{_MEDIA_CSS}</style>
 {head_extra}
 </head>
 <body style="margin:0; padding:0; background:#eef0f6;
-     font-family:'Segoe UI', Arial, sans-serif; -webkit-font-smoothing:antialiased;">
+     font-family:'Segoe UI', Arial, sans-serif; -webkit-font-smoothing:antialiased;
+     -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%;">
   <div style="display:none; max-height:0; overflow:hidden; mso-hide:all;
        font-size:1px; line-height:1px; color:#eef0f6;">{_esc(preheader)}</div>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0"

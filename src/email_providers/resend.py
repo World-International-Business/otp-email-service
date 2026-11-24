@@ -47,11 +47,10 @@ class ResendProvider(EmailProvider):
                 for a in attachments
             ]
         unsub = sender.get("unsubscribe_url") or self.settings.list_unsubscribe_url
+        payload["headers"] = {"Auto-Submitted": "auto-generated"}
         if unsub:
-            payload["headers"] = {
-                "List-Unsubscribe": f"<{unsub}>",
-                "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-            }
+            payload["headers"]["List-Unsubscribe"] = f"<{unsub}>"
+            payload["headers"]["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
         try:
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
                 resp = await client.post(

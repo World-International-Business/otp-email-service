@@ -1013,6 +1013,38 @@ async def test_smtp_message_contains_attachment_part():
     assert 'Content-Disposition: attachment; filename="doc.pdf"' in captured["raw"]
 
 
+async def test_smtp_message_has_antispam_headers():
+    """Headers délivrabilité : Auto-Submitted (RFC 3834), Date, Message-ID."""
+    from src.config import Settings
+    from src.email_providers.smtp import SMTPProvider
+
+    prov = SMTPProvider(Settings(
+        api_key="k" * 40, hmac_secret="s" * 20, from_email="a@x.co",
+        smtp_user="u", smtp_password="p"))
+    captured = {}
+    prov._send_smtp = lambda *a, **kw: captured.update(raw=a[7])  # noqa
+    await prov.send_email("t@x.co", "S", "txt", "<p>h</p>",
+                          sender={"unsubscribe_url": "https://x.co/u"})
+    raw = captured["raw"]
+    assert "Auto-Submitted: auto-generated" in raw
+    assert "List-Unsubscribe: <https://x.co/u>" in raw
+    assert "List-Unsubscribe-Post: List-Unsubscribe=One-Click" in raw
+    assert "\nDate: " in raw and "\nMessage-ID: " in raw
+
+
+async def test_email_html_is_mobile_responsive():
+    """Le layout doit contrer l'inflation de police iOS (text-size-adjust)
+    et plafonner les images/tableaux du contenu client sur mobile."""
+    from src.services.email_templates import generic_html, otp_html
+
+    for html in (generic_html("T", "<p>c</p>", "B"), otp_html("123456", "B")):
+        assert "-webkit-text-size-adjust:100%" in html
+        assert 'name="viewport"' in html
+        assert "max-width:520px" in html
+        assert "img{max-width:100%!important" in html
+        assert "x-apple-disable-message-reformatting" in html
+
+
 # ------------------------------------------------------- rotation des clés
 
 async def test_key_rotation_grace_keeps_old_creds_working(client, redis):

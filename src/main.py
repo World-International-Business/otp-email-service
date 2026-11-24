@@ -75,8 +75,24 @@ def _preflight_warnings(settings) -> list[str]:
         settings.smtp_user and settings.smtp_password
     ):
         w.append("EMAIL_PROVIDER=smtp sans SMTP_USER/SMTP_PASSWORD : les envois échoueront")
-    if not settings.list_unsubscribe_url:
-        w.append("LIST_UNSUBSCRIBE_URL vide : délivrabilité dégradée (Gmail/Yahoo)")
+    if not settings.list_unsubscribe_url and not settings.public_base_url:
+        w.append(
+            "Aucun lien opt-out possible (LIST_UNSUBSCRIBE_URL et "
+            "PUBLIC_BASE_URL vides) : délivrabilité dégradée (Gmail/Yahoo)"
+        )
+    _FREEMAIL = {
+        "gmail.com", "googlemail.com", "yahoo.com", "yahoo.fr",
+        "outlook.com", "hotmail.com", "hotmail.fr", "live.com", "msn.com",
+        "aol.com", "icloud.com", "me.com", "proton.me", "protonmail.com",
+        "gmx.com", "gmx.fr", "orange.fr", "wanadoo.fr", "free.fr", "sfr.fr",
+    }
+    from_domain = str(settings.from_email).rsplit("@", 1)[-1].lower()
+    if from_domain in _FREEMAIL:
+        w.append(
+            f"FROM_EMAIL sur domaine freemail ({from_domain}) : réputation "
+            "faible, mise en spam quasi certaine — utilisez une adresse sur "
+            "votre domaine avec SPF + DKIM + DMARC configurés"
+        )
     price_fields = [
         f for f in type(settings).model_fields if f.startswith("plan_price_")
     ]
