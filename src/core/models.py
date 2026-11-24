@@ -278,6 +278,10 @@ class TenantUpdateRequest(BaseModel):
     cooldown_seconds: int | None = None
     max_verify_attempts: int | None = None
     otp_ttl_seconds: int | None = None
+    quota_otp_month: int | None = Field(
+        default=None, ge=0, description="OTP max/mois — 0 = illimité")
+    quota_email_month: int | None = Field(
+        default=None, ge=0, description="Emails max/mois — 0 = illimité")
     is_active: bool | None = None
     unlimited: bool | None = None
     plan_requested: str | None = None
@@ -299,3 +303,7 @@ class TenantInfoResponse(BaseModel):
     email_logo_url: str | None = None
     email_footer: str | None = None
     is_active: bool
+    quota_otp_month: int = 0
+    quota_email_month: int = 0
+    unlimited: bool = False
+    paid_until: str | None = None

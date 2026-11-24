@@ -2162,7 +2162,7 @@ async def dashboard(
       <div>
         <div class="flex justify-between text-xs mb-1.5">
           <span class="font-semibold text-slate-600">{label}</span>
-          <span class="text-slate-500"><b>{used:,}</b> / {lim_txt}</span>
+          <span class="text-slate-500"><b>{f"{used:,}".replace(",", " ")}</b> / {lim_txt}</span>
         </div>
         <div class="h-2 rounded-full bg-slate-100 overflow-hidden">
           <div class="{bar} h-full rounded-full transition-all"

@@ -228,7 +228,7 @@ async def send_email_batch(
                 text_body=payload.text_body, html_body=payload.html_body,
                 attachments=payload.attachments, send_at=payload.send_at,
             )
-            subject, text_body, html_body, _ = await service.prepare_send(
+            subject, text_body, html_body, limiter = await service.prepare_send(
                 tenant, req, client_ip
             )
             if service.settings.email_queue_enabled:
@@ -238,7 +238,11 @@ async def send_email_batch(
                     send_at_ts=send_at_ts, attachments=atts,
                 )
             else:
-                resp = await service.send(tenant, req, client_ip=client_ip)
+                resp = await service.send_prepared(
+                    tenant, to_email, subject, text_body, html_body,
+                    limiter, payload.type.value, client_ip,
+                    attachments=atts,
+                )
                 message_id = resp.message_id
             results.append(EmailBatchResult(
                 to_email=to_email, message_id=message_id, status="queued"))

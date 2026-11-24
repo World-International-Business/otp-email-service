@@ -10,7 +10,7 @@ son dashboard et peut upgrader avant la coupure (429 « plan quota »).
 """
 
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 
 from src.core.tenants import Tenant
 from src.services.events import log_event, monthly_stat
@@ -26,8 +26,11 @@ WARN_THRESHOLD = 0.8
 
 
 def seconds_until_next_month() -> int:
-    """Secondes jusqu'au 1er du mois prochain (reset du compteur)."""
-    now = datetime.now(timezone.utc)
+    """Secondes jusqu'au 1er du mois prochain (reset du compteur).
+
+    Heure locale comme monthly_stat/incr_daily_stat (date.today()) —
+    le Retry-After doit coïncider avec le rollover du compteur."""
+    now = datetime.now()
     nxt = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     nxt = nxt.replace(year=nxt.year + 1, month=1) if nxt.month == 12 \
         else nxt.replace(month=nxt.month + 1)

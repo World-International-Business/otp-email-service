@@ -1366,3 +1366,108 @@ async def test_prorated_apply_resets_paid_until(redis):
         await store.update(
             "default", {"paid_until": None, "plan": "free",
                         "payment_ref": None})
+
+
+# ------------------------------------------------- régressions bug-hunt
+
+async def test_admin_create_free_tenant_has_monthly_quotas(client, redis):
+    """Régression : un tenant créé via l'API en plan 'free' doit recevoir
+    les quotas mensuels du plan (sinon il serait illimité alors qu'un
+    downgrade vers free est plafonné)."""
+    from src.core.tenants import PLANS, TenantStore
+
+    r = client.post("/v1/admin/tenants", headers=_ADMIN, json={
+        "tenant_id": "freeco", "name": "Free Co", "plan": "free",
+    })
+    assert r.status_code in (200, 201), r.text
+    tid = r.json()["tenant_id"]
+    t = await TenantStore(redis).get(tid)
+    try:
+        assert t.quota_otp_month == PLANS["free"]["quota_otp_month"]
+        assert t.quota_email_month == PLANS["free"]["quota_email_month"]
+    finally:
+        await redis.srem("tenant:index", tid)
+        await redis.delete(f"tenant:{tid}")
+
+
+async def test_admin_patch_plan_preserves_explicit_quota(client, redis):
+    """PATCH {plan, quota_otp_month} : le quota explicite prime sur le
+    défaut du plan."""
+    from src.core.tenants import PLANS, TenantStore, plan_quota_updates
+
+    store = TenantStore(redis)
+    r = client.patch("/v1/admin/tenants/default", headers=_ADMIN, json={
+        "plan": "pro", "quota_otp_month": 4242,
+    })
+    assert r.status_code == 200, r.text
+    t = await store.get("default")
+    try:
+        assert t.quota_otp_month == 4242
+        # Les autres quotas du plan pro s'appliquent normalement
+        assert t.quota_email_month == PLANS["pro"]["quota_email_month"]
+    finally:
+        await store.update(
+            "default", {"plan": "free", **plan_quota_updates("free")})
+
+
+async def test_admin_patch_quota_fields_accepted(client, redis):
+    """quota_otp_month/quota_email_month sont patchables directement."""
+    from src.core.tenants import TenantStore
+
+    r = client.patch("/v1/admin/tenants/default", headers=_ADMIN, json={
+        "quota_email_month": 777,
+    })
+    assert r.status_code == 200, r.text
+    t = await TenantStore(redis).get("default")
+    try:
+        assert t.quota_email_month == 777
+        assert r.json()["quota_email_month"] == 777
+    finally:
+        await TenantStore(redis).update(
+            "default", {"quota_email_month": 0})
+
+
+async def test_tenant_info_exposes_quota_fields(client):
+    """TenantInfoResponse expose quotas mensuels + billing pour l'admin."""
+    r = client.get("/v1/admin/tenants", headers=_ADMIN)
+    assert r.status_code == 200
+    t = next(x for x in r.json() if x["tenant_id"] == "default")
+    for f in ("quota_otp_month", "quota_email_month",
+              "unlimited", "paid_until"):
+        assert f in t
+
+
+async def test_apply_paid_plan_preserves_prorata_metadata(redis):
+    """Le record 'paid' conserve prorata_credit/list_amount du 'created'."""
+    from src.services.payments import apply_paid_plan, get_tx, record_tx
+
+    await record_tx(redis, "tx_meta", {
+        "tenant_id": "default", "plan": "pro", "provider": "stripe",
+        "amount": 20, "currency": "EUR", "status": "created",
+        "prorata_credit": 9.5, "prorata_days": 10, "list_amount": 29.5,
+        "ts": 1, "date": "2025-01-01",
+    })
+    try:
+        await apply_paid_plan(redis, tx_id="tx_meta",
+                              tenant_id="default", plan="pro",
+                              provider="stripe", amount=20,
+                              currency="EUR", period="monthly")
+        paid = await get_tx(redis, "tx_meta")
+        assert paid["status"] == "paid"
+        assert paid["prorata_credit"] == 9.5
+        assert paid["prorata_days"] == 10
+        assert paid["list_amount"] == 29.5
+    finally:
+        from src.core.tenants import TenantStore, plan_quota_updates
+        await TenantStore(redis).update(
+            "default", {"plan": "free", "paid_until": None,
+                        "payment_ref": None, **plan_quota_updates("free")})
+        await redis.delete("pay:tx:tx_meta")
+
+
+async def test_seconds_until_next_month_rollover():
+    """La fin de mois calcule bien la bascule (incl. décembre -> janvier)."""
+    from src.services.quotas import seconds_until_next_month
+
+    s = seconds_until_next_month()
+    assert 60 <= s <= 32 * 86400

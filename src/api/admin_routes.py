@@ -40,6 +40,10 @@ def _info(t: Tenant) -> TenantInfoResponse:
         email_logo_url=t.email_logo_url,
         email_footer=t.email_footer,
         is_active=t.is_active,
+        quota_otp_month=t.quota_otp_month,
+        quota_email_month=t.quota_email_month,
+        unlimited=t.unlimited,
+        paid_until=t.paid_until,
     )
 
 
@@ -89,10 +93,18 @@ async def create_tenant(
         otp_ttl_seconds=payload.otp_ttl_seconds,
         is_active=True,
     )
+    # Les quotas mensuels du plan s'appliquent à TOUS les plans, free inclus
+    # — sinon l'API admin permettrait de créer des tenants free illimités
+    # alors qu'un downgrade vers free reçoit bien les caps du plan.
+    quota_fields = plan_quota_updates(payload.plan)
     if payload.plan != "free":
-        # Un plan non gratuit applique ses quotas par défaut (affinables via PATCH)
-        for field, value in plan_quota_updates(payload.plan).items():
+        # Un plan non gratuit applique tous ses quotas par défaut
+        # (affinables ensuite via PATCH).
+        for field, value in quota_fields.items():
             setattr(tenant, field, value)
+    else:
+        tenant.quota_otp_month = quota_fields["quota_otp_month"]
+        tenant.quota_email_month = quota_fields["quota_email_month"]
     await store.create(tenant)
     await log_admin_action(
         request.app.state.redis, "tenant.create",
@@ -152,8 +164,10 @@ async def update_tenant(
             raise HTTPException(
                 status_code=422, detail=f"Unknown plan '{updates['plan']}'"
             )
-        # Changer de plan applique les quotas du plan au tenant
-        updates.update(plan_quota_updates(updates["plan"]))
+        # Changer de plan applique les quotas du plan — SAUF les quotas
+        # explicitement fournis dans le même PATCH (ils priment).
+        plan_defaults = plan_quota_updates(updates["plan"])
+        updates.update({**plan_defaults, **updates})
 
     before = await store.get(tenant_id)
     tenant = await store.update(tenant_id, updates)

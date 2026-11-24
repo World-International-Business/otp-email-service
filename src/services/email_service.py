@@ -224,13 +224,36 @@ class EmailService:
         subject, text_body, html_body, limiter = await self.prepare_send(
             tenant, request, client_ip
         )
-        message_id = f"msg_{secrets.token_urlsafe(16)}"
+        return await self.send_prepared(
+            tenant, to_email, subject, text_body, html_body, limiter,
+            request.type.value, client_ip,
+            attachments=[a.model_dump() for a in request.attachments] or None,
+        )
 
+    async def send_prepared(
+        self,
+        tenant: Tenant,
+        to_email: str,
+        subject: str,
+        text_body: str,
+        html_body: str,
+        limiter: RateLimiter,
+        email_type: str,
+        client_ip: str = "unknown",
+        attachments: list[dict] | None = None,
+    ) -> EmailSendResponse:
+        """Livraison d'un contenu déjà rendu + quota déjà réservé.
+
+        Utilisé par /batch : prepare_send n'est appelé qu'UNE fois par
+        destinataire — sinon le slot du rate limiter serait consommé en
+        double (et une seule libération en cas d'échec = fuite de quota).
+        """
+        message_id = f"msg_{secrets.token_urlsafe(16)}"
         try:
             await self.deliver(
                 tenant, to_email, subject, text_body, html_body,
-                message_id, request.type.value, client_ip,
-                attachments=[a.model_dump() for a in request.attachments] or None,
+                message_id, email_type, client_ip,
+                attachments=attachments,
             )
         except EmailSendError as exc:
             reason = str(exc)[:150]
@@ -240,19 +263,19 @@ class EmailService:
                 extra={
                     "tenant_id": tenant.tenant_id,
                     "message_id": message_id,
-                    "type": request.type.value,
+                    "type": email_type,
                     "to_email_hash": hash_code(to_email),
                 },
             )
             await log_event(
                 self.redis, tenant, "email_failed",
                 email=mask_email(to_email),
-                email_type=request.type.value,
+                email_type=email_type,
             )
             await enqueue_webhook(
                 self.redis, tenant, "email.failed",
                 {"message_id": message_id, "to": to_email,
-                 "type": request.type.value, "error": reason,
+                 "type": email_type, "error": reason,
                  "will_retry": False},
             )
             raise HTTPException(
@@ -261,12 +284,12 @@ class EmailService:
 
         await set_status(
             self.redis, message_id, tenant.tenant_id, "sent",
-            to=to_email, type_=request.type.value, attempts=1,
+            to=to_email, type_=email_type, attempts=1,
         )
         return EmailSendResponse(
             sent=True, status="sent",
             message_id=message_id,
-            to_email=request.to_email,
+            to_email=to_email,
         )
 
     # ------------------------------------------------------------------

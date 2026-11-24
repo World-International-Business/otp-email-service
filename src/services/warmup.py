@@ -9,12 +9,12 @@ journalier est plafonné puis croît exponentiellement :
 jusqu'à WARMUP_DAYS, puis plus aucune limite (le quota du plan reprend).
 Le compteur jour = OTP + emails transactionnels déjà envoyés (clés
 stats_daily existantes). Un envoi bloqué retourne 429 + Retry-After
-jusqu'à minuit UTC. Les tenants déjà en production sans
+jusqu'à minuit local. Les tenants déjà en production sans
 ``smtp_configured_at`` ne sont pas affectés (pas de rétro-warm-up).
 """
 
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 
 from src.config import Settings
 from src.core.tenants import Tenant
@@ -54,7 +54,9 @@ async def warmup_state(
 
 
 def seconds_until_midnight() -> int:
-    now = datetime.now(timezone.utc)
+    # Heure locale : le compteur warmup_state lit stats_daily:{date.today()}
+    # qui bascule à minuit local — le Retry-After doit coïncider.
+    now = datetime.now()
     nxt = (now + timedelta(days=1)).replace(
         hour=0, minute=0, second=0, microsecond=0)
     return max(60, int((nxt - now).total_seconds()))

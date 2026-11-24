@@ -132,21 +132,23 @@ async def apply_paid_plan(
         **plan_quota_updates(plan),
     }
     await store.update(tenant_id, updates)
-    await record_tx(
-        redis,
-        tx_id,
-        {
-            "tenant_id": tenant_id,
-            "plan": plan,
-            "provider": provider,
-            "amount": amount,
-            "currency": currency,
-            "status": "paid",
-            "period": period,
-            "ts": int(time.time()),
-            "date": date.today().isoformat(),
-        },
-    )
+    # Conserver les métadonnées prorata du tx "created" dans le record
+    # final "paid" — sinon le crédit disparaît de l'historique/export.
+    paid_tx = {
+        "tenant_id": tenant_id,
+        "plan": plan,
+        "provider": provider,
+        "amount": amount,
+        "currency": currency,
+        "status": "paid",
+        "period": period,
+        "ts": int(time.time()),
+        "date": date.today().isoformat(),
+    }
+    for f in ("prorata_credit", "prorata_days", "list_amount"):
+        if prev_tx and prev_tx.get(f) is not None:
+            paid_tx[f] = prev_tx[f]
+    await record_tx(redis, tx_id, paid_tx)
     logger.info(
         "payment_applied",
         extra={"tx_id": tx_id, "tenant_id": tenant_id, "plan": plan, "provider": provider},
