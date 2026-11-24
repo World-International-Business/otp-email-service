@@ -48,6 +48,57 @@ def setup_logging(log_level: str) -> None:
     root.setLevel(getattr(logging, log_level.upper(), logging.INFO))
 
 
+def _preflight_warnings(settings) -> list[str]:
+    """Signale au démarrage les écarts de config entre env local et prod.
+
+    Chaque warning ci-dessous correspond à un oubli d'env déjà constaté
+    (ex. PLAN_PRICE_* non remplis → landing « Sur mesure », ou des options
+    de dev restées actives en production). Un seul log WARNING consolidé —
+    non bloquant.
+    """
+    w = []
+    if settings.debug:
+        w.append("DEBUG=true : debug_code expose les OTP dans les réponses API")
+    if settings.demo_enabled:
+        w.append("DEMO_ENABLED=true : /demo envoie de vrais emails sans authentification")
+    if settings.use_fakeredis:
+        w.append("USE_FAKEREDIS=true : tenants, comptes, quotas et sessions perdus au redémarrage")
+    if not settings.public_base_url:
+        w.append(
+            "PUBLIC_BASE_URL vide : magic links absents, tracking inactif, "
+            "logos locaux non résolus, cookies non Secure"
+        )
+    if settings.email_provider == "console":
+        w.append("EMAIL_PROVIDER=console : aucun email réel n'est envoyé")
+    elif settings.email_provider in ("smtp", "gmail") and not (
+        settings.smtp_user and settings.smtp_password
+    ):
+        w.append("EMAIL_PROVIDER=smtp sans SMTP_USER/SMTP_PASSWORD : les envois échoueront")
+    if not settings.list_unsubscribe_url:
+        w.append("LIST_UNSUBSCRIBE_URL vide : délivrabilité dégradée (Gmail/Yahoo)")
+    price_fields = [f for f in settings.model_fields if f.startswith("plan_price_")]
+    if not any(getattr(settings, f) for f in price_fields):
+        w.append(
+            "PLAN_PRICE_* tous à 0 : la landing affiche « Sur mesure » et "
+            "aucun paiement en ligne n'est possible"
+        )
+    if not (
+        settings.billing_bank_details
+        or settings.billing_momo_number
+        or settings.billing_manual_note
+    ):
+        w.append(
+            "BILLING_BANK_DETAILS / BILLING_MOMO_* / BILLING_MANUAL_NOTE vides : "
+            "les panneaux de paiement manuel n'affichent aucune coordonnée"
+        )
+    if settings.web_signup_enabled and not settings.signup_invite_code:
+        w.append(
+            "WEB_SIGNUP_ENABLED=true sans SIGNUP_INVITE_CODE : "
+            "inscription publique ouverte à tous"
+        )
+    return w
+
+
 async def _expire_billing_once(redis, email_provider=None, public_base_url: str = "") -> int:
     """Rétrograde les tenants dont la période payée est terminée.
 
@@ -212,6 +263,8 @@ async def lifespan(app: FastAPI):
     health_task = asyncio.create_task(_smtp_health_loop(redis, settings))
 
     logging.getLogger(__name__).info("service_started", extra={"version": settings.app_version})
+    if warnings := _preflight_warnings(settings):
+        logging.getLogger(__name__).warning("preflight_config", extra={"issues": warnings})
     yield
     for task in (billing_task, queue_task, health_task):
         task.cancel()

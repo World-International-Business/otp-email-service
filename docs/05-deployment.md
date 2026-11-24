@@ -49,6 +49,26 @@ Les variables d'environnement **priment** sur `.env`.
 | `OTP_TTL_SECONDS` | `300` | Durée de vie du code |
 | `WEB_SIGNUP_ENABLED` / `SIGNUP_INVITE_CODE` | `true` / — | Inscription publique `/register` |
 
+### Tarifs & paiements (affichage landing + checkout)
+
+⚠️ **Tout ce bloc est lu au runtime** : s'il manque en prod, la landing
+affiche « Sur mesure » et le checkout n'a que les moyens manuels — sans
+aucune erreur visible. Le preflight au démarrage (`preflight_config` dans
+les logs) le signale.
+
+| Variable | Défaut | Rôle |
+|----------|--------|------|
+| `PLAN_PRICE_PRO` / `PLAN_PRICE_ENTERPRISE` | `0` | Prix mensuels carte/PayPal (devise `BILLING_CURRENCY`) — `0` = « Sur mesure » |
+| `PLAN_PRICE_*_YEARLY` | `0` | Prix annuels — `0` = option annuelle masquée |
+| `PLAN_PRICE_*_MOBILE[_YEARLY]` | `0` | Prix agrégateur mobile money (entier, devise `BILLING_CURRENCY_MOBILE`) |
+| `BILLING_CURRENCY` / `BILLING_CURRENCY_MOBILE` | `EUR` / `XOF` | Devises affichées et facturées |
+| `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` + `STRIPE_PRICE_*` | — | Onglet « Carte bancaire » du checkout (absent si vide) |
+| `PAYPAL_CLIENT_ID` + `PAYPAL_CLIENT_SECRET` (+ `PAYPAL_WEBHOOK_ID`, `PAYPAL_ENV`) | — | Onglet « PayPal » |
+| `CINETPAY_API_KEY` + `CINETPAY_SITE_ID` | — | Onglet « Mobile Money » automatisé |
+| `BILLING_BANK_DETAILS` | — | Coordonnées affichées pour « Virement » |
+| `BILLING_MOMO_NUMBER` / `BILLING_MOMO_NAME` | — | Coordonnées pour « Mobile Money » direct |
+| `BILLING_MANUAL_NOTE` | — | Instructions pour « Espèces / autre » |
+
 ## Docker Compose
 
 ```bash
@@ -103,6 +123,9 @@ les révoquer — modifier le code ne révoque rien.
 - [ ] `API_KEY`/`HMAC_SECRET`/`ADMIN_API_KEY` générés, jamais dans git
 - [ ] `SMTP_*` testés : `scripts/test-smtp.py` → « ACCEPTÉ »
 - [ ] `EMAIL_PROVIDER` réel (`gmail`/`brevo`/`resend`), pas `console`
+- [ ] `PLAN_PRICE_*` + `BILLING_*` remplis — sinon landing « Sur mesure » et panneaux de paiement vides
+- [ ] Aucun warning `preflight_config` dans les logs au démarrage
+- [ ] `.env` local ≠ env prod : tout changement local de variable doit être reporté dans l'UI Dokploy
 - [ ] `WEB_SIGNUP_ENABLED=false` ou `SIGNUP_INVITE_CODE` défini si ouvert
 - [ ] HTTPS terminé (Nginx/Traefik) — le service ne sert que du HTTP
 - [ ] `/health` remonte au monitoring ; logs JSON collectés (`smtp_send_error`, `http_request`)
