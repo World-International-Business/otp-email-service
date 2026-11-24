@@ -49,8 +49,13 @@ def email_layout(
     color: str = "#5060a8",
     logo_url: str | None = None,
     footer: str | None = None,
+    head_extra: str = "",
 ) -> str:
-    """Enveloppe commune : header marque + carte + footer (personnalisable)."""
+    """Enveloppe commune : header marque + carte + footer (personnalisable).
+
+    `head_extra` : balises injectées dans le <head> après le CSS de base —
+    typiquement les <style> d'un document client remonté dans l'enveloppe
+    (les clients mail ignorent les <style> placés dans le corps)."""
     b = _esc(brand)
     accent = _sanitize_color(color)
     brand_text = (
@@ -76,6 +81,7 @@ def email_layout(
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{b}</title>
 <style>{_MEDIA_CSS}</style>
+{head_extra}
 </head>
 <body style="margin:0; padding:0; background:#eef0f6;
      font-family:'Segoe UI', Arial, sans-serif; -webkit-font-smoothing:antialiased;">
@@ -186,6 +192,7 @@ def generic_html(
     color: str = "#5060a8",
     logo_url: str | None = None,
     footer: str | None = None,
+    head_extra: str = "",
 ) -> str:
     """Wrapper pour welcome / notification / transaction / custom.
 
@@ -201,4 +208,5 @@ def generic_html(
       {h1}
       <div style="color:#4b5563; font-size:15px; line-height:1.7;">{content_html}</div>
     """
-    return email_layout(brand, content, t or brand, color, logo_url, footer)
+    return email_layout(
+        brand, content, t or brand, color, logo_url, footer, head_extra)

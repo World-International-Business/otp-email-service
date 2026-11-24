@@ -154,8 +154,10 @@ class OTPService:
         if magic_link and not self.settings.public_base_url:
             logger.warning(
                 "magic_link_ignored",
-                tenant_id=tenant.tenant_id,
-                reason="PUBLIC_BASE_URL non configuré",
+                extra={
+                    "tenant_id": tenant.tenant_id,
+                    "reason": "PUBLIC_BASE_URL non configuré",
+                },
             )
         if magic_link and self.settings.public_base_url:
             base = self.settings.public_base_url.rstrip("/")
