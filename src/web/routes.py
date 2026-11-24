@@ -635,6 +635,52 @@ UI_ICONS = {
 }
 
 
+def _op_chip(text: str, bg: str, fg: str = "#fff") -> str:
+    """Pastille opérateur (Orange, MTN, Wave, Moov) — badge couleur de marque."""
+    return (
+        '<span class="inline-flex items-center rounded px-1.5 py-[3px] '
+        'text-[9px] font-extrabold leading-none tracking-wide" '
+        f'style="background:{bg};color:{fg}">{text}</span>'
+    )
+
+
+_MOMO_CHIPS = (
+    _op_chip("Orange", "#FF7900") + _op_chip("MTN", "#FFCB05", "#111")
+    + _op_chip("Wave", "#00A8E8") + _op_chip("Moov", "#005BAC")
+)
+
+# Icônes affichées dans les onglets / boutons des moyens de paiement.
+PAY_ICON = {
+    "stripe": (
+        '<span class="font-extrabold tracking-tight" '
+        'style="color:#635BFF;font-size:15px">stripe</span>'
+    ),
+    "paypal": (
+        '<span class="font-extrabold italic" style="font-size:14px">'
+        '<span style="color:#003087">Pay</span>'
+        '<span style="color:#009CDE">Pal</span></span>'
+    ),
+    "mobile": (
+        _op_chip("Orange", "#FF7900") + _op_chip("MTN", "#FFCB05", "#111")
+        + _op_chip("Wave", "#00A8E8")
+    ),
+    "virement": (
+        '<svg class="w-5 h-5" fill="none" stroke="#5060a8" stroke-width="1.8" '
+        'viewBox="0 0 24 24"><path stroke-linecap="round" '
+        'stroke-linejoin="round" d="M3 9l9-6 9 6M4 9v10M20 9v10M2 20h20'
+        'M8 12v5M12 12v5M16 12v5"/></svg>'
+    ),
+    "momo": _MOMO_CHIPS,
+    "cash": (
+        '<svg class="w-5 h-5" fill="none" stroke="#059669" stroke-width="1.8" '
+        'viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2"/>'
+        '<circle cx="12" cy="12" r="2.5"/><path stroke-linecap="round" '
+        'd="M6 12h.01M18 12h.01"/></svg>'
+    ),
+}
+
+
+
 @router.get("/", response_class=HTMLResponse)
 async def home(request: Request, settings: Settings = Depends(get_settings)) -> HTMLResponse:
     if await _current_user(request):
@@ -1758,7 +1804,9 @@ async def dashboard(
             f'<input type="hidden" name="plan" value="{_e(pending_plan)}">'
             f'<input type="hidden" name="provider" value="{_e(prov)}">'
             f'<input type="hidden" name="period" value="{_e(pending_period)}">'
-            f'<button class="btn-soft w-full justify-center text-sm">{_e(meta["label"])}'
+            f'<button class="btn-soft w-full justify-center text-sm">'
+            f'<span class="inline-flex items-center gap-1 mr-1.5">{PAY_ICON.get(prov, "")}</span>'
+            f'{_e(meta["label"])}'
             f'<b class="text-brand-600 ml-1.5">{plan_price(settings, pending_plan, prov, pending_period)[0]:g} {_e(plan_price(settings, pending_plan, prov, pending_period)[1])}</b>'
             f'<span class="text-[10px] font-normal text-slate-400 ml-1.5">· {_e(meta["via"])}</span></button></form>'
             for prov, meta in providers.items()
@@ -2723,6 +2771,8 @@ async def dashboard_billing_page(
             'has-[:checked]:bg-white has-[:checked]:text-slate-900 has-[:checked]:shadow">'
             f'<input type="radio" name="provider" value="{_e(prov)}" required{checked} '
             f'data-total="{_e(total)}" class="sr-only">'
+            '<span class="flex items-center justify-center gap-1 h-5 mb-1">'
+            f'{PAY_ICON.get(prov, "")}</span>'
             f'<span class="block text-sm font-semibold">{_e(meta["label"])}</span>'
             f'<span class="block text-[10px] font-normal text-slate-400 mt-0.5">{_e(meta["via"])}</span>'
             '</label>'
@@ -2753,6 +2803,8 @@ async def dashboard_billing_page(
             'has-[:checked]:bg-white has-[:checked]:text-slate-900 has-[:checked]:shadow">'
             f'<input type="radio" name="provider" value="{_e(prov)}" required{checked} '
             'data-total="À convenir" class="sr-only">'
+            '<span class="flex items-center justify-center gap-1 h-5 mb-1">'
+            f'{PAY_ICON.get(prov, "")}</span>'
             f'<span class="block text-sm font-semibold">{_e(meta["label"])}</span>'
             f'<span class="block text-[10px] font-normal text-slate-400 mt-0.5">{_e(meta["via"])}</span>'
             '</label>'
