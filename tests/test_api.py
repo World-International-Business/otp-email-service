@@ -6,6 +6,7 @@ externe requis. EMAIL_QUEUE_POLL_SECONDS=3600 neutralise le worker de fond :
 les tests pilotent process_*_once() manuellement (déterministe).
 """
 
+import datetime as _dt
 import hashlib
 import hmac
 import json
@@ -550,3 +551,51 @@ async def test_metrics_prometheus_format(client):
 
 async def test_metrics_requires_admin_key(client):
     assert client.get("/metrics").status_code in (401, 403)
+
+
+# ------------------------------------------------------------- scheduling
+
+async def test_send_at_schedules_delivery(client, redis):
+    """send_at futur : job différé, status=queued + scheduled_for, 0 livraison."""
+    from src.services.email_queue import process_email_queue_once
+
+    future = (_dt.datetime.now(_dt.timezone.utc)
+              + _dt.timedelta(hours=2)).isoformat()
+    spy = _SpyProvider()
+    client.app.state.email_service.email_provider = spy
+    resp = _post(client, "/v1/email/send", {
+        "to_email": "later@x.co", "type": "notification",
+        "send_at": future,
+        "data": {"title": "T", "message": "m"}})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "queued"
+    assert resp.json()["scheduled_for"]
+
+    mid = resp.json()["message_id"]
+    st = _get(client, f"/v1/email/status/{mid}").json()
+    assert st["status"] == "queued" and st["scheduled_for"]
+
+    # Le worker ne le prend pas avant l'échéance.
+    processed = await process_email_queue_once(
+        redis, client.app.state.email_service)
+    assert processed == 0 and len(spy.sent) == 0
+
+
+async def test_send_at_rejects_over_30_days(client):
+    future = (_dt.datetime.now(_dt.timezone.utc)
+              + _dt.timedelta(days=40)).isoformat()
+    resp = _post(client, "/v1/email/send", {
+        "to_email": "x@x.co", "type": "notification",
+        "send_at": future, "data": {"title": "T", "message": "m"}})
+    assert resp.status_code == 422
+
+
+async def test_send_at_past_sends_immediately(client):
+    """send_at dans le passé = envoi normal immédiat."""
+    past = (_dt.datetime.now(_dt.timezone.utc)
+            - _dt.timedelta(hours=1)).isoformat()
+    resp = _post(client, "/v1/email/send", {
+        "to_email": "x@x.co", "type": "notification",
+        "send_at": past, "data": {"title": "T", "message": "m"}})
+    assert resp.status_code == 200
+    assert resp.json()["scheduled_for"] is None

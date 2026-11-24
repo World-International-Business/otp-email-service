@@ -1,6 +1,7 @@
 """Routes FastAPI du microservice OTP + emails transactionnels (multi-tenant)."""
 
 import logging
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -138,6 +139,23 @@ async def send_email(
         if cached:
             return EmailSendResponse(**cached)
 
+    # Envoi programmé : plafonné à 30 jours, nécessite la file d'attente.
+    send_at_ts: float | None = None
+    if payload.send_at:
+        send_at_ts = payload.send_at.timestamp()
+        now = time.time()
+        if send_at_ts - now > 30 * 86400:
+            raise HTTPException(
+                status_code=422, detail="send_at cannot be more than 30 days ahead"
+            )
+        if send_at_ts <= now:
+            send_at_ts = None  # passé = envoi immédiat
+        elif not service.settings.email_queue_enabled:
+            raise HTTPException(
+                status_code=422,
+                detail="send_at requires EMAIL_QUEUE_ENABLED=true",
+            )
+
     if service.settings.email_queue_enabled:
         # Validation + quota à la réception (422/429 immédiat), livraison
         # ensuite par le worker avec retries — l'email n'est jamais perdu.
@@ -147,10 +165,14 @@ async def send_email(
         message_id = await enqueue(
             redis, tenant.tenant_id, str(payload.to_email), payload.type.value,
             subject, text_body, html_body, client_ip=client_ip,
+            send_at_ts=send_at_ts,
         )
         resp = EmailSendResponse(
             sent=True, status="queued",
             message_id=message_id, to_email=payload.to_email,
+            scheduled_for=(
+                payload.send_at.isoformat() if send_at_ts else None
+            ),
         )
     else:
         resp = await service.send(tenant, payload, client_ip=client_ip)
@@ -182,4 +204,5 @@ async def email_status(
         attempts=st.get("attempts", 0),
         error=st.get("error"),
         updated=st.get("updated", 0),
+        scheduled_for=st.get("scheduled_for"),
     )

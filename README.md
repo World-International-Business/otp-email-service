@@ -160,7 +160,7 @@ global.
 | `POST` | `/v1/otp/send` | HMAC | OTP 6 chiffres — `{user_id (UUID), email, country_code, purpose, language?, magic_link?}` |
 | `POST` | `/v1/otp/verify` | HMAC | `{request_id, code (6 chiffres)}` → `{verified, attempts_remaining}` |
 | `GET` | `/v1/otp/confirm` | lien | Lien magique (`magic_link=true`) — consomme le code au clic |
-| `POST` | `/v1/email/send` | HMAC | Transactionnel — `{to_email, type, language?, data?, subject?, text_body?, html_body?}` → `{sent, status:"queued"\|"sent", message_id}` |
+| `POST` | `/v1/email/send` | HMAC | Transactionnel — `{to_email, type, language?, data?, subject?, text_body?, html_body?, send_at?}` → `{sent, status:"queued"\|"sent", message_id, scheduled_for?}`. `send_at` (ISO 8601, ≤30 j) = envoi programmé |
 | `GET` | `/v1/email/status/{message_id}` | HMAC | Statut d'un envoi — `queued` / `retry` / `sent` / `dead` + `attempts`, `error` |
 | `POST` | `/v1/billing/webhooks/{stripe,paypal,cinetpay}` | signature provider | Callbacks paiement — activation du plan dès confirmation |
 | `POST` | `/v1/events/email` | `X-Admin-Key` | Bounces/plaintes entrants (Brevo, Resend ou générique) → liste de suppression + stats réputation |

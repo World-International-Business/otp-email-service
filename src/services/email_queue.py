@@ -53,6 +53,7 @@ async def set_status(
     type_: str = "",
     error: str = "",
     attempts: int | None = None,
+    send_at_ts: float | None = None,
 ) -> None:
     """Met à jour le statut d'un envoi (merge avec l'existant)."""
     data = await get_status(redis, message_id) or {}
@@ -61,6 +62,10 @@ async def set_status(
         data["to"] = to
     if type_:
         data["type"] = type_
+    if send_at_ts:
+        from datetime import datetime, timezone
+        data["scheduled_for"] = datetime.fromtimestamp(
+            send_at_ts, tz=timezone.utc).isoformat()
     if error:
         data["error"] = error[:200]
     elif status != "dead":
@@ -84,6 +89,7 @@ async def enqueue(
     text_body: str,
     html_body: str,
     client_ip: str = "unknown",
+    send_at_ts: float | None = None,
 ) -> str:
     """Ajoute un email à la file. Retourne le message_id consultable."""
     message_id = f"msg_{secrets.token_urlsafe(16)}"
@@ -103,9 +109,10 @@ async def enqueue(
     }
     await redis.set(_job_key(job_id), json.dumps(job), ex=JOB_TTL)
     await set_status(
-        redis, message_id, tenant_id, "queued", to=to_email, type_=email_type, attempts=0
+        redis, message_id, tenant_id, "queued", to=to_email,
+        type_=email_type, attempts=0, send_at_ts=send_at_ts,
     )
-    await redis.zadd(QUEUE_KEY, {job_id: time.time()})
+    await redis.zadd(QUEUE_KEY, {job_id: send_at_ts or time.time()})
     return message_id
 
 
