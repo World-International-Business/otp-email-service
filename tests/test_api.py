@@ -75,6 +75,13 @@ def client(monkeypatch):
         "ADMIN_API_KEY": "a" * 40,
         "EMAIL_QUEUE_POLL_SECONDS": "3600",
         "BILLING_CHECK_INTERVAL_SECONDS": "3600",
+        # Quotas élevés : le fakeredis est partagé entre les tests et les
+        # compteurs 10 min s'accumulent — sinon les envois OTP des tests
+        # tardifs tombent en 429 (le .env local masquait ça, pas la CI).
+        "MAX_SENDS_PER_USER_PER_10MIN": "10000",
+        "MAX_SENDS_PER_IP_PER_10MIN": "10000",
+        "COOLDOWN_SECONDS": "0",
+        "DEMO_ENABLED": "false",
     }.items():
         monkeypatch.setenv(k, v)
     from src.config import get_settings
