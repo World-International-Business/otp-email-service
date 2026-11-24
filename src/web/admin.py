@@ -33,7 +33,7 @@ from src.core.tenants import (
 from src.services.events import get_events
 from src.services.payments import list_payments
 from src.web.i18n import I18nRoute
-from src.web.routes import LOGO_FULL, LOGO_MARK, UI_ICONS, _head
+from src.web.routes import LOGO_FULL, LOGO_MARK, UI_ICONS, _head, _pager
 from src.web.users import WebUserStore
 
 router = APIRouter(
@@ -214,11 +214,30 @@ async def _tenant_stats(redis, tenant: Tenant) -> dict[str, str]:
 
 @router.get("", response_class=HTMLResponse)
 async def admin_dashboard(
-    request: Request, settings: Settings = Depends(get_settings)
+    request: Request,
+    q: str = "",
+    etype: str = "",
+    tpage: int = 1,
+    epage: int = 1,
+    xpage: int = 1,
+    settings: Settings = Depends(get_settings),
 ) -> HTMLResponse:
     await _require_admin(request, settings)
     redis = request.app.state.redis
     tenants = await TenantStore(redis).list()
+
+    # Filtre + pagination du tableau tenants (les KPI restent globaux)
+    ql = q.strip().lower()
+    view = [
+        t for t in tenants
+        if not ql or ql in t.name.lower() or ql in t.tenant_id.lower()
+        or ql in (t.brand_name or "").lower() or ql in t.plan
+    ]
+    T_PER = 10
+    tpage = max(1, tpage)
+    page_ids = {t.tenant_id for t in view[(tpage - 1) * T_PER: tpage * T_PER]}
+    tpager = _pager("/admin", tpage, len(view), T_PER, "tpage",
+                    {"q": q, "etype": etype, "epage": epage if epage > 1 else None})
 
     from datetime import date
     today = date.today().isoformat()
@@ -228,7 +247,7 @@ async def admin_dashboard(
     today_otps = today_emails = 0
     active_count = 0
     for t in tenants:
-        for tx in await list_payments(redis, t.tenant_id, limit=20):
+        for tx in await list_payments(redis, t.tenant_id, limit=500):
             if tx.get("status") in ("pending_manual", "pending_verification"):
                 pending_payments.append((t, tx))
         active_count += 1 if t.is_active else 0
@@ -257,7 +276,8 @@ async def admin_dashboard(
                 f' <span class="badge bg-amber-50 text-amber-600 border border-amber-200 inline-flex items-center gap-1">'
                 f'{UI_ICONS["clock"]} {_e(t.plan_requested.upper())} demandé</span>'
             )
-        rows += f"""<tr class="hover:bg-slate-50 transition align-top">
+        if t.tenant_id in page_ids:
+            rows += f"""<tr class="hover:bg-slate-50 transition align-top">
   <td class="py-4 pl-5 pr-4">
     <p class="font-bold">{_e(t.name)}</p>
     <p class="text-xs text-slate-400"><code>{_e(t.tenant_id)}</code> · {_e(t.brand_name)}
@@ -289,8 +309,21 @@ async def admin_dashboard(
                 "<p>Aucun tenant — créez le premier.</p></div></td></tr>")
 
     all_events.sort(key=lambda e: e.get("ts", ""), reverse=True)
+    etypes = sorted({ev.get("type", "") for ev in all_events if ev.get("type")})
+    if etype:
+        all_events = [ev for ev in all_events if ev.get("type") == etype]
+    E_PER = 15
+    etotal = len(all_events)
+    epage = max(1, epage)
+    all_events = all_events[(epage - 1) * E_PER: epage * E_PER]
+    etype_opts = '<option value="">Tous les types</option>' + "".join(
+        f'<option value="{_e(t)}"{" selected" if t == etype else ""}>{_e(t)}</option>'
+        for t in etypes
+    )
+    epager = _pager("/admin", epage, etotal, E_PER, "epage",
+                    {"q": q, "etype": etype, "tpage": tpage if tpage > 1 else None})
     event_rows = ""
-    for ev in all_events[:50]:
+    for ev in all_events:
         label, cls = _EVENT_LABELS.get(
             ev.get("type", ""), (ev.get("type", "?"), "bg-slate-100 text-slate-600")
         )
@@ -314,8 +347,15 @@ async def admin_dashboard(
 
     _pst = {"pending_manual": ("En attente", "bg-amber-100 text-amber-700"),
             "pending_verification": ("À vérifier", "bg-sky-100 text-sky-700")}
+    X_PER = 10
+    xpage = max(1, xpage)
+    paypage = pending_payments[(xpage - 1) * X_PER: xpage * X_PER]
+    xpager = _pager("/admin", xpage, len(pending_payments), X_PER, "xpage",
+                    {"q": q, "etype": etype,
+                     "tpage": tpage if tpage > 1 else None,
+                     "epage": epage if epage > 1 else None})
     pay_rows = ""
-    for t, tx in pending_payments:
+    for t, tx in paypage:
         label, cls = _pst.get(tx.get("status"), ("?", "bg-slate-100 text-slate-500"))
         ref = ""
         if tx.get("payer_ref"):
@@ -401,10 +441,18 @@ async def admin_dashboard(
     <tbody>{pay_rows}</tbody>
   </table>
   </div>
+  {xpager}
 </div>
 
 <div class="card overflow-hidden mb-8">
-  <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-bold">Tenants</h2></div>
+  <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
+    <h2 class="font-bold">Tenants</h2>
+    <form method="get" action="/admin" class="flex items-center gap-2">
+      <input name="q" value="{_e(q)}" placeholder="Rechercher (nom, id, plan)…"
+             class="input !py-1.5 !px-3 text-xs w-52">
+      <button class="btn-soft text-xs">Filtrer</button>
+    </form>
+  </div>
   <div class="overflow-x-auto">
   <table class="dt min-w-[860px]">
     <thead><tr>
@@ -417,18 +465,26 @@ async def admin_dashboard(
     <tbody>{rows}</tbody>
   </table>
   </div>
+  {tpager}
 </div>
 
 <div class="card overflow-hidden">
-  <div class="px-5 py-4 border-b border-slate-100">
-    <h2 class="font-bold">Journal des interactions</h2>
-    <p class="text-xs text-slate-500 mt-0.5">50 derniers événements, tous tenants confondus.</p>
+  <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
+    <div>
+      <h2 class="font-bold">Journal des interactions</h2>
+      <p class="text-xs text-slate-500 mt-0.5">Derniers événements, tous tenants confondus.</p>
+    </div>
+    <form method="get" action="/admin">
+      <select name="etype" onchange="this.form.submit()"
+              class="input !py-1.5 !px-2 text-xs">{etype_opts}</select>
+    </form>
   </div>
   <div class="overflow-x-auto">
   <table class="w-full min-w-[720px]">
     <tbody>{event_rows}</tbody>
   </table>
   </div>
+  {epager}
 </div>"""
     return _admin_page("Administration", content)
 
@@ -741,6 +797,7 @@ async def admin_edit_tenant(
     request: Request,
     settings: Settings = Depends(get_settings),
     saved: str = "",
+    hpage: int = 1,
 ) -> HTMLResponse:
     await _require_admin(request, settings)
     tenant = await TenantStore(request.app.state.redis).get(tenant_id)
@@ -818,7 +875,12 @@ async def admin_edit_tenant(
       <input type="hidden" name="action" value="reject_plan">
       <button class="text-xs font-semibold text-slate-600 border border-slate-200 rounded-lg px-4 py-2 hover:bg-slate-50">Refuser la demande</button>
     </form>"""
-    payments = await list_payments(request.app.state.redis, tenant_id)
+    payments = await list_payments(request.app.state.redis, tenant_id, limit=500)
+    hpage = max(1, hpage)
+    hpager = _pager(
+        f"/admin/tenants/{tenant_id}", hpage, len(payments), 10, "hpage"
+    )
+    payments = payments[(hpage - 1) * 10: hpage * 10]
     payments_html = ""
     if payments:
         _pst = {"paid": ("Payé", "bg-emerald-100 text-emerald-700"),
@@ -852,6 +914,7 @@ async def admin_edit_tenant(
   <div class="mt-4 pt-4 border-t border-slate-100">
     <p class="text-xs font-semibold text-slate-600 mb-2">Transactions en ligne</p>
     <div class="overflow-x-auto"><table class="w-full"><tbody>{_prow}</tbody></table></div>
+    {hpager}
   </div>"""
     content = f"""
 <div class="flex items-center justify-between mb-6">
@@ -1113,11 +1176,17 @@ async def admin_toggle_tenant(
 
 @router.get("/support", response_class=HTMLResponse)
 async def admin_support(
-    request: Request, settings: Settings = Depends(get_settings)
+    request: Request,
+    spage: int = 1,
+    settings: Settings = Depends(get_settings),
 ) -> HTMLResponse:
     await _require_admin(request, settings)
     redis = request.app.state.redis
-    ids = await redis.lrange("support:open", 0, 99)
+    all_ids = await redis.lrange("support:open", 0, -1)
+    S_PER = 15
+    spage = max(1, spage)
+    spager = _pager("/admin/support", spage, len(all_ids), S_PER, "spage")
+    ids = all_ids[(spage - 1) * S_PER: spage * S_PER]
     rows = ""
     for rid in ids:
         raw = await redis.get(f"support:{rid}")
@@ -1151,11 +1220,12 @@ async def admin_support(
     content = f"""
 <div class="flex items-center justify-between mb-6">
   <h1 class="text-2xl font-extrabold">Demandes support</h1>
-  <span class="badge bg-brand-100 text-brand-700">{len(ids)} en attente</span>
+  <span class="badge bg-brand-100 text-brand-700">{len(all_ids)} en attente</span>
 </div>
 <div class="card overflow-hidden">
   <table class="w-full text-sm"><tbody class="divide-y divide-slate-100">
   {rows}{empty}</tbody></table>
+  {spager}
 </div>"""
     return _admin_page("Support", content)
 

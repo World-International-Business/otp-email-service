@@ -69,6 +69,47 @@ router = APIRouter(tags=["web"], include_in_schema=False, route_class=I18nRoute)
 logger = logging.getLogger(__name__)
 
 
+def _pager(
+    base: str,
+    page: int,
+    total: int,
+    per_page: int,
+    page_param: str,
+    params: dict | None = None,
+    anchor: str = "",
+) -> str:
+    """Nav « ‹ Préc | Page x/y | Suiv › » — conserve les paramètres d'URL."""
+    pages = max(1, -(-total // per_page))
+    if pages <= 1:
+        return ""
+    page = max(1, min(page, pages))
+
+    def _url(p_: int) -> str:
+        q = dict(params or {})
+        q[page_param] = p_
+        qs = "&".join(
+            f"{k}={quote(str(v))}" for k, v in q.items()
+            if v not in (None, "", 1)
+        )
+        return f"{base}?{qs}{anchor}" if qs else f"{base}{anchor}"
+
+    prev = (
+        f'<a href="{_url(page - 1)}" class="btn-soft text-xs">‹ Préc.</a>'
+        if page > 1
+        else '<span class="btn-soft text-xs opacity-40 cursor-default">‹ Préc.</span>'
+    )
+    nxt = (
+        f'<a href="{_url(page + 1)}" class="btn-soft text-xs">Suiv ›</a>'
+        if page < pages
+        else '<span class="btn-soft text-xs opacity-40 cursor-default">Suiv ›</span>'
+    )
+    return (
+        '<div class="flex items-center gap-3 justify-end px-5 py-3 '
+        'border-t border-slate-100 text-xs text-slate-500">'
+        f"{prev}<span>Page {page} / {pages}</span>{nxt}</div>"
+    )
+
+
 def _e(value) -> str:
     """Échappe une valeur avant injection dans le HTML (anti-XSS)."""
     return html.escape(str(value), quote=True)
@@ -1373,6 +1414,10 @@ async def dashboard(
     request: Request,
     test: str = "",
     billing: str = "",
+    apage: int = 1,
+    atype: str = "",
+    ppage: int = 1,
+    pstatus: str = "",
     settings: Settings = Depends(get_settings),
 ) -> HTMLResponse:
     user = await _require_user(request)
@@ -1554,23 +1599,43 @@ async def dashboard(
         "email_failed": ("Email échoué", "bg-rose-100 text-rose-700"),
         "email_rate_limited": ("Rate limit", "bg-amber-100 text-amber-700"),
     }
-    events = await get_events(redis, tenant, limit=20)
-    if events:
+    events = await get_events(redis, tenant, limit=200)
+    atypes = sorted({e.get("type", "") for e in events if e.get("type")})
+    if atype:
+        events = [e for e in events if e.get("type") == atype]
+    A_PER = 15
+    atotal = len(events)
+    apage = max(1, apage)
+    events_page = events[(apage - 1) * A_PER: apage * A_PER]
+    type_opts = '<option value="">Tous les types</option>' + "".join(
+        f'<option value="{_e(t)}"{" selected" if t == atype else ""}>{_e(t)}</option>'
+        for t in atypes
+    )
+    apager = _pager("/dashboard", apage, atotal, A_PER, "apage",
+                    {"atype": atype}, anchor="#sec-activity")
+    if events_page:
         rows = "".join(
             f"""<tr class="hover:bg-slate-50 transition">
               <td class="py-2.5 pr-3 whitespace-nowrap"><span class="badge {cls}">{lbl}</span></td>
               <td class="py-2.5 pr-3 text-slate-500 text-xs whitespace-nowrap">{_e(e.get('ts','')[11:19])} {_e(e.get('ts','')[:10])}</td>
               <td class="py-2.5 text-slate-600 text-xs truncate max-w-[220px]">{_e(e.get('email') or e.get('request_id') or e.get('email_type') or '—')}</td>
             </tr>"""
-            for e in events
+            for e in events_page
             for lbl, cls in [event_labels.get(e.get("type", ""), (e.get("type", "?"), "bg-slate-100 text-slate-600"))]
         )
         activity_html = f"""
 <div id="sec-activity" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
-  <h2 class="font-bold mb-4">Activité récente</h2>
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="font-bold">Activité récente</h2>
+    <form method="get" action="/dashboard#sec-activity">
+      <select name="atype" onchange="this.form.submit()"
+              class="input !py-1.5 !px-2 text-xs">{type_opts}</select>
+    </form>
+  </div>
   <div class="overflow-x-auto"><table class="w-full text-sm">
     <tbody class="divide-y divide-slate-100">{rows}</tbody>
   </table></div>
+  {apager}
 </div>"""
     else:
         activity_html = f"""
@@ -1704,7 +1769,24 @@ async def dashboard(
     </form>
   </div>"""
 
-    payments = await list_payments(redis, tenant.tenant_id, limit=8)
+    payments = await list_payments(redis, tenant.tenant_id, limit=500)
+    pstatuses = sorted({p.get("status") for p in payments})
+    if pstatus:
+        payments = [p for p in payments if p.get("status") == pstatus]
+    P_PER = 8
+    ptotal = len(payments)
+    ppage = max(1, ppage)
+    payments = payments[(ppage - 1) * P_PER: ppage * P_PER]
+    _pst_names = {"paid": "Payé", "created": "En attente",
+                  "pending_manual": "En attente",
+                  "pending_verification": "À vérifier", "failed": "Échoué"}
+    pst_opts = '<option value="">Tous les statuts</option>' + "".join(
+        f'<option value="{_e(st)}"{" selected" if st == pstatus else ""}>'
+        f'{_e(_pst_names.get(st, st))}</option>'
+        for st in pstatuses
+    )
+    ppager = _pager("/dashboard", ppage, ptotal, P_PER, "ppage",
+                    {"pstatus": pstatus}, anchor="#sec-payments")
     pay_history = ""
     if payments:
         _st = {"paid": ("Payé", "bg-emerald-100 text-emerald-700"),
@@ -1723,9 +1805,16 @@ async def dashboard(
         )
         pay_history = f"""
 <div id="sec-payments" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
-  <h2 class="font-bold mb-4">Historique des paiements</h2>
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="font-bold">Historique des paiements</h2>
+    <form method="get" action="/dashboard#sec-payments">
+      <select name="pstatus" onchange="this.form.submit()"
+              class="input !py-1.5 !px-2 text-xs">{pst_opts}</select>
+    </form>
+  </div>
   <div class="overflow-x-auto"><table class="w-full text-sm">
     <tbody class="divide-y divide-slate-100">{prow}</tbody></table></div>
+  {ppager}
 </div>"""
 
     plan_card_html = f"""
