@@ -730,3 +730,122 @@ async def test_track_rejects_invalid_url(client):
     r = client.get("/v1/track/c/msg_x?u=javascript:alert(1)",
                    follow_redirects=False)
     assert r.status_code == 400
+
+
+# ------------------------------------------------------------- SDK Python
+
+def test_sdk_signature_accepted(client):
+    """La signature du SDK officiel est vérifiée par l'auth serveur."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "mailhub_client", "sdks/python/mailhub/client.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    sdk = mod.MailHubClient(
+        base_url="http://x", api_key="k", hmac_secret="s" * 40)
+    body = b'{"user_id":"u1","email":"a@b.c"}'
+    headers = sdk._sign(body)
+
+    from src.core.auth import _verify_hmac
+    assert _verify_hmac(
+        body, headers["X-Timestamp"], headers["X-HMAC-Signature"],
+        "s" * 40, headers["X-Nonce"],
+    )
+    # Signature différente par requête (nonce unique).
+    assert sdk._sign(body)["X-HMAC-Signature"] != headers["X-HMAC-Signature"]
+
+
+# ---------------------------------------------------------- exports CSV
+
+async def test_payments_csv_export(client, redis):
+    """GET /dashboard/payments.csv : CSV UTF-8 avec les tx du tenant."""
+    from src.services.payments import new_tx_id, record_tx
+    from src.web.users import SessionStore, WebUserStore
+
+    tid = new_tx_id()
+    await record_tx(redis, tid, {
+        "tenant_id": "default", "plan": "pro", "period": "yearly",
+        "amount": 348, "currency": "EUR", "method": "stripe",
+        "status": "paid", "tx_id": tid, "date": "2026-11-20"})
+    w = await WebUserStore(redis).create("csv@x.co", "Passw0rd!", "default", "App")
+    sid = await SessionStore(redis).create(w.user_id)
+
+    r = client.get("/dashboard/payments.csv", cookies={"session_id": sid})
+    assert r.status_code == 200
+    assert "text/csv" in r.headers["content-type"]
+    assert "attachment" in r.headers["content-disposition"]
+    text = r.content.decode("utf-8-sig")
+    assert text.splitlines()[0].startswith("date,plan,period")
+    assert "pro,yearly,348,EUR,stripe,paid" in text.replace('"', "")
+    assert tid in text
+
+
+# ---------------------------------------------------------- templates custom
+
+async def test_custom_template_overrides_welcome(client, redis):
+    """Un template personnalisé remplace sujet + corps du welcome par défaut."""
+    from src.services.custom_templates import set_template
+    from src.services.email_queue import process_email_queue_once
+
+    await set_template(
+        redis, "default", "welcome",
+        subject="Salut {name} — {brand}",
+        text="Yo {name}, bienvenue chez {brand} !",
+        html="<p>Hey <b>{name}</b>, let's go sur {brand}</p>",
+    )
+    spy = _SpyProvider()
+    client.app.state.email_service.email_provider = spy
+    client.app.state.otp_service.email_provider = spy
+
+    resp = _post(client, "/v1/email/send", {
+        "to_email": "client@example.com", "type": "welcome",
+        "data": {"name": "Alice"},
+    })
+    assert resp.status_code == 200, resp.text
+    await process_email_queue_once(redis, client.app.state.email_service)
+    assert spy.sent
+    to, subject, text = spy.sent[0]
+    assert to == "client@example.com"
+    assert "Salut Alice" in subject and "MailHub Test" in subject
+    assert "Yo Alice" in text
+
+    # Le fragment HTML est passé par le layout de marque (branding préservé).
+    # (vérif indirecte : le rendu a eu lieu sans erreur — voir preview route)
+    await redis.delete("t:default:tmpl:welcome")
+
+
+async def test_custom_template_render_vars_safety(redis):
+    """{inconnu} reste tel quel, pas de crash ; variables connues substituées."""
+    from src.services.custom_templates import render_vars
+    assert render_vars("Bonjour {name}", {"name": "Al"}) == "Bonjour Al"
+    assert render_vars("X {typo} Y", {}) == "X {typo} Y"
+    assert render_vars("{a}{a}", {"a": "1"}) == "11"
+
+
+async def test_dashboard_templates_editor(client, redis):
+    """GET /dashboard/templates : éditeur + save + preview."""
+    from src.web.users import SessionStore, WebUserStore
+
+    w = await WebUserStore(redis).create("tmpl@x.co", "Passw0rd!", "default", "App")
+    sid = await SessionStore(redis).create(w.user_id)
+    ck = {"session_id": sid}
+
+    r = client.get("/dashboard/templates?type=welcome", cookies=ck)
+    assert r.status_code == 200 and "Templates" in r.text
+    assert "{name}" in r.text  # chips de variables
+
+    r = client.post("/dashboard/templates", cookies=ck, data={
+        "type": "welcome", "subject": "Bienvenue {name}",
+        "text": "Salut {name} !",
+    }, follow_redirects=False)
+    assert r.status_code == 303
+
+    r = client.get("/dashboard/templates/preview?type=welcome", cookies=ck)
+    assert r.status_code == 200
+    assert "Salut" in r.text  # texte personnalisé rendu dans l'aperçu
+
+    r = client.post("/dashboard/templates/reset", cookies=ck,
+                    data={"type": "welcome"}, follow_redirects=False)
+    assert r.status_code == 303
