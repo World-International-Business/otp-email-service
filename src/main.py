@@ -228,7 +228,16 @@ def _error_page(
 async def validation_exception_page(request: Request, exc: RequestValidationError):
     """Formulaires web invalides -> page HTML lisible ; API -> JSON 422."""
     if request.url.path.startswith("/v1"):
-        return JSONResponse({"detail": exc.errors()}, status_code=422)
+        # Format lisible pour les clients API : champ + message, sans le
+        # bruit pydantic (loc interne, input, url de doc…).
+        errors = [
+            {
+                "field": ".".join(str(p) for p in e.get("loc", []) if p != "body"),
+                "message": e.get("msg", "invalid"),
+            }
+            for e in exc.errors()
+        ]
+        return JSONResponse({"detail": errors or "Invalid request"}, status_code=422)
     missing = [
         str(e.get("loc", ["?"])[-1])
         for e in exc.errors()

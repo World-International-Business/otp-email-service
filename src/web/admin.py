@@ -223,9 +223,13 @@ async def admin_dashboard(
     today = date.today().isoformat()
     rows = ""
     all_events: list[dict] = []
+    pending_payments: list[tuple[Tenant, dict]] = []
     today_otps = today_emails = 0
     active_count = 0
     for t in tenants:
+        for tx in await list_payments(redis, t.tenant_id, limit=20):
+            if tx.get("status") in ("pending_manual", "pending_verification"):
+                pending_payments.append((t, tx))
         active_count += 1 if t.is_active else 0
         stats = await _tenant_stats(redis, t)
         pipe = redis.pipeline()
@@ -305,6 +309,36 @@ async def admin_dashboard(
                       "<p>Aucune interaction enregistrée.</p></div></td></tr>")
 
     open_support = int(await redis.llen("support:open") or 0)
+    queue_len = int(await redis.zcard("mail:queue") or 0)
+
+    _pst = {"pending_manual": ("En attente", "bg-amber-100 text-amber-700"),
+            "pending_verification": ("À vérifier", "bg-sky-100 text-sky-700")}
+    pay_rows = ""
+    for t, tx in pending_payments:
+        label, cls = _pst.get(tx.get("status"), ("?", "bg-slate-100 text-slate-500"))
+        ref = ""
+        if tx.get("payer_ref"):
+            ref = (f'<code class="text-[11px] text-brand-600">{_e(tx["payer_ref"])}</code>'
+                   + (f'<br><span class="text-[11px] text-slate-400">{_e(tx["payer_info"])}</span>'
+                      if tx.get("payer_info") else ""))
+        period = " / annuel" if tx.get("period") == "yearly" else ""
+        pay_rows += f'''<tr class="border-t border-slate-100 hover:bg-slate-50">
+  <td class="py-3 pl-5 pr-4">
+    <p class="font-semibold text-sm">{_e(t.name)}</p>
+    <code class="text-[11px] text-slate-400">{_e(t.tenant_id)}</code>
+  </td>
+  <td class="py-3 pr-4 text-sm font-bold">{_e((tx.get("plan") or "—").upper())}
+    <span class="text-[11px] font-normal text-slate-400">{period}</span></td>
+  <td class="py-3 pr-4 text-sm whitespace-nowrap">{_e(str(tx.get("amount") or "—"))} {_e(tx.get("currency") or "")}</td>
+  <td class="py-3 pr-4 text-xs text-slate-500">{_e(tx.get("method") or tx.get("provider") or "—")}</td>
+  <td class="py-3 pr-4">{ref or '<span class="text-xs text-slate-300">—</span>'}</td>
+  <td class="py-3 pr-4"><span class="badge {cls}">{_e(label)}</span></td>
+  <td class="py-3 pr-5 text-right"><a href="/admin/tenants/{_e(t.tenant_id)}" class="btn-soft">Traiter</a></td>
+</tr>'''
+    if not pay_rows:
+        pay_rows = ('<tr><td colspan="7"><div class="empty">'
+                    f"<span class='empty-ic'>{UI_ICONS['inbox']}</span>"
+                    "<p>Aucun paiement en attente de validation.</p></div></td></tr>")
 
     content = f"""
 <div class="flex items-center justify-between mb-6">
@@ -315,7 +349,7 @@ async def admin_dashboard(
   <a href="/admin/tenants/new" class="btn-primary text-sm">+ Nouveau tenant</a>
 </div>
 
-<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+<div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
 
   <div class="card kpi p-4">
     <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Tenants</p>
@@ -331,9 +365,40 @@ async def admin_dashboard(
     <p class="kpi-num mt-1" style="font-size:1.5rem">{today_emails}</p>
   </div>
   <div class="card kpi p-4">
+    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">File d'emails</p>
+    <p class="kpi-num mt-1" style="font-size:1.5rem">{queue_len}
+      <span class="text-xs font-semibold text-slate-400">en cours</span></p>
+  </div>
+  <div class="card kpi p-4">
+    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Paiements à valider</p>
+    <p class="kpi-num mt-1" style="font-size:1.5rem">{len(pending_payments)}
+      <span class="text-xs font-semibold text-amber-600">action requise</span></p>
+  </div>
+  <div class="card kpi p-4">
     <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Support</p>
     <p class="kpi-num mt-1" style="font-size:1.5rem">{open_support}
       <a href="/admin/support" class="text-xs font-semibold text-brand-600">voir →</a></p>
+  </div>
+</div>
+
+<div class="card overflow-hidden mb-8">
+  <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+    <h2 class="font-bold">Paiements en attente de validation</h2>
+    <span class="badge bg-amber-100 text-amber-700">{len(pending_payments)}</span>
+  </div>
+  <div class="overflow-x-auto">
+  <table class="w-full min-w-[860px]">
+    <thead><tr class="text-left text-xs text-slate-400 border-b border-slate-100">
+      <th class="pl-5 py-2 font-semibold">Tenant</th>
+      <th class="py-2 font-semibold">Plan</th>
+      <th class="py-2 font-semibold">Montant</th>
+      <th class="py-2 font-semibold">Moyen</th>
+      <th class="py-2 font-semibold">Référence déclarée</th>
+      <th class="py-2 font-semibold">Statut</th>
+      <th class="pr-5"></th>
+    </tr></thead>
+    <tbody>{pay_rows}</tbody>
+  </table>
   </div>
 </div>
 

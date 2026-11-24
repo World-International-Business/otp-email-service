@@ -173,7 +173,7 @@ async def email_status(
 ) -> EmailStatusResponse:
     st = await get_status(request.app.state.redis, message_id)
     if not st or st.get("tenant_id") != tenant.tenant_id:
-        raise HTTPException(status_code=404, detail="message_id introuvable")
+        raise HTTPException(status_code=404, detail="Message not found")
     return EmailStatusResponse(
         message_id=message_id,
         status=st.get("status", "queued"),
