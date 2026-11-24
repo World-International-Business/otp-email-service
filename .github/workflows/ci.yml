@@ -50,7 +50,9 @@ jobs:
       - name: Push image to GHCR
         if: github.ref == 'refs/heads/main'
         run: |
-          IMAGE=ghcr.io/${{ github.repository_owner }}/otp-email-service
+          # Les noms de repository Docker doivent être en minuscules —
+          # l'org GitHub (World-International-Business) a des majuscules.
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/otp-email-service"
           docker tag otp-email-service:ci "$IMAGE:latest"
           docker tag otp-email-service:ci "$IMAGE:${{ github.sha }}"
           docker push "$IMAGE:latest"
