@@ -128,6 +128,12 @@ async def process_email_queue_once(redis, email_service, max_attempts: int = 4) 
         try:
             processed += await _process_one(redis, email_service, job_id,
                                           now, max_attempts)
+        except Exception:
+            # Erreur inattendue (JSON corrompu, bug interne…) : reprogrammer
+            # à +60s au lieu de laisser le job échéant repris à chaque poll —
+            # sinon boucle infinie de traitements (et envois potentiels).
+            logger.exception("email_queue_job_error", extra={"job_id": job_id})
+            await redis.zadd(QUEUE_KEY, {job_id: time.time() + 60})
         finally:
             await redis.delete(f"mail:lock:{job_id}")
     return processed
