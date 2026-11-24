@@ -34,6 +34,14 @@ from src.core.tenants import (
     hash_api_key,
     plan_quota_updates,
 )
+from src.services.custom_templates import (
+    SAMPLE_VARS,
+    TEMPLATE_KINDS,
+    TEMPLATE_VARS,
+    delete_template,
+    get_template,
+    set_template,
+)
 from src.services.email_service import EmailService
 from src.services.email_templates import otp_html
 from src.services.events import get_events, mask_email
@@ -488,6 +496,7 @@ def _dashboard_page(user, tenant, content: str, active: str = "dashboard", debug
         "branding": '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 019 9h-9z"/><circle cx="12" cy="12" r="3"/></svg>',
         "integration": '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 6l-5 6 5 6m8-12l5 6-5 6"/></svg>',
         "support": '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a8 8 0 01-8 8H5l-2 2V12a8 8 0 018-8h2a8 8 0 018 8z"/></svg>',
+        "templates": '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>',
         "demo": '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg>',
         "docs": '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4h13l3 3v13a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z"/></svg>',
     }
@@ -498,6 +507,7 @@ def _dashboard_page(user, tenant, content: str, active: str = "dashboard", debug
         ("creds", "Clés API", "/dashboard#sec-creds"),
         ("smtp", "Expéditeur SMTP", "/dashboard#sec-smtp"),
         ("branding", "Emails & marque", "/dashboard#sec-branding"),
+        ("templates", "Templates", "/dashboard/templates"),
         ("integration", "Intégration", "/dashboard#sec-integration"),
         ("support", "Support", "/dashboard#sec-support"),
         # Console de test : toujours visible — pour un client connecté elle
@@ -2374,6 +2384,216 @@ async def dashboard_email_preview_live(
             footer=str(form.get("email_footer") or "").strip() or tenant.email_footer,
         )
     )
+
+
+# ---------------------------------------------------------------- templates
+
+
+def _sample_data(kind: str) -> dict:
+    return dict(SAMPLE_VARS.get(kind, {}))
+
+
+def _render_template_preview(
+    service: EmailService, tenant, kind: str,
+    override: dict[str, str] | None,
+) -> str:
+    """Rend l'email exactement comme un vrai envoi (builders du service)."""
+    fake = EmailSendRequest(
+        to_email="preview@example.com",
+        type=EmailType(kind),
+        language=Language.fr,
+        data=_sample_data(kind),
+    )
+    _subject, _text, html = service._render(fake, tenant, override)
+    return html
+
+
+@router.get("/dashboard/templates", response_class=HTMLResponse)
+async def dashboard_templates(request: Request, type: str = "welcome"):
+    user = await _require_user(request)
+    redis = request.app.state.redis
+    tenant = await TenantStore(redis).get(user.tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant introuvable")
+    if type not in TEMPLATE_KINDS:
+        type = "welcome"
+
+    overrides = {
+        kind: await get_template(redis, tenant.tenant_id, kind)
+        for kind in TEMPLATE_KINDS
+    }
+    current = overrides[type] or {"subject": "", "text": "", "html": ""}
+
+    kind_labels = {
+        "welcome": "Bienvenue",
+        "notification": "Notification",
+        "transaction": "Transaction",
+    }
+    dot = '<span class="text-[10px] align-middle">●</span>'
+    tabs = "".join(
+        f'<a href="/dashboard/templates?type={k}" '
+        f'class="px-3 py-1.5 rounded-lg text-sm font-semibold '
+        f'{"bg-slate-900 text-white" if k == type else "bg-slate-100 text-slate-600 hover:bg-slate-200"}">'
+        f'{kind_labels[k]}'
+        f'{" " + dot if overrides[k] else ""}'
+        f'</a>'
+        for k in TEMPLATE_KINDS
+    )
+    vars_chips = "".join(
+        f'<code class="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded text-xs '
+        f'font-mono">{{{v}}}</code>'
+        for v in (*TEMPLATE_VARS[type],)
+    )
+    status_badge = (
+        '<span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 '
+        'text-emerald-700 font-semibold">Personnalisé</span>'
+        if overrides[type]
+        else '<span class="text-xs px-2 py-0.5 rounded-full bg-slate-100 '
+             'text-slate-500 font-semibold">Template par défaut</span>'
+    )
+    saved = (
+        '<p class="text-sm text-emerald-600 font-semibold mb-3">'
+        'Template enregistré.</p>'
+        if request.query_params.get("saved") else ""
+    )
+    reset_btn = ""
+    if overrides[type]:
+        reset_btn = """
+      <form method="post" action="/dashboard/templates/reset" class="inline">
+        <input type="hidden" name="type" value="%s">
+        <button class="btn-soft text-xs text-red-600">Réinitialiser (revenir au défaut)</button>
+      </form>""" % _e(type)
+
+    content = f"""
+<div class="card p-4 sm:p-6 mb-6">
+  <div class="flex items-center justify-between mb-1">
+    <h1 class="font-bold text-lg">Templates d'emails</h1>{status_badge}
+  </div>
+  <p class="text-sm text-slate-500 mb-4">Personnalisez le sujet et le contenu
+  de vos emails prédéfinis. Les variables s'insèrent avec <code class="font-mono text-xs bg-slate-100 px-1 rounded">{{variable}}</code>.
+  Laissez vide pour utiliser le texte par défaut.</p>
+  <div class="flex gap-2 mb-5">{tabs}</div>
+  {saved}
+  <div class="grid lg:grid-cols-2 gap-6">
+    <form id="tmplForm" method="post" action="/dashboard/templates" class="space-y-4">
+      <input type="hidden" name="type" value="{_e(type)}">
+      <div>
+        <label class="text-xs font-semibold text-slate-600">Sujet</label>
+        <input name="subject" class="input mt-1" value="{_e(current['subject'])}"
+               placeholder="Vide = sujet par défaut">
+      </div>
+      <div>
+        <label class="text-xs font-semibold text-slate-600">Corps (texte)</label>
+        <textarea name="text" rows="7" class="input mt-1 font-mono text-xs"
+                  placeholder="Vide = corps par défaut">{_e(current['text'])}</textarea>
+      </div>
+      <div>
+        <label class="text-xs font-semibold text-slate-600">Fragment HTML (optionnel — remplace le corps, reste dans votre charte)</label>
+        <textarea name="html" rows="5" class="input mt-1 font-mono text-xs"
+                  placeholder="<p>Bonjour {{name}}, …</p>">{_e(current['html'])}</textarea>
+      </div>
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-xs font-semibold text-slate-600">Variables :</span>{vars_chips}
+      </div>
+      <div class="flex items-center gap-3">
+        <button class="btn-primary">Enregistrer</button>
+        {reset_btn}
+      </div>
+    </form>
+    <div>
+      <p class="text-xs font-semibold text-slate-600 mb-2">Aperçu (données d'exemple) :</p>
+      <iframe id="tmplPreview" src="/dashboard/templates/preview?type={_e(type)}"
+              class="w-full rounded-xl border border-slate-200 bg-white"
+              style="height:520px" title="Aperçu template"></iframe>
+    </div>
+  </div>
+</div>
+<script>
+(function() {{
+  var form = document.getElementById('tmplForm');
+  var frame = document.getElementById('tmplPreview');
+  var timer;
+  function schedule() {{ clearTimeout(timer); timer = setTimeout(refresh, 400); }}
+  async function refresh() {{
+    try {{
+      var r = await fetch('/dashboard/templates/preview', {{ method: 'POST', body: new FormData(form) }});
+      if (r.ok) frame.srcdoc = await r.text();
+    }} catch (e) {{}}
+  }}
+  form.addEventListener('input', schedule);
+}})();
+</script>"""
+    return _dashboard_page(user, tenant, content, active="templates")
+
+
+@router.post("/dashboard/templates")
+async def dashboard_templates_save(
+    request: Request, _: None = Depends(require_same_origin)
+):
+    user = await _require_user(request)
+    redis = request.app.state.redis
+    form = await request.form()
+    kind = str(form.get("type") or "")
+    if kind not in TEMPLATE_KINDS:
+        raise HTTPException(status_code=422, detail="Type de template inconnu")
+    await set_template(
+        redis, user.tenant_id, kind,
+        subject=str(form.get("subject") or "").strip(),
+        text=str(form.get("text") or ""),
+        html=str(form.get("html") or "").strip(),
+    )
+    return RedirectResponse(
+        f"/dashboard/templates?type={quote(kind)}&saved=1", status_code=303)
+
+
+@router.post("/dashboard/templates/reset")
+async def dashboard_templates_reset(
+    request: Request, _: None = Depends(require_same_origin)
+):
+    user = await _require_user(request)
+    form = await request.form()
+    kind = str(form.get("type") or "")
+    if kind in TEMPLATE_KINDS:
+        await delete_template(request.app.state.redis, user.tenant_id, kind)
+    return RedirectResponse(
+        f"/dashboard/templates?type={quote(kind)}", status_code=303)
+
+
+@router.get("/dashboard/templates/preview", response_class=HTMLResponse)
+async def dashboard_templates_preview(request: Request, type: str = "welcome"):
+    user = await _require_user(request)
+    tenant = await TenantStore(request.app.state.redis).get(user.tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant introuvable")
+    if type not in TEMPLATE_KINDS:
+        type = "welcome"
+    override = await get_template(request.app.state.redis, tenant.tenant_id, type)
+    return HTMLResponse(_render_template_preview(
+        request.app.state.email_service, tenant, type, override))
+
+
+@router.post("/dashboard/templates/preview", response_class=HTMLResponse)
+async def dashboard_templates_preview_live(
+    request: Request, _: None = Depends(require_same_origin)
+):
+    """Aperçu en direct avec les valeurs du formulaire (non sauvegardées)."""
+    user = await _require_user(request)
+    tenant = await TenantStore(request.app.state.redis).get(user.tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant introuvable")
+    form = await request.form()
+    kind = str(form.get("type") or "welcome")
+    if kind not in TEMPLATE_KINDS:
+        kind = "welcome"
+    override = {
+        "subject": str(form.get("subject") or "").strip(),
+        "text": str(form.get("text") or ""),
+        "html": str(form.get("html") or "").strip(),
+    }
+    if not any(override.values()):
+        override = None
+    return HTMLResponse(_render_template_preview(
+        request.app.state.email_service, tenant, kind, override))
 
 
 @router.post("/dashboard/regenerate-keys")

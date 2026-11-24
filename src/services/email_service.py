@@ -12,6 +12,7 @@ from src.core.models import EmailSendRequest, EmailSendResponse, EmailType, Lang
 from src.core.security import hash_code
 from src.core.tenants import Tenant
 from src.email_providers.base import EmailProvider, EmailSendError, SenderIdentity
+from src.services.custom_templates import get_template, render_vars
 from src.services.email_queue import set_status
 from src.services.email_templates import generic_html, resolve_logo_url
 from src.services.events import incr_daily_stat, log_event, mask_email
@@ -57,7 +58,10 @@ class EmailService:
         to_email = str(request.to_email)
         # Rendre AVANT de réserver un slot quota : un type=custom incomplet
         # lève 422 ici — il ne doit pas consommer le quota du destinataire.
-        subject, text_body, html_body = self._render(request, tenant)
+        override = await get_template(
+            self.redis, tenant.tenant_id, request.type.value)
+        subject, text_body, html_body = self._render(
+            request, tenant, override)
 
         # Liste de suppression : une adresse en bounce/plainte est refusée
         # avant toute consommation de quota ou appel SMTP.
@@ -228,7 +232,10 @@ class EmailService:
     # ------------------------------------------------------------------
 
     def _render(
-        self, request: EmailSendRequest, tenant: Tenant
+        self,
+        request: EmailSendRequest,
+        tenant: Tenant,
+        override: dict[str, str] | None = None,
     ) -> tuple[str, str, str]:
         if request.type == EmailType.custom:
             return self._render_custom(request, tenant)
@@ -238,7 +245,36 @@ class EmailService:
             EmailType.notification: self._notification,
             EmailType.transaction: self._transaction,
         }
-        return builders[request.type](request, tenant)
+        return builders[request.type](request, tenant, override)
+
+    def _apply_override(
+        self,
+        override: dict[str, str],
+        variables: dict,
+        default_subject: str,
+        default_text: str,
+        tenant: Tenant,
+    ) -> tuple[str, str, str]:
+        """Rend le template personnalisé du tenant ({vars} substituées).
+
+        Le fragment HTML personnalisé est inséré brut — il appartient au
+        tenant qui maîtrise ses propres emails (même confiance que
+        type=custom). Le texte est échappé."""
+        subject = (
+            render_vars(override["subject"], variables)
+            or default_subject
+        )
+        text = (
+            render_vars(override["text"], variables)
+            if override["text"] else default_text
+        )
+        if override["html"]:
+            html = self._wrap_html(
+                None, render_vars(override["html"], variables), tenant)
+        else:
+            html = self._wrap_html(
+                subject, escape(text).replace("\n", "<br>"), tenant)
+        return subject, text, html
 
     def _render_custom(
         self, request: EmailSendRequest, tenant: Tenant
@@ -265,10 +301,21 @@ class EmailService:
         return request.subject, request.text_body, html
 
     def _welcome(
-        self, request: EmailSendRequest, tenant: Tenant
+        self,
+        request: EmailSendRequest,
+        tenant: Tenant,
+        override: dict[str, str] | None = None,
     ) -> tuple[str, str, str]:
         brand = tenant.brand_name
         name = request.data.get("name", "")
+        if override:
+            return self._apply_override(
+                override, {"name": name, "brand": brand},
+                f"Bienvenue sur {brand} !" if request.language == Language.fr
+                else f"Welcome to {brand}!",
+                f"Bonjour {name},\n\nBienvenue sur {brand}.",
+                tenant,
+            )
         if request.language == Language.fr:
             subject = f"Bienvenue sur {brand} !"
             text = (
@@ -287,12 +334,21 @@ class EmailService:
         return subject, text, html
 
     def _notification(
-        self, request: EmailSendRequest, tenant: Tenant
+        self,
+        request: EmailSendRequest,
+        tenant: Tenant,
+        override: dict[str, str] | None = None,
     ) -> tuple[str, str, str]:
         brand = tenant.brand_name
         title = request.data.get("title", "Notification")
         message = request.data.get("message", "")
         subject = f"{brand} — {title}"
+        if override:
+            return self._apply_override(
+                override,
+                {"title": title, "message": message, "brand": brand},
+                subject, f"{title}\n\n{message}", tenant,
+            )
         if request.language == Language.fr:
             text = f"{title}\n\n{message}\n\nL'équipe {brand}"
         else:
@@ -301,12 +357,26 @@ class EmailService:
         return subject, text, html
 
     def _transaction(
-        self, request: EmailSendRequest, tenant: Tenant
+        self,
+        request: EmailSendRequest,
+        tenant: Tenant,
+        override: dict[str, str] | None = None,
     ) -> tuple[str, str, str]:
         brand = tenant.brand_name
         amount = request.data.get("amount", "")
         currency = request.data.get("currency", "")
         status = request.data.get("status", "confirmed")
+        if override:
+            return self._apply_override(
+                override,
+                {"amount": amount, "currency": currency,
+                 "status": status, "brand": brand},
+                f"Votre transaction {brand}"
+                if request.language == Language.fr
+                else f"Your {brand} transaction",
+                f"Transaction : {amount} {currency}\nStatut : {status}",
+                tenant,
+            )
         if request.language == Language.fr:
             subject = f"Votre transaction {brand}"
             text = (
