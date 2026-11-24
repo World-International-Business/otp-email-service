@@ -532,3 +532,21 @@ async def test_warmup_cap_growth_and_expiry(client, redis):
     finally:
         await store.update("default", {
             "smtp_host": None, "smtp_configured_at": None})
+
+
+# --------------------------------------------------------------- /metrics
+
+async def test_metrics_prometheus_format(client):
+    """GET /metrics (X-Admin-Key) : texte Prometheus avec gauges + compteurs."""
+    r = client.get("/metrics", headers=_ADMIN)
+    assert r.status_code == 200
+    assert "version=0.0.4" in r.headers["content-type"]
+    body = r.text
+    assert "mailhub_tenants_total" in body
+    assert "mailhub_email_queue_depth" in body
+    assert 'mailhub_otps_sent_total{tenant="default"}' in body
+    assert 'mailhub_tenant_smtp_ok{tenant="default"}' in body
+
+
+async def test_metrics_requires_admin_key(client):
+    assert client.get("/metrics").status_code in (401, 403)
