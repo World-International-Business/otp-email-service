@@ -97,7 +97,7 @@ class SMTPProvider(EmailProvider):
             )
         else:
             server = smtplib.SMTP(smtp_host, smtp_port, timeout=10)
-        with server:
+        try:
             if not use_ssl:
                 server.ehlo_or_helo_if_needed()
                 # STARTTLS seulement si le serveur l'annonce — un serveur
@@ -110,3 +110,15 @@ class SMTPProvider(EmailProvider):
                 # sendmail() ne lève PAS d'exception sur RCPT refusé :
                 # il retourne {destinataire: (code, msg)}. Le traiter en erreur.
                 raise smtplib.SMTPRecipientsRefused(refused)
+        finally:
+            # sendmail() a déjà transmis le message au serveur : un QUIT ou
+            # une fermeture qui échoue ensuite ne doit JAMAIS être remonté
+            # comme un échec d'envoi — sinon l'appelant retente et le
+            # destinataire reçoit des doublons.
+            try:
+                server.quit()
+            except Exception:
+                try:
+                    server.close()
+                except Exception:
+                    pass

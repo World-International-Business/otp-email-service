@@ -1,5 +1,8 @@
 """Tests unitaires — crypto, OTP store (fakeredis), templates, config."""
 
+import smtplib
+from types import SimpleNamespace
+
 import fakeredis.aioredis
 import pytest
 
@@ -172,3 +175,97 @@ def test_resolve_logo_url_absolute():
     assert resolve_logo_url("/brand/t1/logo", "https://api.mh.io/") == "https://api.mh.io/brand/t1/logo"
     assert resolve_logo_url("https://cdn.x.io/l.png", "https://api.mh.io") == "https://cdn.x.io/l.png"
     assert resolve_logo_url("/brand/t1/logo", "") == "/brand/t1/logo"
+
+
+# ------------------------------------------------- SMTP : pas de doublons
+
+class _FakeSMTP:
+    """Faux serveur SMTP — quit() tombe en panne comme Gmail/ proxies le font."""
+
+    sent = 0
+    refused: dict = {}
+
+    def __init__(self, *a, **k):
+        pass
+
+    def ehlo_or_helo_if_needed(self):
+        pass
+
+    def has_extn(self, name):
+        return False
+
+    def login(self, user, password):
+        pass
+
+    def sendmail(self, from_email, to, msg):
+        type(self).sent += 1
+        return dict(type(self).refused)
+
+    def quit(self):
+        raise smtplib.SMTPServerDisconnected("connexion fermée par le serveur")
+
+    def close(self):
+        pass
+
+
+def _smtp_settings():
+    return SimpleNamespace(
+        from_email="noreply@mh.io", from_name="MailHub",
+        smtp_host="smtp.x.io", smtp_port=587,
+        smtp_user="u", smtp_password="p", smtp_use_ssl=False,
+    )
+
+
+async def test_smtp_quit_failure_counts_as_success(monkeypatch):
+    """Un QUIT qui échoue APRES sendmail ne doit pas déclencher de retry
+    (sinon le destinataire reçoit des doublons)."""
+    from src.email_providers.smtp import SMTPProvider
+
+    _FakeSMTP.sent = 0
+    _FakeSMTP.refused = {}
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
+    ok = await SMTPProvider(_smtp_settings()).send_email(
+        "a@b.c", "s", "texte", "<p>html</p>"
+    )
+    assert ok is True
+    assert _FakeSMTP.sent == 1  # un seul envoi réel
+
+
+async def test_smtp_refused_recipient_raises(monkeypatch):
+    """RCPT refusé (sendmail retourne un dict) = vraie erreur -> retry légitime."""
+    from src.email_providers.base import EmailSendError
+    from src.email_providers.smtp import SMTPProvider
+
+    _FakeSMTP.sent = 0
+    _FakeSMTP.refused = {"a@b.c": (550, b"user unknown")}
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
+    with pytest.raises(EmailSendError):
+        await SMTPProvider(_smtp_settings()).send_email(
+            "a@b.c", "s", "texte", "<p>html</p>"
+        )
+
+
+async def test_queue_lock_prevents_double_processing(tenant):
+    """Un job verrouillé par un autre worker n'est pas traité une 2e fois."""
+    from unittest.mock import AsyncMock
+
+    from src.core.tenants import TenantStore
+    from src.services.email_queue import QUEUE_KEY, enqueue, process_email_queue_once
+
+    redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    await TenantStore(redis).create(tenant)
+    await enqueue(redis, tenant.tenant_id, "a@b.c", "notification",
+                  "s", "texte", "<p>h</p>")
+    job_id = (await redis.zrange(QUEUE_KEY, 0, -1))[0]
+
+    # Un autre worker a déjà pris le job -> rien n'est livré.
+    await redis.set(f"mail:lock:{job_id}", "1", nx=True, ex=120)
+    service = SimpleNamespace(deliver=AsyncMock())
+    assert await process_email_queue_once(redis, service) == 0
+    service.deliver.assert_not_called()
+
+    # Lock libéré -> le job est livré une seule fois.
+    await redis.delete(f"mail:lock:{job_id}")
+    assert await process_email_queue_once(redis, service) == 1
+    service.deliver.assert_awaited_once()
+    assert await process_email_queue_once(redis, service) == 0

@@ -118,69 +118,85 @@ async def process_email_queue_once(redis, email_service, max_attempts: int = 4) 
     due = await redis.zrangebyscore(QUEUE_KEY, "-inf", now, start=0, num=10)
     processed = 0
     for job_id in due:
-        raw = await redis.get(_job_key(job_id))
-        if not raw:
-            await redis.zrem(QUEUE_KEY, job_id)
-            continue
-        job = json.loads(raw)
-        job["attempts"] += 1
-        tenant = await TenantStore(redis).get(job["tenant_id"])
-
-        async def _finish(status: str, error: str = "") -> None:
-            await set_status(
-                redis, job["message_id"], job["tenant_id"], status,
-                error=error, attempts=job["attempts"],
-            )
-            await redis.delete(_job_key(job_id))
-            await redis.zrem(QUEUE_KEY, job_id)
-
-        if not tenant or not tenant.is_active:
-            await _finish("dead", "tenant_missing_or_inactive")
+        # Claim atomique : un seul worker traite un job donné, même si deux
+        # répliques polluent la file en même temps (déploiement multi-instance).
+        # Le verrou est TOUJOURS relâché en fin d'itération : sur le chemin
+        # retry le job est reprogrammé à plus tard, sinon il resterait
+        # bloqué jusqu'à l'expiration du verrou.
+        if not await redis.set(f"mail:lock:{job_id}", "1", nx=True, ex=120):
             continue
         try:
-            await email_service.deliver(
-                tenant,
-                job["to"],
-                job["subject"],
-                job["text_body"],
-                job["html_body"],
-                job["message_id"],
-                job["type"],
-                client_ip=job.get("client_ip", "queue"),
-            )
-        except EmailSendError as exc:
-            reason = str(exc)[:200]
-            if job["attempts"] >= max_attempts:
-                await _finish("dead", reason)
-                # Rendre le quota réservé au POST : l'email n'est jamais parti.
-                from src.services.rate_limiter import RateLimiter
-
-                await RateLimiter(redis, tenant).release_email(job["to"])
-                await log_event(
-                    redis, tenant, "email_dead",
-                    message_id=job["message_id"], error=reason[:100],
-                )
-                await enqueue_webhook(
-                    redis, tenant, "email.dead",
-                    {"message_id": job["message_id"], "to": job["to"],
-                     "type": job["type"], "error": reason,
-                     "attempts": job["attempts"]},
-                )
-            else:
-                delay = RETRY_DELAYS[min(job["attempts"] - 1, len(RETRY_DELAYS) - 1)]
-                await redis.set(_job_key(job_id), json.dumps(job), ex=JOB_TTL)
-                await redis.zadd(QUEUE_KEY, {job_id: now + delay})
-                await set_status(
-                    redis, job["message_id"], job["tenant_id"], "retry",
-                    error=reason, attempts=job["attempts"],
-                )
-                await enqueue_webhook(
-                    redis, tenant, "email.failed",
-                    {"message_id": job["message_id"], "to": job["to"],
-                     "type": job["type"], "error": reason,
-                     "attempts": job["attempts"], "will_retry": True},
-                )
-        else:
-            await _finish("sent")
-        processed += 1
+            processed += await _process_one(redis, email_service, job_id,
+                                          now, max_attempts)
+        finally:
+            await redis.delete(f"mail:lock:{job_id}")
     return processed
+
+
+async def _process_one(redis, email_service, job_id: str, now: float,
+                       max_attempts: int) -> int:
+    raw = await redis.get(_job_key(job_id))
+    if not raw:
+        await redis.zrem(QUEUE_KEY, job_id)
+        return 0
+    job = json.loads(raw)
+    job["attempts"] += 1
+    tenant = await TenantStore(redis).get(job["tenant_id"])
+
+    async def _finish(status: str, error: str = "") -> None:
+        await set_status(
+            redis, job["message_id"], job["tenant_id"], status,
+            error=error, attempts=job["attempts"],
+        )
+        await redis.delete(_job_key(job_id))
+        await redis.zrem(QUEUE_KEY, job_id)
+
+    if not tenant or not tenant.is_active:
+        await _finish("dead", "tenant_missing_or_inactive")
+        return 1
+    try:
+        await email_service.deliver(
+            tenant,
+            job["to"],
+            job["subject"],
+            job["text_body"],
+            job["html_body"],
+            job["message_id"],
+            job["type"],
+            client_ip=job.get("client_ip", "queue"),
+        )
+    except EmailSendError as exc:
+        reason = str(exc)[:200]
+        if job["attempts"] >= max_attempts:
+            await _finish("dead", reason)
+            # Rendre le quota réservé au POST : l'email n'est jamais parti.
+            from src.services.rate_limiter import RateLimiter
+
+            await RateLimiter(redis, tenant).release_email(job["to"])
+            await log_event(
+                redis, tenant, "email_dead",
+                message_id=job["message_id"], error=reason[:100],
+            )
+            await enqueue_webhook(
+                redis, tenant, "email.dead",
+                {"message_id": job["message_id"], "to": job["to"],
+                 "type": job["type"], "error": reason,
+                 "attempts": job["attempts"]},
+            )
+        else:
+            delay = RETRY_DELAYS[min(job["attempts"] - 1, len(RETRY_DELAYS) - 1)]
+            await redis.set(_job_key(job_id), json.dumps(job), ex=JOB_TTL)
+            await redis.zadd(QUEUE_KEY, {job_id: now + delay})
+            await set_status(
+                redis, job["message_id"], job["tenant_id"], "retry",
+                error=reason, attempts=job["attempts"],
+            )
+            await enqueue_webhook(
+                redis, tenant, "email.failed",
+                {"message_id": job["message_id"], "to": job["to"],
+                 "type": job["type"], "error": reason,
+                 "attempts": job["attempts"], "will_retry": True},
+            )
+    else:
+        await _finish("sent")
+    return 1
