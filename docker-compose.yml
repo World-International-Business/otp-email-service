@@ -24,7 +24,11 @@ services:
     ports:
       - "${APP_PORT:-8000}:8000"
     env_file:
-      - .env
+      # `.env` est gitignoré : absent du repo cloné par Dokploy/CI. Sans
+      # `required: false`, `docker compose up` échoue → l'ancienne version
+      # reste en ligne. En prod, les variables passent par l'UI Dokploy.
+      - path: .env
+        required: false
     environment:
       REDIS_URL: redis://redis:6379/0
       HOST: 0.0.0.0
