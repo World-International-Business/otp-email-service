@@ -1440,6 +1440,59 @@ async def dashboard(
          '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
          "bg-emerald-50 text-emerald-600"),
     ]
+    # Santé expéditeur : badge SMTP + résultat DNS en cache
+    if tenant.smtp_status == "ok":
+        smtp_status_badge = '<span class="badge bg-emerald-100 text-emerald-700">SMTP OK</span>'
+    elif tenant.smtp_status == "failed":
+        smtp_status_badge = '<span class="badge bg-rose-100 text-rose-700">SMTP EN PANNE</span>'
+    else:
+        smtp_status_badge = '<span class="badge bg-slate-100 text-slate-500">SMTP non testé</span>'
+    if tenant.smtp_status == "failed":
+        smtp_health_html = (
+            f'<p class="text-xs text-rose-600 font-semibold">Échec : '
+            f'{_e(tenant.smtp_status_error)}</p>'
+        )
+    elif tenant.smtp_status == "ok":
+        smtp_health_html = (
+            '<p class="text-xs text-emerald-600">Connexion et identifiants '
+            'vérifiés — les emails peuvent partir.</p>'
+        )
+    else:
+        smtp_health_html = (
+            '<p class="text-xs text-slate-400">Testez la connexion (EHLO, TLS, '
+            'identifiants) sans envoyer de mail — contrôle auto toutes les heures.</p>'
+        )
+
+    dns_raw = await redis.get(f"{tenant.key_prefix()}dnscheck")
+    dns = json.loads(dns_raw) if dns_raw else None
+    if dns:
+        def _b(ok: bool, label: str, detail: str = "") -> str:
+            cls = "bg-emerald-100 text-emerald-700" if ok else "bg-rose-100 text-rose-700"
+            tip = f' title="{_e(detail)}"' if detail else ""
+            return (f'<span class="badge {cls} cursor-help"{tip}>'
+                    f'{"✓" if ok else "✗"} {label}</span>')
+        all_ok = all((dns["mx"], dns["spf_ok"], dns["dkim_ok"], dns["dmarc_ok"]))
+        dns_check_html = (
+            f'<p class="text-[11px] text-slate-400 mb-1.5">Domaine : '
+            f'<code>{_e(dns["domain"])}</code></p>'
+            f'<div class="flex flex-wrap gap-1.5">'
+            f'{_b(dns["mx"], "MX")}'
+            f'{_b(dns["spf_ok"], "SPF", dns["spf"])}'
+            f'{_b(dns["dkim_ok"], "DKIM", dns["dkim_selector"])}'
+            f'{_b(dns["dmarc_ok"], "DMARC", dns["dmarc"])}'
+            f'</div>'
+            + ('<p class="text-[11px] text-emerald-600 mt-1.5">Domaine vérifié — '
+               'délivrabilité optimale.</p>' if all_ok
+               else '<p class="text-[11px] text-rose-600 mt-1.5">Enregistrements '
+                    'manquants : ajoutez-les dans la zone DNS du domaine (chez '
+                    'votre hébergeur), sinon vos mails arriveront en spam.</p>')
+        )
+    else:
+        dns_check_html = (
+            '<p class="text-[11px] text-slate-400">Vérifiez MX / SPF / DKIM / DMARC '
+            'du domaine expéditeur — les 4 enregistrements qui évitent les spams.</p>'
+        )
+
     stats_cards = ""
     for label, key, ic, icc in stats_keys:
         val = await redis.get(f"{tenant.key_prefix()}{key}") or "0"
@@ -1727,7 +1780,10 @@ async def dashboard(
 {plan_card_html}
 {pay_history}
 <div id="sec-smtp" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
-  <h2 class="font-bold mb-1">Configuration de votre expéditeur email</h2>
+  <div class="flex items-center justify-between mb-1">
+    <h2 class="font-bold">Configuration de votre expéditeur email</h2>
+    {smtp_status_badge}
+  </div>
   <p class="text-sm text-slate-500 mb-4">Configurez l'adresse email utilisée pour envoyer VOS emails —
   tout serveur SMTP est supporté (Gmail, Yahoo, iCloud, Outlook, IONOS, OVH, Zoho…).
   Gmail, Yahoo et iCloud exigent un <a class="text-brand-600 underline" href="https://myaccount.google.com/apppasswords" target="_blank">mot de passe d'application</a>.</p>
@@ -1761,6 +1817,25 @@ async def dashboard(
     <input name="test_to" type="email" class="input sm:max-w-xs" placeholder="envoyer un email de test à..." required>
     <button class="text-xs font-semibold text-brand-600 border border-blue-200 rounded-lg px-4 py-2.5 hover:bg-blue-50 whitespace-nowrap">Tester l'envoi</button>
   </form>
+
+  <div class="mt-4 pt-4 border-t border-slate-100 grid md:grid-cols-2 gap-4">
+    <div>
+      <p class="text-xs font-semibold text-slate-600 mb-2">Santé de la connexion SMTP</p>
+      {smtp_health_html}
+      <form method="post" action="/dashboard/smtp-check" class="mt-2">
+        <button class="btn-soft text-xs">Tester la connexion</button>
+      </form>
+    </div>
+    <div>
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-xs font-semibold text-slate-600">Délivrabilité du domaine</p>
+        <form method="post" action="/dashboard/dns-check">
+          <button class="btn-soft text-xs">Vérifier le DNS</button>
+        </form>
+      </div>
+      {dns_check_html}
+    </div>
+  </div>
 </div>
 
 <div id="sec-branding" class="card p-4 sm:p-6 mb-6 scroll-mt-24">
@@ -2564,6 +2639,63 @@ async def dashboard_test_email(
     except Exception:
         return RedirectResponse("/dashboard?test=erreur%20d%27envoi", status_code=303)
     return RedirectResponse("/dashboard?test=ok", status_code=303)
+
+
+@router.post("/dashboard/smtp-check")
+async def dashboard_smtp_check(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    _: None = Depends(require_same_origin),
+):
+    """Healthcheck SMTP à la demande (EHLO/TLS/login, sans envoi)."""
+    user = await _require_user(request)
+    redis = request.app.state.redis
+    tenant = await TenantStore(redis).get(user.tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant introuvable")
+
+    from src.services.smtp_health import check_smtp_health
+    host = tenant.smtp_host or settings.smtp_host
+    port = tenant.smtp_port or settings.smtp_port
+    user_ = tenant.smtp_user or settings.smtp_user
+    pwd = tenant.smtp_password or settings.smtp_password
+    use_ssl = tenant.smtp_use_ssl
+    if use_ssl is None:
+        use_ssl = settings.smtp_use_ssl
+    if use_ssl is None:
+        use_ssl = int(port) == 465
+    res = await check_smtp_health(host, int(port), user_, pwd, use_ssl)
+    await TenantStore(redis).update(tenant.tenant_id, {
+        "smtp_status": "ok" if res["ok"] else "failed",
+        "smtp_status_error": "" if res["ok"]
+            else f'{res["stage"]}: {res["error"]}',
+        "smtp_checked_at": res["checked_at"],
+    })
+    return RedirectResponse("/dashboard#sec-smtp", status_code=303)
+
+
+@router.post("/dashboard/dns-check")
+async def dashboard_dns_check(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    _: None = Depends(require_same_origin),
+):
+    """Vérification MX/SPF/DKIM/DMARC du domaine de l'expéditeur."""
+    user = await _require_user(request)
+    redis = request.app.state.redis
+    tenant = await TenantStore(redis).get(user.tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant introuvable")
+
+    from src.services.dns_check import check_email_domain
+    from_email = tenant.from_email or settings.from_email
+    domain = from_email.split("@")[-1] if "@" in from_email else ""
+    if domain:
+        result = await check_email_domain(domain)
+        await redis.set(
+            f"{tenant.key_prefix()}dnscheck", json.dumps(result), ex=7 * 24 * 3600
+        )
+    return RedirectResponse("/dashboard#sec-smtp", status_code=303)
 
 
 # =====================================================================

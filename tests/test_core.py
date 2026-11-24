@@ -298,3 +298,76 @@ async def test_queue_lock_prevents_double_processing(tenant):
     assert await process_email_queue_once(redis, service) == 1
     service.deliver.assert_awaited_once()
     assert await process_email_queue_once(redis, service) == 0
+
+
+# ------------------------------------------------- santé SMTP + DNS
+
+async def test_smtp_health_ok(monkeypatch):
+    """Connexion + login réussis -> ok."""
+    from src.services.smtp_health import check_smtp_health
+
+    _FakeSMTP.sent = 0
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
+    res = await check_smtp_health("smtp.x.io", 587, "u", "p", False)
+    assert res["ok"] and res["stage"] == "ok" and res["latency_ms"] >= 0
+
+
+async def test_smtp_health_bad_credentials(monkeypatch):
+    """Login refusé -> stage 'login', ok=False (tenant alerté)."""
+    from src.services.smtp_health import check_smtp_health
+
+    class _BadSMTP(_FakeSMTP):
+        def login(self, u, p):
+            raise smtplib.SMTPAuthenticationError(535, b"credentials denied")
+
+    monkeypatch.setattr(smtplib, "SMTP", _BadSMTP)
+    res = await check_smtp_health("smtp.x.io", 587, "u", "p", False)
+    assert not res["ok"] and res["stage"] == "login"
+    assert "535" in res["error"]
+
+
+async def test_smtp_health_unreachable(monkeypatch):
+    """Hôte injoignable -> stage 'connect'."""
+    from src.services.smtp_health import check_smtp_health
+
+    def _boom(*a, **k):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(smtplib, "SMTP", _boom)
+    res = await check_smtp_health("down.x.io", 587, "u", "p", False)
+    assert not res["ok"] and res["stage"] == "connect"
+
+
+def test_domain_verdict_all_ok():
+    from src.services.dns_check import domain_verdict
+    ok = {"mx": True, "spf_ok": True, "dkim_ok": True, "dmarc_ok": True}
+    assert domain_verdict(ok) == "ok"
+    missing = {"mx": True, "spf_ok": False, "dkim_ok": False, "dmarc_ok": True}
+    assert "SPF" in domain_verdict(missing) and "DKIM" in domain_verdict(missing)
+
+
+async def test_dns_check_parses_records(monkeypatch):
+    """MX + SPF + DMARC + sélecteur DKIM détectés correctement."""
+    import src.services.dns_check as dc
+
+    class _R:
+        def __init__(self, s): self.strings = [s.encode()]
+
+    def fake_resolve(domain, rtype, lifetime=5):
+        if rtype == "MX" and domain == "x.io":
+            return ["mx"]
+        if rtype == "TXT":
+            if domain == "x.io":
+                return [_R("v=spf1 include:_spf.x.io ~all")]
+            if domain == "_dmarc.x.io":
+                return [_R("v=DMARC1; p=quarantine")]
+            if domain == "mail._domainkey.x.io":
+                return [_R("v=DKIM1; k=rsa; p=abc")]
+        raise dns.resolver.NXDOMAIN
+
+    import dns.resolver
+    monkeypatch.setattr(dns.resolver, "resolve", fake_resolve)
+    res = await dc.check_email_domain("x.io")
+    assert res["mx"] and res["spf_ok"] and res["dkim_ok"] and res["dmarc_ok"]
+    assert res["dkim_selector"] == "mail"
+    assert dc.domain_verdict(res) == "ok"

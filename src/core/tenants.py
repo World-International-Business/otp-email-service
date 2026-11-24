@@ -48,6 +48,9 @@ class Tenant(BaseModel):
     email_logo_url: str | None = None
     email_footer: str | None = None
     webhook_url: str | None = None  # POST signé HMAC : email.sent/failed/dead, otp.*
+    smtp_status: str = ""          # ok | failed | "" (jamais testé)
+    smtp_status_error: str = ""    # détail de l'échec (étape + raison)
+    smtp_checked_at: int = 0       # timestamp du dernier healthcheck
     max_sends_per_user_per_10min: int = 3
     max_sends_per_ip_per_10min: int = 3
     cooldown_seconds: int = 60

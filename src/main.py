@@ -108,6 +108,66 @@ async def _expire_billing_loop(redis, settings, email_provider) -> None:
             logging.getLogger(__name__).exception("billing_expiry_loop_error")
 
 
+async def _smtp_health_once(redis, settings) -> int:
+    """Healthcheck SMTP de tous les tenants (config tenant > globale).
+
+    Stocke le résultat sur le tenant (smtp_status/checked_at) ; en cas de
+    bascule ok -> failed : événement + webhook `tenant.smtp_failed` pour que
+    le client répare ses identifiants AVANT que ses mails n'échouent.
+    """
+    from src.services.events import log_event
+    from src.services.smtp_health import check_smtp_health
+
+    checked = 0
+    for t in await TenantStore(redis).list():
+        host = t.smtp_host or settings.smtp_host
+        port = t.smtp_port or settings.smtp_port
+        user = t.smtp_user or settings.smtp_user
+        password = t.smtp_password or settings.smtp_password
+        use_ssl = t.smtp_use_ssl
+        if use_ssl is None:
+            use_ssl = settings.smtp_use_ssl
+        if use_ssl is None:
+            use_ssl = int(port) == 465
+        if not host or not user:
+            continue
+        res = await check_smtp_health(host, int(port), user, password, use_ssl)
+        status = "ok" if res["ok"] else "failed"
+        changed = t.smtp_status and t.smtp_status != status
+        await TenantStore(redis).update(t.tenant_id, {
+            "smtp_status": status,
+            "smtp_status_error": "" if res["ok"]
+                else f'{res["stage"]}: {res["error"]}',
+            "smtp_checked_at": res["checked_at"],
+        })
+        if not res["ok"] and (changed or not t.smtp_status):
+            await log_event(
+                redis, t, "smtp_health_failed",
+                stage=res["stage"], error=res["error"][:100],
+            )
+            from src.services.webhooks import enqueue_webhook
+            await enqueue_webhook(
+                redis, t, "tenant.smtp_failed",
+                {"tenant_id": t.tenant_id, "stage": res["stage"],
+                 "error": res["error"][:150]},
+            )
+        checked += 1
+    return checked
+
+
+async def _smtp_health_loop(redis, settings) -> None:
+    """Boucle périodique du healthcheck SMTP (0 = désactivé)."""
+    interval = settings.smtp_health_check_interval_seconds
+    if interval <= 0:
+        return
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await _smtp_health_once(redis, settings)
+        except Exception:
+            logging.getLogger(__name__).exception("smtp_health_loop_error")
+
+
 async def _queue_worker_loop(app: FastAPI, poll_seconds: float) -> None:
     """Worker de fond : livraison des emails en file + webhooks sortants."""
     log = logging.getLogger(__name__)
@@ -146,10 +206,11 @@ async def lifespan(app: FastAPI):
     queue_task = asyncio.create_task(
         _queue_worker_loop(app, settings.email_queue_poll_seconds)
     )
+    health_task = asyncio.create_task(_smtp_health_loop(redis, settings))
 
     logging.getLogger(__name__).info("service_started", extra={"version": settings.app_version})
     yield
-    for task in (billing_task, queue_task):
+    for task in (billing_task, queue_task, health_task):
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task

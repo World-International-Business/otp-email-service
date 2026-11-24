@@ -96,6 +96,8 @@ class Settings(BaseSettings):
 
     # Résiliation automatique des abonnements expirés (secondes entre chaque balayage)
     billing_check_interval_seconds: int = 3600
+    # Healthcheck SMTP par tenant (connexion + login, sans envoi) — 0 = off
+    smtp_health_check_interval_seconds: int = 3600
 
     # File d'envoi d'emails (livraison asynchrone + retries) et webhooks sortants
     email_queue_enabled: bool = True      # False = envoi synchrone comme avant
