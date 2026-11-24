@@ -90,6 +90,7 @@ async def enqueue(
     html_body: str,
     client_ip: str = "unknown",
     send_at_ts: float | None = None,
+    attachments: list[dict] | None = None,
 ) -> str:
     """Ajoute un email à la file. Retourne le message_id consultable."""
     message_id = f"msg_{secrets.token_urlsafe(16)}"
@@ -103,6 +104,7 @@ async def enqueue(
         "subject": subject,
         "text_body": text_body,
         "html_body": html_body,
+        "attachments": attachments or [],
         "attempts": 0,
         "client_ip": client_ip,
         "enqueued": int(time.time()),
@@ -218,6 +220,7 @@ async def _process_one(redis, email_service, job_id: str, now: float,
             job["message_id"],
             job["type"],
             client_ip=job.get("client_ip", "queue"),
+            attachments=job.get("attachments") or None,
         )
     except EmailSendError as exc:
         reason = str(exc)[:200]

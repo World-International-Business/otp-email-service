@@ -25,6 +25,12 @@ class EmailProvider(ABC):
         text_body: str,
         html_body: str,
         sender: SenderIdentity | None = None,
+        *,
+        attachments: list[dict] | None = None,
     ) -> bool:
-        """Envoie un email. Retourne True si envoyé avec succès."""
+        """Envoie un email. Retourne True si envoyé avec succès.
+
+        `attachments` : liste de dicts {filename, content_base64,
+        content_type} — chaque provider traduit vers son format natif.
+        """
         ...

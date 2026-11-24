@@ -28,6 +28,8 @@ class BrevoProvider(EmailProvider):
         text_body: str,
         html_body: str,
         sender: SenderIdentity | None = None,
+        *,
+        attachments: list[dict] | None = None,
     ) -> bool:
         sender = sender or {}
         payload = {
@@ -40,6 +42,17 @@ class BrevoProvider(EmailProvider):
             "textContent": text_body,
             "htmlContent": html_body,
         }
+        if attachments:
+            payload["attachment"] = [
+                {"name": a["filename"], "content": a["content_base64"]}
+                for a in attachments
+            ]
+        unsub = sender.get("unsubscribe_url") or self.settings.list_unsubscribe_url
+        if unsub:
+            payload["headers"] = {
+                "List-Unsubscribe": f"<{unsub}>",
+                "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+            }
         try:
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
                 resp = await client.post(

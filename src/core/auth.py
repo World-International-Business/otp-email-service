@@ -66,7 +66,17 @@ async def resolve_tenant(request: Request) -> Tenant:
         raise HTTPException(status_code=403, detail="Timestamp too old")
 
     body = await request.body()
-    if not _verify_hmac(body, timestamp, signature, tenant.hmac_secret, nonce):
+    ok = _verify_hmac(body, timestamp, signature, tenant.hmac_secret, nonce)
+    if (
+        not ok
+        and tenant.hmac_secret_prev
+        and int(time.time()) < tenant.hmac_secret_prev_expires
+    ):
+        # Fenêtre de grâce post-rotation : l'ancien secret reste accepté
+        # le temps que le client déploie le nouveau (pas de coupure).
+        ok = _verify_hmac(
+            body, timestamp, signature, tenant.hmac_secret_prev, nonce)
+    if not ok:
         raise HTTPException(status_code=403, detail="Invalid signature")
 
     # Anti-rejeu : une signature n'est utilisable qu'une seule fois dans la

@@ -8,6 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from src.api.dependencies import get_client_ip, get_email_service, get_otp_service
 from src.core.auth import get_tenant
 from src.core.models import (
+    EmailBatchRequest,
+    EmailBatchResponse,
+    EmailBatchResult,
     EmailSendRequest,
     EmailSendResponse,
     EmailStatusResponse,
@@ -140,21 +143,8 @@ async def send_email(
             return EmailSendResponse(**cached)
 
     # Envoi programmé : plafonné à 30 jours, nécessite la file d'attente.
-    send_at_ts: float | None = None
-    if payload.send_at:
-        send_at_ts = payload.send_at.timestamp()
-        now = time.time()
-        if send_at_ts - now > 30 * 86400:
-            raise HTTPException(
-                status_code=422, detail="send_at cannot be more than 30 days ahead"
-            )
-        if send_at_ts <= now:
-            send_at_ts = None  # passé = envoi immédiat
-        elif not service.settings.email_queue_enabled:
-            raise HTTPException(
-                status_code=422,
-                detail="send_at requires EMAIL_QUEUE_ENABLED=true",
-            )
+    send_at_ts = _check_send_at(
+        payload.send_at, service.settings.email_queue_enabled)
 
     if service.settings.email_queue_enabled:
         # Validation + quota à la réception (422/429 immédiat), livraison
@@ -166,6 +156,7 @@ async def send_email(
             redis, tenant.tenant_id, str(payload.to_email), payload.type.value,
             subject, text_body, html_body, client_ip=client_ip,
             send_at_ts=send_at_ts,
+            attachments=[a.model_dump() for a in payload.attachments] or None,
         )
         resp = EmailSendResponse(
             sent=True, status="queued",
@@ -177,6 +168,90 @@ async def send_email(
     else:
         resp = await service.send(tenant, payload, client_ip=client_ip)
 
+    if idem_key:
+        await idem_store(redis, tenant.tenant_id, idem_key, resp.model_dump(mode="json"))
+    return resp
+
+
+def _check_send_at(payload_send_at, queue_enabled: bool) -> float | None:
+    """Valide send_at (≤ 30 j, queue requise) — 422 sinon. Retourne le ts."""
+    if not payload_send_at:
+        return None
+    ts = payload_send_at.timestamp()
+    if ts - time.time() > 30 * 86400:
+        raise HTTPException(
+            status_code=422, detail="send_at cannot be more than 30 days ahead"
+        )
+    if ts <= time.time():
+        return None  # passé = envoi immédiat
+    if not queue_enabled:
+        raise HTTPException(
+            status_code=422, detail="send_at requires EMAIL_QUEUE_ENABLED=true"
+        )
+    return ts
+
+
+@email_router.post(
+    "/batch",
+    response_model=EmailBatchResponse,
+    summary="Envoyer le même email à plusieurs destinataires",
+    response_description="Un message_id par destinataire — échecs individuels isolés",
+)
+async def send_email_batch(
+    payload: EmailBatchRequest,
+    request: Request,
+    tenant: Tenant = Depends(get_tenant),
+    service: EmailService = Depends(get_email_service),
+    client_ip: str = Depends(get_client_ip),
+) -> EmailBatchResponse:
+    """Chaque destinataire : quota + suppression + warm-up vérifiés à part,
+    un job de file propre (retries indépendants). Un destinataire rejeté
+    n'invalide pas le lot — voir results[].error."""
+    redis = request.app.state.redis
+    idem_key = request.headers.get("idempotency-key")
+    if idem_key:
+        cached = await idem_get(redis, tenant.tenant_id, idem_key)
+        if cached:
+            return EmailBatchResponse(**cached)
+
+    send_at_ts = _check_send_at(payload.send_at, service.settings.email_queue_enabled)
+    atts = [a.model_dump() for a in payload.attachments] or None
+    results: list[EmailBatchResult] = []
+
+    # Dédupliquer le lot — un doublon dans "to" enverrait 2 emails au même
+    # destinataire (et brûlerait son quota 2 fois).
+    for to_email in dict.fromkeys(str(e) for e in payload.to):
+        try:
+            req = EmailSendRequest(
+                to_email=to_email, type=payload.type, language=payload.language,
+                data=payload.data, subject=payload.subject,
+                text_body=payload.text_body, html_body=payload.html_body,
+                attachments=payload.attachments, send_at=payload.send_at,
+            )
+            subject, text_body, html_body, _ = await service.prepare_send(
+                tenant, req, client_ip
+            )
+            if service.settings.email_queue_enabled:
+                message_id = await enqueue(
+                    redis, tenant.tenant_id, to_email, payload.type.value,
+                    subject, text_body, html_body, client_ip=client_ip,
+                    send_at_ts=send_at_ts, attachments=atts,
+                )
+            else:
+                resp = await service.send(tenant, req, client_ip=client_ip)
+                message_id = resp.message_id
+            results.append(EmailBatchResult(
+                to_email=to_email, message_id=message_id, status="queued"))
+        except HTTPException as exc:
+            results.append(EmailBatchResult(
+                to_email=to_email, status="rejected",
+                error=str(exc.detail)[:120]))
+
+    resp = EmailBatchResponse(
+        sent=sum(1 for r in results if r.status == "queued"),
+        failed=sum(1 for r in results if r.status != "queued"),
+        results=results,
+    )
     if idem_key:
         await idem_store(redis, tenant.tenant_id, idem_key, resp.model_dump(mode="json"))
     return resp

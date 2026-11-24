@@ -21,6 +21,7 @@ from src.api.metrics_routes import metrics_router
 from src.api.middleware import JSONLogMiddleware, SecurityHeadersMiddleware
 from src.api.routes import email_router, router
 from src.api.track_routes import track_router
+from src.api.unsub_routes import unsub_router
 from src.core.tenants import PLANS, TenantStore, plan_quota_updates, seed_default_tenant
 from src.services.billing_reminders import notify_plan_expired, run_billing_reminders
 from src.services.email_queue import process_email_queue_once
@@ -76,7 +77,9 @@ def _preflight_warnings(settings) -> list[str]:
         w.append("EMAIL_PROVIDER=smtp sans SMTP_USER/SMTP_PASSWORD : les envois échoueront")
     if not settings.list_unsubscribe_url:
         w.append("LIST_UNSUBSCRIBE_URL vide : délivrabilité dégradée (Gmail/Yahoo)")
-    price_fields = [f for f in settings.model_fields if f.startswith("plan_price_")]
+    price_fields = [
+        f for f in type(settings).model_fields if f.startswith("plan_price_")
+    ]
     if not any(getattr(settings, f) for f in price_fields):
         w.append(
             "PLAN_PRICE_* tous à 0 : la landing affiche « Sur mesure » et "
@@ -398,3 +401,4 @@ app.include_router(billing_router)
 app.include_router(events_router)
 app.include_router(metrics_router)
 app.include_router(track_router)
+app.include_router(unsub_router)

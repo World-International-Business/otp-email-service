@@ -7,12 +7,15 @@ SSL implicite sur port 465 ou via smtp_use_ssl.
 """
 
 import asyncio
+import base64
 import logging
 import secrets
 import smtplib
 import ssl
 import time
+from email import encoders
 from email.header import Header
+from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr, formatdate
@@ -34,6 +37,8 @@ class SMTPProvider(EmailProvider):
         text_body: str,
         html_body: str,
         sender: SenderIdentity | None = None,
+        *,
+        attachments: list[dict] | None = None,
     ) -> bool:
         sender = sender or {}
 
@@ -55,7 +60,14 @@ class SMTPProvider(EmailProvider):
                 "configurer le tenant ou les variables globales"
             )
 
-        msg = MIMEMultipart("alternative")
+        alt = MIMEMultipart("alternative")
+        alt.attach(MIMEText(text_body, "plain", "utf-8"))
+        alt.attach(MIMEText(html_body, "html", "utf-8"))
+        # Avec pièces jointes : multipart/mixed englobant le corps alternatif
+        # (structure MIME standard — attendue par tous les clients).
+        msg = MIMEMultipart("mixed") if attachments else alt
+        if attachments:
+            msg.attach(alt)
         # Header() encode les accents (UTF-8) — un Subject brut non-ASCII
         # sort illisible chez plusieurs clients mobiles.
         msg["Subject"] = Header(subject, "utf-8")
@@ -70,10 +82,24 @@ class SMTPProvider(EmailProvider):
             f"<{secrets.token_hex(10)}.{int(time.time())}@{domain}>"
         )
         msg["Reply-To"] = from_email
-        if self.settings.list_unsubscribe_url:
-            msg["List-Unsubscribe"] = f"<{self.settings.list_unsubscribe_url}>"
-        msg.attach(MIMEText(text_body, "plain", "utf-8"))
-        msg.attach(MIMEText(html_body, "html", "utf-8"))
+        # Lien opt-out : URL signée par destinataire (SenderIdentity) en
+        # priorité, sinon l'URL statique configurée globalement.
+        unsub = sender.get("unsubscribe_url") or self.settings.list_unsubscribe_url
+        if unsub:
+            msg["List-Unsubscribe"] = f"<{unsub}>"
+            # RFC 8058 — bouton « Se désabonner » Gmail/Yahoo (POST one-click)
+            msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+        for att in attachments or []:
+            ctype = att.get("content_type") or "application/octet-stream"
+            maintype, _, subtype = ctype.partition("/")
+            part = MIMEBase(maintype or "application", subtype or "octet-stream")
+            part.set_payload(base64.b64decode(att["content_base64"]))
+            encoders.encode_base64(part)
+            part.add_header(
+                "Content-Disposition", "attachment",
+                filename=att["filename"].replace('"', ""),
+            )
+            msg.attach(part)
 
         try:
             # smtplib est synchrone : on l'exécute hors de l'event loop

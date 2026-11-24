@@ -54,11 +54,12 @@ class _SpyProvider:
         self.fail = fail
 
     async def send_email(self, to_email, subject, text_body, html_body,
-                         sender=None):
+                         sender=None, attachments=None):
         if self.fail:
             from src.email_providers.base import EmailSendError
             raise EmailSendError("smtp down")
         self.sent.append((to_email, subject, text_body))
+        self.last_attachments = attachments
         return True
 
 
@@ -277,7 +278,7 @@ class _FailoverProvider:
         self.calls: list[dict] = []
 
     async def send_email(self, to_email, subject, text_body, html_body,
-                         sender=None):
+                         sender=None, attachments=None):
         self.calls.append(dict(sender or {}))
         if (sender or {}).get("smtp_host") == "smtp.tenant-down.tld":
             from src.email_providers.base import EmailSendError
@@ -672,10 +673,11 @@ class _HtmlSpy(_SpyProvider):
     """Capture aussi le HTML envoyé."""
 
     async def send_email(self, to_email, subject, text_body, html_body,
-                         sender=None):
+                         sender=None, attachments=None):
         await super().send_email(to_email, subject, text_body, html_body,
-                                 sender)
+                                 sender, attachments)
         self.last_html = html_body
+        self.last_sender = dict(sender or {})
         return True
 
 
@@ -918,3 +920,219 @@ async def test_tracking_domain_config_form_validation(client, redis):
     assert t.track_emails is False
     await TenantStore(redis).update(
         "default", {"track_emails": True, "tracking_domain": None})
+
+
+# ------------------------------------------------------------- batch envois
+
+async def test_batch_send_multiple_recipients(client):
+    """Un appel batch = un message_id par destinataire."""
+    resp = _post(client, "/v1/email/batch", {
+        "to": ["lot1@x.co", "lot2@x.co", "lot3@x.co"],
+        "type": "notification",
+        "data": {"title": "T", "message": "M"},
+    })
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["sent"] == 3 and data["failed"] == 0, data
+    assert len({r["message_id"] for r in data["results"]}) == 3
+
+
+async def test_batch_suppressed_recipient_rejected_only(client, redis):
+    """Un destinataire supprimé n'invalide pas le lot."""
+    from src.services.suppression import add_suppression
+    await add_suppression(redis, "default", "dead2@x.co", "hard_bounce")
+    try:
+        resp = _post(client, "/v1/email/batch", {
+            "to": ["ok9@x.co", "dead2@x.co"],
+            "type": "notification", "data": {},
+        })
+        data = resp.json()
+        assert data["sent"] == 1 and data["failed"] == 1
+        dead = next(r for r in data["results"]
+                    if r["to_email"] == "dead2@x.co")
+        assert dead["status"] == "rejected" and "suppressed" in dead["error"]
+    finally:
+        from src.services.suppression import remove_suppression
+        await remove_suppression(redis, "default", "dead2@x.co")
+
+
+async def test_batch_dedupes_recipients(client):
+    """Un doublon dans `to` n'envoie pas deux fois au même destinataire."""
+    resp = _post(client, "/v1/email/batch", {
+        "to": ["dup@x.co", "dup@x.co"], "type": "notification", "data": {}})
+    assert resp.json()["sent"] == 1
+
+
+# ------------------------------------------------------------- pièces jointes
+
+async def test_attachments_delivered_via_queue(client, redis):
+    """Les pièces jointes traversent la file jusqu'au provider."""
+    import base64
+
+    from src.services.email_queue import process_email_queue_once
+    spy = _SpyProvider()
+    client.app.state.email_service.email_provider = spy
+    resp = _post(client, "/v1/email/send", {
+        "to_email": "att@x.co", "type": "notification", "data": {},
+        "attachments": [{
+            "filename": "facture.pdf",
+            "content_base64": base64.b64encode(b"%PDF-1.4 x").decode(),
+            "content_type": "application/pdf",
+        }],
+    })
+    assert resp.status_code == 200, resp.text
+    await process_email_queue_once(redis, client.app.state.email_service)
+    assert spy.last_attachments[0]["filename"] == "facture.pdf"
+
+
+async def test_attachment_invalid_base64_rejected(client):
+    resp = _post(client, "/v1/email/send", {
+        "to_email": "a@x.co", "type": "notification", "data": {},
+        "attachments": [{"filename": "f", "content_base64": "!!!"}]})
+    assert resp.status_code == 422
+
+
+async def test_smtp_message_contains_attachment_part():
+    """Le provider SMTP émet un multipart/mixed avec la pièce jointe."""
+    import base64
+
+    from src.config import Settings
+    from src.email_providers.smtp import SMTPProvider
+
+    prov = SMTPProvider(Settings(
+        api_key="k" * 40, hmac_secret="s" * 20, from_email="a@x.co",
+        smtp_user="u", smtp_password="p"))
+    captured = {}
+    prov._send_smtp = lambda *a, **kw: captured.update(raw=a[7])  # noqa
+    await prov.send_email(
+        "t@x.co", "S", "txt", "<p>h</p>",
+        attachments=[{"filename": "doc.pdf",
+                      "content_base64": base64.b64encode(b"PDF").decode(),
+                      "content_type": "application/pdf"}])
+    assert "multipart/mixed" in captured["raw"]
+    assert 'Content-Disposition: attachment; filename="doc.pdf"' in captured["raw"]
+
+
+# ------------------------------------------------------- rotation des clés
+
+async def test_key_rotation_grace_keeps_old_creds_working(client, redis):
+    """Après rotate_keys : ancienne clé + ancien secret HMAC encore acceptés
+    pendant la grâce, nouvelle paire acceptée immédiatement."""
+    from src.core.tenants import TenantStore
+    store = TenantStore(redis)
+    _updated, new_key, new_secret = await store.rotate_keys(
+        "default", grace_seconds=3600)
+    # Ancienne clé + ancien secret (HMAC_SECRET global des tests)
+    resp = _post(client, "/v1/email/send",
+                 {"to_email": "rot1@x.co", "type": "notification", "data": {}})
+    assert resp.status_code == 200, resp.text
+    # Nouvelle paire
+    resp2 = _post(
+        client, "/v1/email/send",
+        {"to_email": "rot2@x.co", "type": "notification", "data": {}},
+        extra_headers=_sign(
+            json.dumps({"to_email": "rot2@x.co", "type": "notification",
+                        "data": {}}).encode(),
+            secret=new_secret, api_key=new_key),
+    )
+    assert resp2.status_code == 200, resp2.text
+
+
+async def test_admin_rotate_key_endpoint(client, redis):
+    r = client.post(
+        "/v1/admin/tenants/default/rotate-key?grace_seconds=3600",
+        headers=_ADMIN)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["api_key"] and data["hmac_secret"]
+    assert data["grace_seconds"] == 3600
+    # L'ancienne clé fonctionne toujours (grâce) pour les tests suivants.
+    resp = _post(client, "/v1/email/send",
+                 {"to_email": "rot3@x.co", "type": "notification", "data": {}})
+    assert resp.status_code == 200
+
+
+# ------------------------------------------------------------- unsubscribe
+
+async def test_unsubscribe_signed_link(client, redis):
+    """Lien signé : opt-out effectif ; signature forgée rejetée."""
+    from src.services.suppression import suppression_reason
+    from src.services.unsubscribe import unsubscribe_url
+
+    svc = client.app.state.email_service
+    svc.settings.public_base_url = "https://mail.test"
+    try:
+        url = unsubscribe_url(svc.settings, "default", "opt@x.co")
+        path = url.split("mail.test", 1)[1]
+        r = client.get(path)
+        assert r.status_code == 200, r.text
+        assert await suppression_reason(
+            redis, "default", "opt@x.co") == "unsubscribe"
+    finally:
+        svc.settings.public_base_url = ""
+        from src.services.suppression import remove_suppression
+        await remove_suppression(redis, "default", "opt@x.co")
+
+    r2 = client.get("/v1/unsubscribe?t=default&e=evil@x.co&sig=forged")
+    assert r2.status_code == 403
+
+
+async def test_unsubscribe_footer_link_in_email(client, redis):
+    """PUBLIC_BASE_URL défini → lien 'Se désinscrire' + header opt-out."""
+    from src.core.tenants import TenantStore
+    from src.services.email_queue import process_email_queue_once
+
+    svc = client.app.state.email_service
+    svc.settings.public_base_url = "https://mail.test"
+    # Le tracking réécrit les <a href> en /v1/track/click — on le coupe pour
+    # inspecter le lien opt-out en clair.
+    await TenantStore(redis).update("default", {"track_emails": False})
+    spy = _HtmlSpy()
+    svc.email_provider = spy
+    try:
+        resp = _post(client, "/v1/email/send",
+                     {"to_email": "unsub@x.co", "type": "notification",
+                      "data": {}})
+        assert resp.status_code == 200, resp.text
+        await process_email_queue_once(redis, svc)
+        assert "/v1/unsubscribe?" in spy.last_html
+        assert "unsubscribe_url" in spy.last_sender
+    finally:
+        svc.settings.public_base_url = ""
+        await TenantStore(redis).update("default", {"track_emails": True})
+
+
+# ----------------------------------------------------- mot de passe oublié
+
+async def test_forgot_password_full_flow(client, redis):
+    """Compte existant : OTP → nouveau mot de passe → login fonctionne."""
+    from src.web.users import WebUserStore
+    users = WebUserStore(redis)
+    await users.create("forgot@x.co", "oldpass123", "default", "App")
+    spy = _SpyProvider()
+    client.app.state.otp_service.email_provider = spy
+
+    r = client.post("/forgot", data={"email": "forgot@x.co"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    tok = r.headers["location"].split("t=")[1]
+    code = re.search(r"\b(\d{6})\b", spy.sent[0][2]).group(1)
+
+    r2 = client.post("/forgot/verify",
+                     data={"t": tok, "code": code, "password": "newpass456"},
+                     follow_redirects=False)
+    assert r2.status_code == 303
+    assert r2.headers["location"] == "/login?ok=reset"
+    assert await users.authenticate("forgot@x.co", "newpass456") is not None
+    assert await users.authenticate("forgot@x.co", "oldpass123") is None
+
+
+async def test_forgot_unknown_email_no_enumeration(client):
+    """Email inconnu : redirection + page de saisie IDENTIQUES — aucune
+    fuite sur l'existence ou non du compte."""
+    r = client.post("/forgot", data={"email": "ghost@x.co"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    assert "/forgot/verify?t=" in r.headers["location"]
+    r2 = client.get(r.headers["location"])
+    assert r2.status_code == 200 and "Code à 6 chiffres" in r2.text

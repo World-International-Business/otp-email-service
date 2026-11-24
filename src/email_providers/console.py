@@ -19,6 +19,8 @@ class ConsoleEmailProvider(EmailProvider):
         text_body: str,
         html_body: str,
         sender: SenderIdentity | None = None,
+        *,
+        attachments: list[dict] | None = None,
     ) -> bool:
         sender = sender or {}
         from_email = sender.get("from_email") or self.settings.from_email
@@ -30,6 +32,7 @@ class ConsoleEmailProvider(EmailProvider):
                 "to": to_email,
                 "subject": subject,
                 "from": f"{from_name} <{from_email}>",
+                "attachments": [a["filename"] for a in attachments or []],
             },
         )
         # INFO et non DEBUG : le provider console sert justement à lire
