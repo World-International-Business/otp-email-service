@@ -115,3 +115,60 @@ def test_otp_html_escapes_brand():
 def test_generic_html_en():
     html = generic_html("Welcome", "Hello there", "Brand")
     assert "Welcome" in html and "Brand" in html
+
+
+# ------------------------------------------------- responsive & branding
+
+def test_email_responsive_structure():
+    """La carte fait 100% de large avec max-width fixe + media queries mobiles."""
+    html = otp_html("123456", "MonApp", "fr")
+    assert 'width="100%"' in html
+    assert "max-width:520px" in html
+    assert "@media only screen and (max-width:560px)" in html
+    for cls in ("mh-wrap", "mh-px", "mh-digit", "mh-foot", "mh-h1"):
+        assert f".{cls}" in html and f'class="{cls}"' in html
+
+
+def test_otp_html_respects_branding():
+    """Couleur, logo absolu et footer personnalisé du tenant dans le mail OTP."""
+    html = otp_html(
+        "123456", "MaMarque", "fr",
+        magic_url="https://app.example.com/verify",
+        color="#e11d48",
+        logo_url="https://cdn.example.com/logo.png",
+        footer="© 2026 MaMarque — support@mamarque.io",
+    )
+    # couleur : header, chiffres, bouton
+    assert html.count("#e11d48") >= 3
+    # logo exact, pas transformé
+    assert 'src="https://cdn.example.com/logo.png"' in html
+    # footer personnalisé remplace le texte par défaut
+    assert "© 2026 MaMarque — support@mamarque.io" in html
+    assert "merci de ne pas répondre" not in html
+
+
+def test_otp_html_default_branding():
+    """Sans personnalisation : couleur fallback + footer par défaut."""
+    html = otp_html("123456", "MonApp", "fr", color="pas-une-couleur")
+    assert "#5060a8" in html
+    assert "merci de ne pas répondre" in html
+
+
+def test_generic_html_respects_branding():
+    html = generic_html(
+        "Bienvenue", "<p>Salut</p>", "MaBoîte",
+        color="#059669", logo_url="https://x.io/l.png", footer="Custom footer",
+    )
+    assert "#059669" in html
+    assert 'src="https://x.io/l.png"' in html
+    assert "Custom footer" in html
+    # titre injecté + responsive
+    assert 'class="mh-h1"' in html
+    assert "@media only screen" in html
+
+
+def test_resolve_logo_url_absolute():
+    from src.services.email_templates import resolve_logo_url
+    assert resolve_logo_url("/brand/t1/logo", "https://api.mh.io/") == "https://api.mh.io/brand/t1/logo"
+    assert resolve_logo_url("https://cdn.x.io/l.png", "https://api.mh.io") == "https://cdn.x.io/l.png"
+    assert resolve_logo_url("/brand/t1/logo", "") == "/brand/t1/logo"
