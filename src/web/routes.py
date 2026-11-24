@@ -1564,6 +1564,27 @@ async def dashboard(
           </div>
         </div>"""
 
+    # Engagement : ouvertures, clics, bounces, plaintes (compteurs tracking)
+    engagement_html = ""
+    _engage = [
+        ("Ouvertures", "stats:emails_opened"),
+        ("Clics", "stats:emails_clicked"),
+        ("Bounces", "stats:emails_bounced"),
+        ("Plaintes spam", "stats:emails_complained"),
+    ]
+    pipe = redis.pipeline()
+    for _, key in _engage:
+        pipe.get(f"{tenant.key_prefix()}{key}")
+    _evals = await pipe.execute()
+    _ecards = "".join(
+        f"""<div class="card p-4 text-center">
+          <p class="kpi-num text-lg">{_e(str(int(v or 0)))}</p>
+          <p class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mt-1">{label}</p>
+        </div>"""
+        for (label, _), v in zip(_engage, _evals, strict=True)
+    )
+    engagement_html = f'<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">{_ecards}</div>'
+
     # Graphique 7 derniers jours (OTP envoyés/vérifiés + emails transactionnels)
     from datetime import date, timedelta
     days = [date.today() - timedelta(days=i) for i in range(6, -1, -1)]
@@ -1901,8 +1922,9 @@ async def dashboard(
 
 {sandbox_html}
 
-<div class="grid md:grid-cols-3 gap-5 mb-8">{stats_cards}</div>
+<div class="grid md:grid-cols-3 gap-5 mb-6">{stats_cards}</div>
 
+{engagement_html}
 {chart_html}
 {activity_html}
 
