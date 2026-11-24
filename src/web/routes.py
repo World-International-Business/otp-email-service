@@ -357,7 +357,7 @@ def _footer(logged_in: bool = False) -> str:
 </footer>"""
 
 
-def _landing_page(content: str, logged_in: bool = False) -> HTMLResponse:
+def _landing_page(content: str, logged_in: bool = False, footer: bool = True) -> HTMLResponse:
     if logged_in:
         auth_desktop = ('      __LANG_SWITCH_LIGHT__\n'
                         '      <a href="/dashboard" class="btn-primary text-sm px-4 py-2.5">Mon espace →</a>')
@@ -400,7 +400,7 @@ def _landing_page(content: str, logged_in: bool = False) -> HTMLResponse:
   </div>
 </nav>
 {content}
-{_footer(logged_in)}
+{_footer(logged_in) if footer else ""}
 </body></html>""")
 
 
@@ -772,7 +772,7 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
         <li class="flex gap-2.5"><span class="check"></span>Fallback SMS automatique pour les pays à risque</li>
         <li class="flex gap-2.5"><span class="check"></span>Statut temps réel : queued, retry, sent, dead-letter</li>
       </ul>
-      <a href="/documentation" class="inline-flex items-center gap-1.5 mt-7 text-sm font-semibold text-brand-600 hover:text-brand-700 transition">Voir la documentation →</a>
+      <a href="/documentation" class="btn-outline text-sm mt-7 inline-flex items-center gap-2">Voir la documentation <span class="font-bold">→</span></a>
     </div>
     <div class="relative reveal reveal-d1 img-frame">
       <div class="frame-deco absolute -inset-3 bg-gradient-to-br from-brand-200/70 to-accent-200/50 rounded-[1.6rem] -rotate-2"></div>
@@ -816,7 +816,7 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
         <li class="flex gap-2.5"><span class="check"></span>Client Python d'exemple avec signature HMAC</li>
         <li class="flex gap-2.5"><span class="check"></span>Idempotency-Key intégrée — zéro envoi en double</li>
       </ul>
-      <a href="/docs" class="inline-flex items-center gap-1.5 mt-7 text-sm font-semibold text-brand-600 hover:text-brand-700 transition">Explorer l'API →</a>
+      <a href="/docs" class="btn-outline text-sm mt-7 inline-flex items-center gap-2">Explorer l'API <span class="font-bold">→</span></a>
     </div>
   </div>
 </section>
@@ -866,28 +866,70 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
     return _landing_page(content)
 
 
-def _auth_form(title: str, action: str, fields: str, link: str) -> HTMLResponse:
+_AUTH_SIDES = {
+    "login": (
+        "https://images.unsplash.com/photo-1557200134-90327ee9fafa?w=1200&q=80&auto=format&fit=crop",
+        "Boîte de réception sur un ordinateur portable",
+        "Vos emails, votre console.",
+        ["Statistiques d'envoi en temps réel", "Clés API et webhooks sortants", "Support intégré au dashboard"],
+    ),
+    "register": (
+        "https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=1200&q=80&auto=format&fit=crop",
+        "Une équipe en train de développer",
+        "Rejoignez les équipes qui envoient.",
+        ["Compte gratuit — sans carte bancaire", "Clés API instantanées", "Premier envoi en 5 minutes"],
+    ),
+    "generic": (
+        "https://images.unsplash.com/photo-1607799279861-4dd421887fb3?w=1200&q=80&auto=format&fit=crop",
+        "Code d'API dans un éditeur",
+        "Une API, tous vos emails.",
+        ["OTP et emails transactionnels", "Multi-tenant & branding", "Sécurité HMAC-SHA256"],
+    ),
+}
+
+
+def _auth_form(title: str, action: str, fields: str, link: str, side: str = "generic") -> HTMLResponse:
+    img, img_alt, headline, points = _AUTH_SIDES.get(side, _AUTH_SIDES["generic"])
+    bullets = "".join(
+        f'<li class="flex gap-2.5"><span class="check check-dark"></span>{pt}</li>'
+        for pt in points
+    )
     return _landing_page(f"""
-<div class="min-h-[80vh] flex items-center justify-center px-4 sm:px-6 py-10 sm:py-16">
-  <div class="w-full max-w-md fade-up">
-    <div class="text-center mb-6">
-      <a href="/" class="inline-flex items-center gap-2 font-extrabold text-lg">{LOGO_FULL}</a>
+<div class="grid lg:grid-cols-2 min-h-[calc(100vh_-_4rem)]">
+  <div class="flex items-center justify-center px-4 sm:px-6 py-10 sm:py-14 order-2 lg:order-1">
+    <div class="w-full max-w-md fade-up">
+      <div class="text-center mb-6 lg:hidden">
+        <a href="/" class="inline-flex items-center gap-2 font-extrabold text-lg">{LOGO_FULL}</a>
+      </div>
+      <div class="card p-6 sm:p-8 shadow-lg">
+        <h1 class="text-2xl font-extrabold mb-1">{title}</h1>
+        <p class="text-sm text-slate-500 mb-6">Accédez à votre espace MailHub</p>
+        <form method="post" action="{action}" class="space-y-4">
+          {fields}
+          <button type="submit" class="btn-primary btn-shine w-full">{title}</button>
+        </form>
+        <p class="text-xs text-slate-400 mt-6 text-center">{link}</p>
+      </div>
+      <p class="text-center text-xs text-slate-400 mt-5">
+        Sécurisé par clé API + signature HMAC-SHA256
+      </p>
     </div>
-    <div class="card p-6 sm:p-8 shadow-lg">
-      <h1 class="text-2xl font-extrabold mb-1">{title}</h1>
-      <p class="text-sm text-slate-500 mb-6">Accédez à votre espace MailHub</p>
-      <form method="post" action="{action}" class="space-y-4">
-        {fields}
-        <button type="submit" class="btn-primary w-full">{title}</button>
-      </form>
-      <p class="text-xs text-slate-400 mt-6 text-center">{link}</p>
+  </div>
+  <div class="hidden lg:block relative overflow-hidden order-1 lg:order-2">
+    <img src="{img}" alt="{img_alt}" class="absolute inset-0 w-full h-full object-cover">
+    <div class="absolute inset-0 bg-gradient-to-t from-[#0a0b14] via-[#0a0b14]/70 to-[#0a0b14]/25"></div>
+    <div class="relative z-10 flex flex-col justify-between h-full p-10 xl:p-14 text-white">
+      <a href="/" class="inline-flex items-center gap-2.5 font-extrabold text-lg">{LOGO_FULL}</a>
+      <div class="fade-up fade-up-2">
+        <h2 class="text-3xl xl:text-4xl font-extrabold mb-5 leading-tight">{headline}</h2>
+        <ul class="space-y-3 text-sm text-slate-200">{bullets}</ul>
+      </div>
     </div>
-    <p class="text-center text-xs text-slate-400 mt-5">
-      Sécurisé par clé API + signature HMAC-SHA256
-    </p>
+    <div class="orb w-72 h-72 bg-brand-500 -bottom-16 -left-16"></div>
+    <div class="orb w-60 h-60 bg-accent-500 -top-10 -right-10"></div>
   </div>
 </div>
-""")
+""", footer=False)
 
 
 @router.get("/register", response_class=HTMLResponse)
@@ -915,7 +957,7 @@ async def register_page(
       <input name="password" type="password" class="input mt-1" minlength="8" required></div>
     """ + invite_field
     link = 'Déjà un compte ? <a href="/login" class="text-brand-600 font-semibold">Se connecter</a>'
-    return _auth_form("Créer un compte", "/register", fields, link)
+    return _auth_form("Créer un compte", "/register", fields, link, side="register")
 
 
 
@@ -941,18 +983,21 @@ async def register(
             "Créer un compte", "/register",
             f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>Code d\'invitation invalide.</span></div>',
             '<a href="/login" class="text-brand-600">Se connecter</a>',
+            side="register",
         )
     if len(password) < 8:
         return _auth_form(
             "Créer un compte", "/register",
             f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>Le mot de passe doit contenir au moins 8 caractères.</span></div>',
             '<a href="/login" class="text-brand-600">Se connecter</a>',
+            side="register",
         )
     if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
         return _auth_form(
             "Créer un compte", "/register",
             f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>Adresse email invalide.</span></div>',
             '<a href="/login" class="text-brand-600">Se connecter</a>',
+            side="register",
         )
 
     redis = request.app.state.redis
@@ -962,6 +1007,7 @@ async def register(
             "Créer un compte", "/register",
             f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>Cet email est déjà utilisé.</span></div>',
             '<a href="/login" class="text-brand-600">Se connecter</a>',
+            side="register",
         )
 
     # Si une inscription est déjà en attente pour cet email, on renvoie
@@ -1062,7 +1108,7 @@ def _verify_email_page(
         'p-0 cursor-pointer text-xs">Renvoyer le code</button></form>'
         ' · <a href="/register" class="text-brand-600 font-semibold">Recommencer</a>'
     )
-    return _auth_form("Vérifier mon email", "/register/verify", fields, link)
+    return _auth_form("Vérifier mon email", "/register/verify", fields, link, side="register")
 
 
 @router.get("/register/verify", response_class=HTMLResponse)
@@ -1119,6 +1165,7 @@ async def register_verify(
             "Créer un compte", "/register",
             f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>Cet email est déjà utilisé.</span></div>',
             '<a href="/login" class="text-brand-600">Se connecter</a>',
+            side="register",
         )
     await redis.delete(f"reg:{t}", regidx_key)
 
@@ -1226,7 +1273,7 @@ async def login_page(request: Request) -> HTMLResponse:
       <input name="password" type="password" class="input mt-1" required></div>
     """
     link = 'Pas de compte ? <a href="/register" class="text-brand-600 font-semibold">Créer un compte</a>'
-    return _auth_form("Connexion", "/login", fields, link)
+    return _auth_form("Connexion", "/login", fields, link, side="login")
 
 
 @router.post("/login")
@@ -1253,6 +1300,7 @@ async def login(
             "Connexion", "/login",
             f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>Email ou mot de passe incorrect.</span></div>',
             '<a href="/register" class="text-brand-600">Créer un compte</a>',
+            side="login",
         )
     # Succès : reset du compteur anti brute-force pour cette IP
     await redis.delete(rl_key)

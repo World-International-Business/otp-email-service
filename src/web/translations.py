@@ -1269,6 +1269,48 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     "Référence API (Swagger)": (
         "API reference (Swagger)", "API-Referenz (Swagger)", "Referencia de API (Swagger)", "مرجع الواجهة (Swagger)",
     ),
+    "Vos emails, votre console.": (
+        "Your emails, your console.", "Ihre E-Mails, Ihre Konsole.", "Tus correos, tu consola.", "رسائلك، وحدة التحكم الخاصة بك.",
+    ),
+    "Statistiques d’envoi en temps réel": (
+        "Real-time sending stats", "Sende-Statistiken in Echtzeit", "Estadísticas de envío en tiempo real", "إحصاءات الإرسال الفورية",
+    ),
+    "Clés API et webhooks sortants": (
+        "API keys and outbound webhooks", "API-Schlüssel und ausgehende Webhooks", "Claves API y webhooks salientes", "مفاتيح API وWebhooks صادرة",
+    ),
+    "Support intégré au dashboard": (
+        "Support built into the dashboard", "Support im Dashboard integriert", "Soporte integrado en el dashboard", "دعم مدمج في لوحة التحكم",
+    ),
+    "Rejoignez les équipes qui envoient.": (
+        "Join the teams that send.", "Für Teams, die senden.", "Únete a los equipos que envían.", "انضم إلى الفرق التي ترسل.",
+    ),
+    "Compte gratuit — sans carte bancaire": (
+        "Free account — no credit card", "Kostenloses Konto — ohne Kreditkarte", "Cuenta gratuita — sin tarjeta", "حساب مجاني — بدون بطاقة",
+    ),
+    "Clés API instantanées": (
+        "Instant API keys", "Sofortige API-Schlüssel", "Claves API instantáneas", "مفاتيح API فورية",
+    ),
+    "Premier envoi en 5 minutes": (
+        "First send in 5 minutes", "Erster Versand in 5 Minuten", "Primer envío en 5 minutos", "أول إرسال في 5 دقائق",
+    ),
+    "Une API, tous vos emails.": (
+        "One API, all your emails.", "Eine API, alle Ihre E-Mails.", "Una API, todos tus correos.", "واجهة واحدة لكل رسائلك.",
+    ),
+    "OTP et emails transactionnels": (
+        "OTP and transactional emails", "OTP- und Transaktions-E-Mails", "OTP y correos transaccionales", "OTP ورسائل معاملات",
+    ),
+    "Multi-tenant & branding": (
+        "Multi-tenant & branding", "Multi-Tenant & Branding", "Multi-tenant y branding", "متعدد المستأجرين وعلامة تجارية",
+    ),
+    "@Boîte de réception sur un ordinateur portable": (
+        "Inbox on a laptop", "Posteingang auf einem Laptop", "Bandeja de entrada en un portátil", "بريد وارد على حاسوب محمول",
+    ),
+    "@Une équipe en train de développer": (
+        "A team developing", "Ein Team beim Entwickeln", "Un equipo desarrollando", "فريق يطوّر",
+    ),
+    "@Code d’API dans un éditeur": (
+        "API code in an editor", "API-Code in einem Editor", "Código de API en un editor", "كود واجهة في محرر",
+    ),
     "Emails & OTP en un appel API.": (
         "Emails & OTP in one API call.",
         "E-Mails & OTP in einem API-Aufruf.",
