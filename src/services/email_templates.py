@@ -50,6 +50,7 @@ def email_layout(
     logo_url: str | None = None,
     footer: str | None = None,
     head_extra: str = "",
+    unsubscribe_url: str = "",
 ) -> str:
     """Enveloppe commune : header marque + carte + footer (personnalisable).
 
@@ -73,6 +74,11 @@ def email_layout(
     )
     footer_text = _esc(footer) if footer else (
         f"Message automatique de {b} — merci de ne pas répondre."
+    )
+    unsub_link = (
+        f'<br><a href="{_esc(unsubscribe_url)}" style="color:#9aa0b4;">'
+        "Se désinscrire de ces emails</a>"
+        if unsubscribe_url else ""
     )
     return f"""<!DOCTYPE html>
 <html lang="fr">
@@ -111,7 +117,7 @@ def email_layout(
               border-radius:0 0 16px 16px; padding:16px 20px; text-align:center;">
           <p class="mh-foot" style="margin:0; color:#9aa0b4; font-size:12px; line-height:1.6;">
             {footer_text}<br>
-            Propulsé par MailHub
+            Propulsé par MailHub{unsub_link}
           </p>
         </td></tr>
 
@@ -193,6 +199,7 @@ def generic_html(
     logo_url: str | None = None,
     footer: str | None = None,
     head_extra: str = "",
+    unsubscribe_url: str = "",
 ) -> str:
     """Wrapper pour welcome / notification / transaction / custom.
 
@@ -209,4 +216,5 @@ def generic_html(
       <div style="color:#4b5563; font-size:15px; line-height:1.7;">{content_html}</div>
     """
     return email_layout(
-        brand, content, t or brand, color, logo_url, footer, head_extra)
+        brand, content, t or brand, color, logo_url, footer, head_extra,
+        unsubscribe_url)

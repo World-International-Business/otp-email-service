@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class Language(str, Enum):
@@ -75,6 +75,39 @@ class EmailType(str, Enum):
     custom = "custom"
 
 
+MAX_ATTACHMENTS = 10
+MAX_ATTACHMENT_TOTAL_BYTES = 8 * 1024 * 1024  # décodé — +33% en base64 transport
+
+
+class Attachment(BaseModel):
+    """Pièce jointe — contenu encodé en base64 côté JSON."""
+
+    filename: str = Field(..., min_length=1, max_length=200)
+    content_base64: str = Field(..., description="Contenu du fichier encodé base64")
+    content_type: str = Field(default="application/octet-stream", max_length=100)
+
+
+def _validate_attachments(atts: list[Attachment]) -> list[Attachment]:
+    """Vérifie le base64 et le poids total (422 sinon)."""
+    import base64
+    import binascii
+
+    total = 0
+    for att in atts:
+        try:
+            total += len(base64.b64decode(att.content_base64, validate=True))
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError(
+                f"attachments: contenu base64 invalide pour {att.filename!r}"
+            ) from exc
+    if total > MAX_ATTACHMENT_TOTAL_BYTES:
+        raise ValueError(
+            f"attachments: poids total {total} octets > "
+            f"{MAX_ATTACHMENT_TOTAL_BYTES} (8 Mo décodés)"
+        )
+    return atts
+
+
 class EmailSendRequest(BaseModel):
     to_email: EmailStr = Field(..., description="Adresse email destinataire")
     type: EmailType = Field(..., description="Type d'email à envoyer")
@@ -95,11 +128,20 @@ class EmailSendRequest(BaseModel):
         default=None,
         description="Corps HTML libre — optionnel si type=custom",
     )
+    attachments: list[Attachment] = Field(
+        default_factory=list, max_length=MAX_ATTACHMENTS,
+        description="Pièces jointes (base64) — 10 max, 8 Mo décodés au total",
+    )
     send_at: datetime | None = Field(
         default=None,
         description="Envoi programmé (ISO 8601) — max 30 jours, "
                     "nécessite EMAIL_QUEUE_ENABLED. Passé = envoi immédiat.",
     )
+
+    @field_validator("attachments")
+    @classmethod
+    def _check_attachments(cls, v: list[Attachment]) -> list[Attachment]:
+        return _validate_attachments(v)
 
 
 class EmailSendResponse(BaseModel):
@@ -127,6 +169,55 @@ class EmailStatusResponse(BaseModel):
     error: str | None = None
     updated: int = 0
     scheduled_for: str | None = None
+
+
+MAX_BATCH_RECIPIENTS = 200
+
+
+class EmailBatchRequest(BaseModel):
+    """Même email à N destinataires — un seul appel au lieu de N requêtes.
+
+    Chaque destinataire reçoit son propre message_id, son quota destinataire
+    et sa suppression vérifiés indépendamment."""
+
+    to: list[EmailStr] = Field(
+        ..., min_length=1, max_length=MAX_BATCH_RECIPIENTS,
+        description=f"Destinataires ({MAX_BATCH_RECIPIENTS} max par appel)",
+    )
+    type: EmailType = Field(..., description="Type d'email à envoyer")
+    language: Language = Field(default=Language.en, description="Langue de l'email")
+    data: dict = Field(
+        default_factory=dict,
+        description="Variables du template — identiques pour tous les destinataires",
+    )
+    subject: str | None = Field(default=None, description="Obligatoire si type=custom")
+    text_body: str | None = Field(default=None, description="Obligatoire si type=custom")
+    html_body: str | None = Field(default=None, description="Optionnel si type=custom")
+    attachments: list[Attachment] = Field(
+        default_factory=list, max_length=MAX_ATTACHMENTS,
+    )
+    send_at: datetime | None = Field(
+        default=None,
+        description="Envoi programmé — nécessite EMAIL_QUEUE_ENABLED",
+    )
+
+    @field_validator("attachments")
+    @classmethod
+    def _check_attachments(cls, v: list[Attachment]) -> list[Attachment]:
+        return _validate_attachments(v)
+
+
+class EmailBatchResult(BaseModel):
+    to_email: str
+    message_id: str | None = None
+    status: str = Field(..., description="queued | rejected")
+    error: str | None = None
+
+
+class EmailBatchResponse(BaseModel):
+    sent: int = Field(..., description="Nombre d'emails acceptés (queued)")
+    failed: int = Field(..., description="Nombre de destinataires rejetés (422/429)")
+    results: list[EmailBatchResult]
 
 
 # ------------------------------------------------------------------

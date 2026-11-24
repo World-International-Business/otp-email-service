@@ -26,6 +26,7 @@ from src.services.tracking import (
     tracking_base_url,
     tracking_enabled,
 )
+from src.services.unsubscribe import unsubscribe_url
 from src.services.warmup import seconds_until_midnight, warmup_state
 from src.services.webhooks import enqueue_webhook
 
@@ -71,7 +72,8 @@ class EmailService:
         override = await get_template(
             self.redis, tenant.tenant_id, request.type.value)
         subject, text_body, html_body = self._render(
-            request, tenant, override)
+            request, tenant, override,
+            unsubscribe_url=self._unsubscribe_url(tenant, to_email))
 
         # Liste de suppression : une adresse en bounce/plainte est refusée
         # avant toute consommation de quota ou appel SMTP.
@@ -118,6 +120,12 @@ class EmailService:
             )
         return subject, text_body, html_body, limiter
 
+    def _unsubscribe_url(self, tenant: Tenant, to_email: str) -> str:
+        """Lien opt-out : URL statique configurée sinon endpoint signé auto."""
+        if self.settings.list_unsubscribe_url:
+            return self.settings.list_unsubscribe_url
+        return unsubscribe_url(self.settings, tenant.tenant_id, to_email)
+
     async def deliver(
         self,
         tenant: Tenant,
@@ -128,6 +136,7 @@ class EmailService:
         message_id: str,
         email_type: str,
         client_ip: str = "unknown",
+        attachments: list[dict] | None = None,
     ) -> None:
         """Livraison SMTP + stats + événements + webhook `email.sent`.
 
@@ -151,11 +160,15 @@ class EmailService:
             via = "sandbox"
         else:
             try:
+                sender = self._sender(tenant)
+                if unsub := self._unsubscribe_url(tenant, to_email):
+                    sender["unsubscribe_url"] = unsub
                 _success, via_failover = await send_with_failover(
                     self.email_provider, self.settings, tenant, self.redis,
                     to_email=to_email, subject=subject, text_body=text_body,
-                    html_body=html_body, sender=self._sender(tenant),
+                    html_body=html_body, sender=sender,
                     context={"message_id": message_id, "type": email_type},
+                    attachments=attachments,
                 )
             except EmailSendError as exc:
                 raise EmailSendError(str(exc)[:150]) from exc
@@ -200,6 +213,7 @@ class EmailService:
             await self.deliver(
                 tenant, to_email, subject, text_body, html_body,
                 message_id, request.type.value, client_ip,
+                attachments=[a.model_dump() for a in request.attachments] or None,
             )
         except EmailSendError as exc:
             reason = str(exc)[:150]
@@ -247,16 +261,17 @@ class EmailService:
         request: EmailSendRequest,
         tenant: Tenant,
         override: dict[str, str] | None = None,
+        unsubscribe_url: str = "",
     ) -> tuple[str, str, str]:
         if request.type == EmailType.custom:
-            return self._render_custom(request, tenant)
+            return self._render_custom(request, tenant, unsubscribe_url)
 
         builders = {
             EmailType.welcome: self._welcome,
             EmailType.notification: self._notification,
             EmailType.transaction: self._transaction,
         }
-        return builders[request.type](request, tenant, override)
+        return builders[request.type](request, tenant, override, unsubscribe_url)
 
     def _apply_override(
         self,
@@ -265,6 +280,7 @@ class EmailService:
         default_subject: str,
         default_text: str,
         tenant: Tenant,
+        unsubscribe_url: str = "",
     ) -> tuple[str, str, str]:
         """Rend le template personnalisé du tenant ({vars} substituées).
 
@@ -281,14 +297,17 @@ class EmailService:
         )
         if override["html"]:
             html = self._wrap_html(
-                None, render_vars(override["html"], variables), tenant)
+                None, render_vars(override["html"], variables), tenant,
+                unsubscribe_url=unsubscribe_url)
         else:
             html = self._wrap_html(
-                subject, escape(text).replace("\n", "<br>"), tenant)
+                subject, escape(text).replace("\n", "<br>"), tenant,
+                unsubscribe_url=unsubscribe_url)
         return subject, text, html
 
     def _render_custom(
-        self, request: EmailSendRequest, tenant: Tenant
+        self, request: EmailSendRequest, tenant: Tenant,
+        unsubscribe_url: str = "",
     ) -> tuple[str, str, str]:
         if not request.subject or not request.text_body:
             raise HTTPException(
@@ -306,7 +325,8 @@ class EmailService:
             if body:
                 styles = "".join(_DOC_STYLE_RE.findall(html))
                 html = self._wrap_html(
-                    None, body.group(1), tenant, head_extra=styles)
+                    None, body.group(1), tenant, head_extra=styles,
+                    unsubscribe_url=unsubscribe_url)
             # <html> sans <body> (document mal formé) : envoyé tel quel.
         else:
             # Fragment HTML ou texte : enrobé dans le template de marque
@@ -316,7 +336,7 @@ class EmailService:
             html = self._wrap_html(
                 None if html else request.subject,
                 html if html else escape(request.text_body).replace("\n", "<br>"),
-                tenant,
+                tenant, unsubscribe_url=unsubscribe_url,
             )
         return request.subject, request.text_body, html
 
@@ -325,6 +345,7 @@ class EmailService:
         request: EmailSendRequest,
         tenant: Tenant,
         override: dict[str, str] | None = None,
+        unsubscribe_url: str = "",
     ) -> tuple[str, str, str]:
         brand = tenant.brand_name
         name = request.data.get("name", "")
@@ -334,7 +355,7 @@ class EmailService:
                 f"Bienvenue sur {brand} !" if request.language == Language.fr
                 else f"Welcome to {brand}!",
                 f"Bonjour {name},\n\nBienvenue sur {brand}.",
-                tenant,
+                tenant, unsubscribe_url,
             )
         if request.language == Language.fr:
             subject = f"Bienvenue sur {brand} !"
@@ -350,7 +371,9 @@ class EmailService:
                 f"Welcome to {brand}. Your account is ready to use.\n\n"
                 f"The {brand} Team"
             )
-        html = self._wrap_html(subject, escape(text).replace("\n", "<br>"), tenant)
+        html = self._wrap_html(
+            subject, escape(text).replace("\n", "<br>"), tenant,
+            unsubscribe_url=unsubscribe_url)
         return subject, text, html
 
     def _notification(
@@ -358,6 +381,7 @@ class EmailService:
         request: EmailSendRequest,
         tenant: Tenant,
         override: dict[str, str] | None = None,
+        unsubscribe_url: str = "",
     ) -> tuple[str, str, str]:
         brand = tenant.brand_name
         title = request.data.get("title", "Notification")
@@ -367,13 +391,15 @@ class EmailService:
             return self._apply_override(
                 override,
                 {"title": title, "message": message, "brand": brand},
-                subject, f"{title}\n\n{message}", tenant,
+                subject, f"{title}\n\n{message}", tenant, unsubscribe_url,
             )
         if request.language == Language.fr:
             text = f"{title}\n\n{message}\n\nL'équipe {brand}"
         else:
             text = f"{title}\n\n{message}\n\nThe {brand} Team"
-        html = self._wrap_html(title, escape(message).replace("\n", "<br>"), tenant)
+        html = self._wrap_html(
+            title, escape(message).replace("\n", "<br>"), tenant,
+            unsubscribe_url=unsubscribe_url)
         return subject, text, html
 
     def _transaction(
@@ -381,6 +407,7 @@ class EmailService:
         request: EmailSendRequest,
         tenant: Tenant,
         override: dict[str, str] | None = None,
+        unsubscribe_url: str = "",
     ) -> tuple[str, str, str]:
         brand = tenant.brand_name
         amount = request.data.get("amount", "")
@@ -395,7 +422,7 @@ class EmailService:
                 if request.language == Language.fr
                 else f"Your {brand} transaction",
                 f"Transaction : {amount} {currency}\nStatut : {status}",
-                tenant,
+                tenant, unsubscribe_url,
             )
         if request.language == Language.fr:
             subject = f"Votre transaction {brand}"
@@ -413,12 +440,15 @@ class EmailService:
                 "Never share your security codes.\n"
                 f"The {brand} Team"
             )
-        html = self._wrap_html(subject, escape(text).replace("\n", "<br>"), tenant)
+        html = self._wrap_html(
+            subject, escape(text).replace("\n", "<br>"), tenant,
+            unsubscribe_url=unsubscribe_url)
         return subject, text, html
 
     def _wrap_html(
         self, title: str | None, content_html: str, tenant_or_brand,
         head_extra: str = "",
+        unsubscribe_url: str = "",
     ) -> str:
         if isinstance(tenant_or_brand, Tenant):
             t = tenant_or_brand
@@ -428,6 +458,7 @@ class EmailService:
                 logo_url=resolve_logo_url(t.email_logo_url, self.settings.public_base_url),
                 footer=t.email_footer,
                 head_extra=head_extra,
+                unsubscribe_url=unsubscribe_url,
             )
         return generic_html(title, content_html, tenant_or_brand,
                             head_extra=head_extra)

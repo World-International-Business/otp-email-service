@@ -58,6 +58,7 @@ async def send_with_failover(
     html_body: str,
     sender: SenderIdentity,
     context: dict[str, Any] | None = None,
+    attachments: list[dict] | None = None,
 ) -> tuple[bool, bool]:
     """Envoie via `sender`; bascule plateforme si le SMTP tenant échoue.
 
@@ -68,7 +69,8 @@ async def send_with_failover(
     primary_err = ""
     try:
         if await provider.send_email(
-            to_email, subject, text_body, html_body, sender=sender
+            to_email, subject, text_body, html_body, sender=sender,
+            attachments=attachments,
         ):
             return True, False
         primary_err = "provider returned False"
@@ -83,6 +85,7 @@ async def send_with_failover(
         ok = await provider.send_email(
             to_email, subject, text_body, html_body,
             sender=platform_sender(settings, tenant),
+            attachments=attachments,
         )
     except EmailSendError as exc:
         ok, fb_err = False, str(exc)[:80]

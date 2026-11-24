@@ -1394,14 +1394,21 @@ async def register_resend(
 
 
 @router.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request) -> HTMLResponse:
+async def login_page(request: Request, ok: str = "") -> HTMLResponse:
     if await _current_user(request):
         return RedirectResponse("/dashboard", status_code=303)
-    fields = """
+    banner = (
+        '<div class="alert alert-ok mb-4">'
+        f'{UI_ICONS["check"]}<span>Mot de passe mis à jour — connectez-vous.</span></div>'
+        if ok == "reset" else ""
+    )
+    fields = f"""
+      {banner}
       <div><label class="text-xs font-semibold text-slate-600">Email</label>
       <input name="email" type="email" class="input mt-1" required></div>
       <div><label class="text-xs font-semibold text-slate-600">Mot de passe</label>
       <input name="password" type="password" class="input mt-1" required></div>
+      <div class="text-right"><a href="/forgot" class="text-xs text-brand-600 font-semibold">Mot de passe oublié ?</a></div>
     """
     link = 'Pas de compte ? <a href="/register" class="text-brand-600 font-semibold">Créer un compte</a>'
     return _auth_form("Connexion", "/login", fields, link, side="login")
@@ -1459,6 +1466,211 @@ async def logout_get():
     # La déconnexion exige un POST (anti-CSRF : un lien/image tiers ne doit
     # pas pouvoir déconnecter l'utilisateur). Un GET redirige simplement.
     return RedirectResponse("/", status_code=303)
+
+
+# =====================================================================
+# Mot de passe oublié — code OTP par email (pipeline d'inscription réutilisé)
+# =====================================================================
+
+_RST_TTL = 900  # 15 min — fenêtre de saisie du code de réinitialisation
+
+
+def _reset_code_page(
+    t: str,
+    masked: str,
+    error: str = "",
+    attempts: int | None = None,
+    debug_code: str | None = None,
+) -> HTMLResponse:
+    err = f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>{_e(error)}</span></div>' if error else ""
+    att = (
+        f'<p class="text-xs text-slate-500 mt-1">Tentatives restantes : {attempts}</p>'
+        if attempts is not None else ""
+    )
+    dbg = ""
+    if debug_code:
+        dbg = (
+            '<div class="alert alert-warn mt-3">'
+            f"{UI_ICONS['warn']}<span>Mode debug — code : <b>{_e(debug_code)}</b></span></div>"
+        )
+    fields = f"""
+      <input type="hidden" name="t" value="{_e(t)}">
+      {err}
+      <div><label class="text-xs font-semibold text-slate-600">Code à 6 chiffres envoyé à {_e(masked)}</label>
+      <input name="code" class="input mt-1 text-center text-2xl tracking-[.4em]" maxlength="6"
+             inputmode="numeric" autocomplete="one-time-code" placeholder="••••••" required autofocus
+             oninput="this.value=this.value.replace(/[^0-9]/g,'')"></div>
+      <div><label class="text-xs font-semibold text-slate-600">Nouveau mot de passe</label>
+      <input name="password" type="password" class="input mt-1" minlength="8" required></div>
+      {att}
+      {dbg}
+    """
+    link = '<a href="/login" class="text-brand-600 font-semibold">Retour à la connexion</a>'
+    return _auth_form("Réinitialiser le mot de passe", "/forgot/verify", fields, link, side="login")
+
+
+@router.get("/forgot", response_class=HTMLResponse)
+async def forgot_page(request: Request) -> HTMLResponse:
+    if await _current_user(request):
+        return RedirectResponse("/dashboard", status_code=303)
+    fields = """
+      <div><label class="text-xs font-semibold text-slate-600">Email du compte</label>
+      <input name="email" type="email" class="input mt-1" placeholder="vous@exemple.com" required></div>
+    """
+    link = '<a href="/login" class="text-brand-600 font-semibold">Retour à la connexion</a>'
+    return _auth_form("Mot de passe oublié", "/forgot", fields, link, side="login")
+
+
+@router.post("/forgot")
+async def forgot(
+    request: Request,
+    email: str = Form(...),
+    _: None = Depends(require_same_origin),
+):
+    redis = request.app.state.redis
+    email_norm = email.strip().lower()
+
+    # Anti-énumération : le flux est IDENTIQUE que le compte existe ou non
+    # (token de suivi créé dans les deux cas, page de saisie identique).
+    # Seule la réception réelle du code différencie les deux — sans email
+    # valide, un attaquant n'apprend rien.
+    tok = uuid.uuid4().hex
+    pending: dict = {"email": email_norm, "user_id": None, "request_id": None}
+    user = await WebUserStore(redis).get_by_email(email_norm)
+    if user:
+        # Réutiliser la demande en cours plutôt que brûler un nouvel envoi OTP
+        existing = await redis.get(f"rstidx:{email_norm}")
+        if existing and await redis.get(f"rst:{existing}"):
+            return RedirectResponse(f"/forgot/verify?t={existing}", status_code=303)
+        default_tenant = await TenantStore(redis).get("default")
+        if not default_tenant:
+            raise HTTPException(status_code=500, detail="Service indisponible")
+        service: OTPService = request.app.state.otp_service
+        try:
+            otp_resp = await service.send_otp(
+                tenant=_reg_sender_tenant(default_tenant),
+                user_id=email_norm,
+                email=email_norm,
+                country_code="FR",
+                purpose="login_2fa",
+                language=Language.fr,
+                client_ip=get_client_ip(request),
+                include_debug_code=True,
+            )
+        except HTTPException as exc:
+            return _auth_form(
+                "Mot de passe oublié", "/forgot",
+                f'<div class="alert alert-err mb-4">{UI_ICONS["error"]}<span>{_e(str(exc.detail)[:120])}</span></div>',
+                '<a href="/login" class="text-brand-600">Retour à la connexion</a>',
+                side="login",
+            )
+        pending.update({
+            "user_id": user.user_id,
+            "request_id": otp_resp.request_id,
+            "debug_code": otp_resp.debug_code,
+        })
+    await redis.set(f"rst:{tok}", json.dumps(pending), ex=_RST_TTL)
+    if user:
+        await redis.set(f"rstidx:{email_norm}", tok, ex=_RST_TTL)
+    return RedirectResponse(f"/forgot/verify?t={tok}", status_code=303)
+
+
+@router.get("/forgot/verify", response_class=HTMLResponse)
+async def forgot_verify_page(request: Request, t: str = "") -> HTMLResponse:
+    if await _current_user(request):
+        return RedirectResponse("/dashboard", status_code=303)
+    redis = request.app.state.redis
+    raw = await redis.get(f"rst:{t}") if t else None
+    if not raw:
+        return RedirectResponse("/forgot", status_code=303)
+    pending = json.loads(raw)
+    return _reset_code_page(
+        t, mask_email(pending["email"]), debug_code=pending.get("debug_code")
+    )
+
+
+@router.post("/forgot/verify")
+async def forgot_verify(
+    request: Request,
+    t: str = Form(...),
+    code: str = Form(...),
+    password: str = Form(...),
+    _: None = Depends(require_same_origin),
+):
+    redis = request.app.state.redis
+    raw = await redis.get(f"rst:{t}")
+    if not raw:
+        return RedirectResponse("/forgot", status_code=303)
+    pending = json.loads(raw)
+    masked = mask_email(pending["email"])
+
+    if len(password) < 8:
+        return _reset_code_page(
+            t, masked, error="Le mot de passe doit contenir au moins 8 caractères.",
+            debug_code=pending.get("debug_code"),
+        )
+
+    verified = False
+    attempts_remaining = None
+    if pending.get("request_id"):
+        default_tenant = await TenantStore(redis).get("default")
+        if not default_tenant:
+            raise HTTPException(status_code=500, detail="Service indisponible")
+        result = await request.app.state.otp_service.verify(
+            default_tenant, pending["request_id"], code.strip()
+        )
+        verified = result.verified
+        attempts_remaining = result.attempts_remaining
+    if not verified:
+        return _reset_code_page(
+            t, masked,
+            error="Code invalide ou expiré." if not attempts_remaining
+                  else "Code invalide.",
+            attempts=attempts_remaining or None,
+            debug_code=pending.get("debug_code"),
+        )
+
+    await WebUserStore(redis).set_password(pending["user_id"], password)
+    await redis.delete(f"rst:{t}", f"rstidx:{pending['email']}")
+    return RedirectResponse("/login?ok=reset", status_code=303)
+
+
+@router.post("/forgot/resend")
+async def forgot_resend(
+    request: Request,
+    t: str = Form(...),
+    _: None = Depends(require_same_origin),
+):
+    redis = request.app.state.redis
+    raw = await redis.get(f"rst:{t}")
+    if not raw:
+        return RedirectResponse("/forgot", status_code=303)
+    pending = json.loads(raw)
+
+    if pending.get("user_id"):
+        default_tenant = await TenantStore(redis).get("default")
+        if not default_tenant:
+            raise HTTPException(status_code=500, detail="Service indisponible")
+        try:
+            otp_resp = await request.app.state.otp_service.send_otp(
+                tenant=_reg_sender_tenant(default_tenant),
+                user_id=pending["email"],
+                email=pending["email"],
+                country_code="FR",
+                purpose="login_2fa",
+                language=Language.fr,
+                client_ip=get_client_ip(request),
+                include_debug_code=True,
+            )
+            pending["request_id"] = otp_resp.request_id
+            pending["debug_code"] = otp_resp.debug_code
+        except HTTPException as exc:
+            return _reset_code_page(
+                t, mask_email(pending["email"]), error=str(exc.detail),
+                debug_code=pending.get("debug_code"),
+            )
+        await redis.set(f"rst:{t}", json.dumps(pending), ex=_RST_TTL)
+    return RedirectResponse(f"/forgot/verify?t={t}", status_code=303)
 
 
 # =====================================================================
@@ -1998,10 +2210,10 @@ async def dashboard(
   {creds_html}
   <form method="post" action="/dashboard/regenerate-keys" class="mt-4"
         data-confirm-title="Régénérer les clés"
-        data-confirm="Régénérer vos clés API et HMAC ? Les anciennes seront invalidées immédiatement et les intégrations existantes cesseront de fonctionner."
+        data-confirm="Régénérer vos clés API et HMAC ? Les anciennes restent valables 24 h — mettez à jour vos intégrations avant leur expiration."
         data-confirm-ok="Régénérer" data-confirm-danger>
     <button class="btn-danger">
-      Régénérer mes clés (invalide les anciennes)
+      Régénérer mes clés (anciennes valides 24 h)
     </button>
   </form>
 </div>
@@ -2674,15 +2886,10 @@ async def dashboard_regenerate(
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant introuvable")
 
-    # Nouvelle clé + secret ; on remplace l'ancien mapping de la clé
-    old_hash = tenant.api_key_hash
-    new_key = generate_api_key()
-    new_secret = generate_hmac_secret()
-    tenant.api_key_hash = hash_api_key(new_key)
-    tenant.hmac_secret = new_secret
-    await redis.set(f"tenant:{tenant.tenant_id}", tenant.model_dump_json())
-    await redis.delete(f"tenant:bykey:{old_hash}")
-    await redis.set(f"tenant:bykey:{tenant.api_key_hash}", tenant.tenant_id)
+    # Rotation avec grâce : l'ancienne clé API et l'ancien secret HMAC
+    # restent valables 24 h — le client déploie la nouvelle config sans
+    # couper ses intégrations en production.
+    _updated, new_key, new_secret = await store.rotate_keys(tenant.tenant_id)
     await redis.set(
         f"webuser:creds:{tenant.tenant_id}", f"{new_key}|{new_secret}", ex=86400
     )

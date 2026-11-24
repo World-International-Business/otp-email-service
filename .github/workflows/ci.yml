@@ -28,7 +28,40 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     needs: test
+    permissions:
+      contents: read
+      packages: write  # push ghcr.io via GITHUB_TOKEN
     steps:
       - uses: actions/checkout@v4
+
       - name: Build Docker image
         run: docker build -t otp-email-service:ci .
+
+      # Publication : seuls les builds de main produisent une image déployable
+      # (les PR se contentent de valider que le build passe).
+      - name: Login to GHCR
+        if: github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image to GHCR
+        if: github.ref == 'refs/heads/main'
+        run: |
+          IMAGE=ghcr.io/${{ github.repository_owner }}/otp-email-service
+          docker tag otp-email-service:ci "$IMAGE:latest"
+          docker tag otp-email-service:ci "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
+          docker push "$IMAGE:${{ github.sha }}"
+
+      # Déploiement continu : Dokploy peut écouter un webhook qui lance un
+      # redeploy à chaque push. Créer le secret DOKPLOY_WEBHOOK_URL dans
+      # GitHub (Settings > Secrets) avec l'URL du webhook Dokploy du service.
+      # Sans ce secret, l'étape est sautée silencieusement.
+      - name: Trigger Dokploy deploy
+        if: github.ref == 'refs/heads/main' && env.DOKPLOY_WEBHOOK_URL != ''
+        env:
+          DOKPLOY_WEBHOOK_URL: ${{ secrets.DOKPLOY_WEBHOOK_URL }}
+        run: curl -fsSL -X POST "$DOKPLOY_WEBHOOK_URL"

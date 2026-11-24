@@ -9,6 +9,7 @@ Chaque tenant = un client/application qui utilise le service :
 import hashlib
 import json
 import secrets
+import time
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -19,6 +20,8 @@ class Tenant(BaseModel):
     name: str
     api_key_hash: str
     hmac_secret: str
+    hmac_secret_prev: str | None = None   # ancien secret — grâce de rotation
+    hmac_secret_prev_expires: int = 0   # ts unix de fin de grâce (0 = off)
     brand_name: str = "SendBID"
     from_email: str | None = None  # None = fallback global
     from_name: str | None = None
@@ -133,6 +136,12 @@ def plan_quota_updates(plan: str) -> dict:
     return {f: p[f] for f in PLAN_QUOTA_FIELDS}
 
 
+# Durée de grâce après régénération : l'ancienne clé API ET l'ancien
+# secret HMAC restent valables ce délai — le client déploie la nouvelle
+# config sans coupure de service (sinon downtime instantané).
+KEY_ROTATION_GRACE_SECONDS = 24 * 3600
+
+
 class TenantStore:
     """Registre des tenants dans Redis.
 
@@ -199,6 +208,40 @@ class TenantStore:
     async def deactivate(self, tenant_id: str) -> bool:
         updated = await self.update(tenant_id, {"is_active": False})
         return updated is not None
+
+    async def rotate_keys(
+        self, tenant_id: str,
+        grace_seconds: int = KEY_ROTATION_GRACE_SECONDS,
+    ) -> tuple[Tenant | None, str, str]:
+        """Régénère clé API + secret HMAC avec période de grâce.
+
+        L'ancienne clé API reste résoluble `grace_seconds` (index bykey en
+        TTL), l'ancien secret HMAC reste signable via hmac_secret_prev.
+        grace_seconds=0 = invalidation immédiate (comportement legacy).
+        Retourne (tenant, nouvelle_clé_clair, nouveau_secret_clair).
+        """
+        tenant = await self.get(tenant_id)
+        if not tenant:
+            return None, "", ""
+        new_key = generate_api_key()
+        new_secret = generate_hmac_secret()
+        updated = await self.update(tenant_id, {
+            "api_key_hash": hash_api_key(new_key),
+            "hmac_secret": new_secret,
+            "hmac_secret_prev": tenant.hmac_secret,
+            "hmac_secret_prev_expires": (
+                int(time.time()) + grace_seconds if grace_seconds > 0 else 0
+            ),
+        })
+        pipe = self.redis.pipeline()
+        pipe.set(self._bykey(updated.api_key_hash), tenant_id)
+        old_key_entry = self._bykey(tenant.api_key_hash)
+        if grace_seconds > 0:
+            pipe.expire(old_key_entry, grace_seconds)
+        else:
+            pipe.delete(old_key_entry)
+        await pipe.execute()
+        return updated, new_key, new_secret
 
 
 async def seed_default_tenant(redis, settings) -> Tenant:

@@ -28,6 +28,8 @@ class ResendProvider(EmailProvider):
         text_body: str,
         html_body: str,
         sender: SenderIdentity | None = None,
+        *,
+        attachments: list[dict] | None = None,
     ) -> bool:
         sender = sender or {}
         from_email = str(sender.get("from_email") or self.settings.from_email)
@@ -39,6 +41,17 @@ class ResendProvider(EmailProvider):
             "text": text_body,
             "html": html_body,
         }
+        if attachments:
+            payload["attachments"] = [
+                {"filename": a["filename"], "content": a["content_base64"]}
+                for a in attachments
+            ]
+        unsub = sender.get("unsubscribe_url") or self.settings.list_unsubscribe_url
+        if unsub:
+            payload["headers"] = {
+                "List-Unsubscribe": f"<{unsub}>",
+                "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+            }
         try:
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
                 resp = await client.post(

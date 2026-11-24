@@ -10,6 +10,7 @@ from src.core.models import (
     TenantUpdateRequest,
 )
 from src.core.tenants import (
+    KEY_ROTATION_GRACE_SECONDS,
     PLANS,
     Tenant,
     TenantStore,
@@ -149,6 +150,33 @@ async def update_tenant(
     if tenant is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
     return _info(tenant)
+
+
+@admin_router.post(
+    "/tenants/{tenant_id}/rotate-key",
+    summary="Régénérer la clé API + secret HMAC d'un tenant",
+    response_description="Nouvelles credentials — affichées une seule fois",
+)
+async def rotate_tenant_key(
+    tenant_id: str, request: Request,
+    grace_seconds: int = KEY_ROTATION_GRACE_SECONDS,
+):
+    """Rotation sans coupure : l'ancienne clé et l'ancien secret restent
+    valables `grace_seconds` (défaut 24 h, max 7 j ; 0 = invalidation
+    immédiate) — le client déploie la nouvelle config avant l'expiration
+    de l'ancienne."""
+    store = TenantStore(request.app.state.redis)
+    tenant, api_key, hmac_secret = await store.rotate_keys(
+        tenant_id, grace_seconds=max(0, min(grace_seconds, 7 * 86400))
+    )
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    return {
+        "tenant_id": tenant_id,
+        "api_key": api_key,
+        "hmac_secret": hmac_secret,
+        "grace_seconds": max(0, min(grace_seconds, 7 * 86400)),
+    }
 
 
 @admin_router.delete(
