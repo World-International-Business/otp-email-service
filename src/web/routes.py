@@ -1991,6 +1991,12 @@ async def dashboard(
     <div class="md:col-span-2"><label class="text-xs font-semibold text-slate-600">Webhook de notification (URL)</label>
     <input name="webhook_url" type="url" class="input mt-1" value="{_e(tenant.webhook_url or '')}" placeholder="https://votreapp.com/webhooks/mailhub">
     <p class="text-[11px] text-slate-400 mt-1">Votre endpoint reçoit les statuts d'envoi en temps réel : email.sent, email.failed, email.dead, otp.sent, otp.verified — POST JSON signé X-MailHub-Signature avec votre secret HMAC.</p></div>
+    <div><label class="text-xs font-semibold text-slate-600">Domaine de tracking (white-label)</label>
+    <input name="tracking_domain" class="input mt-1" value="{_e(tenant.tracking_domain or '')}" placeholder="track.votredomaine.com">
+    <p class="text-[11px] text-slate-400 mt-1">Les liens trackés (ouvertures/clics) utilisent votre domaine : créez un CNAME <code>track.votredomaine.com</code> pointant vers la plateforme. Vide = domaine MailHub.</p></div>
+    <div><label class="text-xs font-semibold text-slate-600">Tracking emails</label>
+    <label class="flex items-center gap-2 mt-2 text-sm"><input type="checkbox" name="track_emails" value="1" {"checked" if tenant.track_emails else ""} class="rounded"> Suivre ouvertures et clics</label>
+    <p class="text-[11px] text-slate-400 mt-1">Pixel d'ouverture + redirection des liens sur les emails transactionnels (jamais les OTP).</p></div>
     <div class="md:col-span-2 flex gap-3">
       <button class="btn-primary">Sauvegarder</button>
     </div>
@@ -2152,6 +2158,8 @@ async def dashboard_config(
     smtp_user: str = Form(""),
     smtp_password: str = Form(""),
     webhook_url: str = Form(""),
+    tracking_domain: str = Form(""),
+    track_emails: str = Form(""),
     _: None = Depends(require_same_origin),
 ):
     user = await _require_user(request)
@@ -2184,6 +2192,17 @@ async def dashboard_config(
         updates["smtp_configured_at"] = time.time() if new_host else None
     wh = webhook_url.strip()
     updates["webhook_url"] = wh if wh.startswith(("http://", "https://")) else None
+    # Domaine de tracking white-label : hostname seul, sans schéma ni path.
+    td = tracking_domain.strip().lower()
+    td = re.sub(r"^https?://", "", td).split("/")[0].strip(".")
+    if td and not re.fullmatch(
+        r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+",
+        td,
+    ):
+        raise HTTPException(
+            status_code=422, detail="Domaine de tracking invalide")
+    updates["tracking_domain"] = td or None
+    updates["track_emails"] = track_emails == "1"
     if smtp_password.strip():
         updates["smtp_password"] = smtp_password.strip()
     await store.update(user.tenant_id, updates)

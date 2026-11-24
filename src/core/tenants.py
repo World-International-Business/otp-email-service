@@ -30,6 +30,7 @@ class Tenant(BaseModel):
     smtp_configured_at: float | None = None  # pose du SMTP custom (warm-up)
     sandbox: bool = False            # True = envois capturés, pas de SMTP réel
     track_emails: bool = True        # pixel ouverture + redirection clics
+    tracking_domain: str | None = None  # ex: track.client.com (liens white-label)
     risky_countries: list[str] = Field(default_factory=list)
     rollout_percentage: int = Field(default=100, ge=0, le=100)
     allowed_purposes: list[str] = Field(default_factory=lambda: ["login_2fa"])
