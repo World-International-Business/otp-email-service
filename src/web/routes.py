@@ -243,7 +243,40 @@ UI_JS = """<script>
     } else {
       revs.forEach(function (el) { el.classList.add('in'); });
     }
+
+    // Scroll-spy sidebar dashboard : surligne l'item de la section visible.
+    // Les sections sans item (sec-payments, sec-activity, sec-config) gardent
+    // le dernier item valide ; tout en haut -> "top" (Vue d'ensemble).
+    var spyLinks = document.querySelectorAll('.sb-link[data-sec]');
+    // Uniquement sur la page dashboard principale : les sous-pages (checkout,
+    // règlement) n'ont pas de sections et gardent l'état actif du serveur.
+    if (spyLinks.length && document.querySelector('[id^="sec-"]')) {
+      var secMap = {};
+      spyLinks.forEach(function (a) { secMap[a.getAttribute('data-sec')] = a; });
+      var spyCur = 'top';
+      var spy = function () {
+        var y = window.scrollY + 140;
+        var cur = 'top';
+        document.querySelectorAll('[id^="sec-"]').forEach(function (s) {
+          if (secMap[s.id] && s.offsetTop <= y) { cur = s.id; }
+        });
+        spyCur = cur;
+        spyLinks.forEach(function (a) {
+          a.classList.toggle('on', a.getAttribute('data-sec') === cur);
+        });
+      };
+      window.addEventListener('scroll', spy, { passive: true });
+      window.addEventListener('hashchange', spy);
+      // Clic : activer immédiatement l'item, avant la fin du scroll animé.
+      spyLinks.forEach(function (a) {
+        a.addEventListener('click', function () {
+          spyLinks.forEach(function (x) { x.classList.toggle('on', x === a); });
+        });
+      });
+      spy();
+    }
   }
+
   function initFxSafe() {
     try {
       initFx();
@@ -431,7 +464,8 @@ def _dashboard_page(user, tenant, content: str, active: str = "dashboard", debug
         ("demo", "Tester l'API", "/demo"),
     ]
     nav = "".join(
-        f'<a href="{url}" class="sb-link{" on" if key == active else ""}">'
+        f'<a href="{url}" data-sec="{"top" if key == "dashboard" else "sec-" + key}" '
+        f'class="sb-link{" on" if key == active else ""}">'
         f'{icons[key]}<span>{label}</span></a>'
         for key, label, url in items
     )
