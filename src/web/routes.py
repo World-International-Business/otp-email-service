@@ -196,6 +196,66 @@ UI_JS = """<script>
     var c = e.target.closest('[data-copy]');
     if (c) { e.preventDefault(); copyText(c.getAttribute('data-copy')); }
   });
+
+  // Effets au DOM prêt (ce script est dans <head>, avant le body)
+  function initFx() {
+    // Toggle mensuel/annuel : [data-bill] dans [data-billing-toggle], scope = section parente
+    document.querySelectorAll('[data-bill]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var p = b.getAttribute('data-bill');
+      b.closest('[data-billing-toggle]').querySelectorAll('[data-bill]').forEach(function (x) {
+        x.classList.toggle('active', x === b);
+      });
+      var scope = b.closest('section') || document;
+      scope.querySelectorAll('[data-m]').forEach(function (el) { el.classList.toggle('hidden', p === 'y'); });
+      scope.querySelectorAll('[data-y]').forEach(function (el) { el.classList.toggle('hidden', p === 'm'); });
+    });
+  });
+
+  // Révélation au scroll + compteurs animés
+  var reduced = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var revs = document.querySelectorAll('.reveal');
+  function countUp(el) {
+    var target = parseFloat(el.getAttribute('data-count'));
+    if (isNaN(target) || reduced) { return; }
+    var dur = 1100, t0 = null, suffix = el.getAttribute('data-count-suffix') || '';
+    function tick(t) {
+      if (!t0) { t0 = t; }
+      var k = Math.min(1, (t - t0) / dur);
+      var eased = 1 - Math.pow(1 - k, 3);
+      el.textContent = Math.round(target * eased) + suffix;
+      if (k < 1) { requestAnimationFrame(tick); }
+    }
+    requestAnimationFrame(tick);
+  }
+  if (!reduced && 'IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (es) {
+      es.forEach(function (e) {
+        if (!e.isIntersecting) { return; }
+        e.target.classList.add('in');
+        if (e.target.hasAttribute('data-count')) { countUp(e.target); }
+        io.unobserve(e.target);
+      });
+    }, { threshold: .12 });
+    revs.forEach(function (el) { io.observe(el); });
+    document.querySelectorAll('[data-count]').forEach(function (el) { io.observe(el); });
+    } else {
+      revs.forEach(function (el) { el.classList.add('in'); });
+    }
+  }
+  function initFxSafe() {
+    try {
+      initFx();
+    } catch (e) {
+      // En cas d'erreur : tout afficher plutôt qu'une page invisible.
+      document.querySelectorAll('.reveal').forEach(function (el) { el.classList.add('in'); });
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initFxSafe);
+  } else {
+    initFxSafe();
+  }
 })();
 </script>"""
 
@@ -213,6 +273,7 @@ def _head(title: str) -> str:
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<noscript><style>.reveal{{opacity:1!important;transform:none!important}}</style></noscript>
 {UI_JS}
 </head>"""
 
@@ -514,37 +575,66 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
          "border-rose-200"),
     ]
     services_html = "".join(
-        f"""<div class="card card-lift p-6 transition-all border-t-4 {bc}">
+        f"""<div class="card card-lift p-6 transition-all border-t-4 reveal reveal-d{si % 3 + 1} {bc}">
           <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-50 to-accent-100 border border-brand-100 flex items-center justify-center mb-4">{icon}</div>
           <h3 class="font-bold mb-1.5">{t}</h3>
           <p class="text-sm text-slate-500 leading-relaxed">{d}</p>
         </div>"""
-        for icon, t, d, bc in services
+        for si, (icon, t, d, bc) in enumerate(services)
     )
 
+    _CURR = {"EUR": "€", "USD": "$", "GBP": "£", "CHF": "CHF", "XOF": "F CFA", "XAF": "F CFA"}
+
+    def _pp(plan: str) -> tuple[str | None, str | None]:
+        pm, cm = plan_price(settings, plan, "stripe", "monthly")
+        py, cy = plan_price(settings, plan, "stripe", "yearly")
+        m = f"{pm:g} {_CURR.get(cm, cm)}" if pm else None
+        y = f"{py:g} {_CURR.get(cy, cy)}" if py else None
+        return m, y
+
+    _pm, _py = _pp("pro")
+    _em, _ey = _pp("enterprise")
+    _pm_raw, _ = plan_price(settings, "pro", "stripe", "monthly")
+    _py_raw, _ = plan_price(settings, "pro", "stripe", "yearly")
+    _save = (
+        f'-{round((1 - _py_raw / (_pm_raw * 12)) * 100)}%'
+        if _pm_raw and _py_raw and _py_raw < _pm_raw * 12
+        else ""
+    )
     plans = [
-        ("Starter", "0€", "Pour tester et prototyper",
+        ("Starter", "0€", None, "Pour tester et prototyper",
          ["1 tenant", "Clés API + HMAC instantanées", "Provider console (logs)", "Rate limiting inclus"],
          False),
-        ("Pro", "Sur mesure", "Pour les apps en production",
+        ("Pro", _pm or "Sur mesure", _py, "Pour les apps en production",
          ["Tenants illimités", "SMTP / Brevo / Resend", "Branding par tenant", "Fallback SMS par pays", "Support prioritaire"],
          True),
-        ("Enterprise", "Sur mesure", "Volume élevé & conformité",
+        ("Enterprise", _em or "Sur mesure", _ey, "Volume élevé & conformité",
          ["Instance dédiée", "SLA & quotas personnalisés", "Audit & logs avancés", "Accompagnement intégration"],
          False),
     ]
+
+    def _price_html(m: str, y: str | None) -> str:
+        if not y:
+            return f'<p class="text-3xl font-black mt-2">{m}</p>'
+        return (
+            '<p class="text-3xl font-black mt-2">'
+            f'<span data-m>{m}<span class="text-base font-semibold text-slate-400">/mois</span></span>'
+            f'<span data-y class="hidden">{y}<span class="text-base font-semibold text-slate-400">/an</span></span>'
+            "</p>"
+        )
+
     plans_html = "".join(
-        f"""<div class="card {'ring-2 ring-brand-500 shadow-xl scale-[1.03]' if hot else 'card-lift'} p-7 transition-all relative">
+        f"""<div class="card {'plan-pop scale-[1.03]' if hot else 'card-lift'} p-7 transition-all relative reveal reveal-d{i + 1}">
           {'<span class="badge bg-brand-600 text-white absolute -top-3 left-1/2 -translate-x-1/2">POPULAIRE</span>' if hot else ''}
           <h3 class="font-bold text-lg">{name}</h3>
-          <p class="text-3xl font-black mt-2">{price}</p>
+          {_price_html(m_price, y_price)}
           <p class="text-sm text-slate-500 mt-1 mb-5">{desc}</p>
           <ul class="space-y-2.5 text-sm text-slate-600">
             {''.join(f'<li class="flex gap-2"><span class="check"></span>{f_}</li>' for f_ in feats)}
           </ul>
           <a href="/register" class="{'btn-primary' if hot else 'btn-outline'} w-full text-center mt-6 block">Choisir</a>
         </div>"""
-        for name, price, desc, feats, hot in plans
+        for i, (name, m_price, y_price, desc, feats, hot) in enumerate(plans)
     )
 
     content = f"""
@@ -565,7 +655,7 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
           intégrez — c'est parti.
         </p>
         <div class="mt-9 flex flex-col sm:flex-row gap-4 fade-up fade-up-3">
-          <a href="/register" class="btn-primary text-base px-8 py-3.5 text-center">Créer un compte gratuit</a>
+          <a href="/register" class="btn-primary btn-shine text-base px-8 py-3.5 text-center">Créer un compte gratuit</a>
           {'<a href="/demo" class="btn-ghost text-base text-center">Essayer la console</a>' if settings.demo_enabled else '<a href="/docs" class="btn-ghost text-base text-center">Documentation API</a>'}
         </div>
         <div class="mt-10 flex flex-wrap gap-x-7 gap-y-2 text-xs text-slate-400 fade-up fade-up-3">
@@ -614,15 +704,15 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
 
 <section class="max-w-6xl mx-auto px-6 -mt-8 relative z-10 pb-4">
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-    <div class="card kpi p-5 text-center"><p class="text-2xl font-black text-brand-600">6</p><p class="text-xs text-slate-500 mt-1">Endpoints sécurisés</p></div>
-    <div class="card kpi p-5 text-center"><p class="text-2xl font-black text-brand-600">&lt;30ms</p><p class="text-xs text-slate-500 mt-1">Latence API</p></div>
-    <div class="card kpi p-5 text-center"><p class="text-2xl font-black text-brand-600">∞</p><p class="text-xs text-slate-500 mt-1">Tenants</p></div>
-    <div class="card kpi p-5 text-center"><p class="text-2xl font-black text-brand-600">HMAC</p><p class="text-xs text-slate-500 mt-1">SHA-256 signé</p></div>
+    <div class="card kpi p-5 text-center reveal"><p class="text-2xl font-black text-brand-600" data-count="6">0</p><p class="text-xs text-slate-500 mt-1">Endpoints sécurisés</p></div>
+    <div class="card kpi p-5 text-center reveal reveal-d1"><p class="text-2xl font-black text-brand-600">&lt;30ms</p><p class="text-xs text-slate-500 mt-1">Latence API</p></div>
+    <div class="card kpi p-5 text-center reveal reveal-d2"><p class="text-2xl font-black text-brand-600">∞</p><p class="text-xs text-slate-500 mt-1">Tenants</p></div>
+    <div class="card kpi p-5 text-center reveal reveal-d3"><p class="text-2xl font-black text-brand-600">HMAC</p><p class="text-xs text-slate-500 mt-1">SHA-256 signé</p></div>
   </div>
 </section>
 
 <section id="services" class="max-w-6xl mx-auto px-6 py-14 md:py-20">
-  <div class="text-center mb-12">
+  <div class="text-center mb-12 reveal">
     <h2 class="text-3xl md:text-4xl font-extrabold">Tout pour vos emails & OTP</h2>
     <p class="text-slate-500 mt-3 max-w-xl mx-auto">Une plateforme complète, pensée pour les développeurs et les produits qui grandissent.</p>
   </div>
@@ -630,22 +720,22 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
 </section>
 
 <section class="max-w-6xl mx-auto px-6 py-16">
-  <div class="text-center mb-10">
+  <div class="text-center mb-10 reveal">
     <h2 class="text-3xl font-extrabold">Comment ça marche</h2>
     <p class="text-slate-500 mt-2">Trois étapes et votre application envoie des emails.</p>
   </div>
   <div class="grid md:grid-cols-3 gap-6">
-    <div class="card card-lift p-7 text-center transition-all">
+    <div class="card card-lift p-7 text-center transition-all reveal">
       <div class="w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-accent-600 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">1</div>
       <h3 class="font-bold mb-2">Créez votre compte</h3>
       <p class="text-sm text-slate-500">Un tenant + une clé API + un secret HMAC sont générés instantanément.</p>
     </div>
-    <div class="card card-lift p-7 text-center transition-all">
+    <div class="card card-lift p-7 text-center transition-all reveal reveal-d1">
       <div class="w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-accent-600 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">2</div>
       <h3 class="font-bold mb-2">Configurez votre expéditeur</h3>
       <p class="text-sm text-slate-500">Votre adresse email et votre SMTP dans le dashboard — test intégré.</p>
     </div>
-    <div class="card card-lift p-7 text-center transition-all">
+    <div class="card card-lift p-7 text-center transition-all reveal reveal-d2">
       <div class="w-11 h-11 mx-auto rounded-full bg-gradient-to-br from-brand-500 to-accent-600 text-white font-bold flex items-center justify-center mb-4 shadow-lg shadow-brand-500/30">3</div>
       <h3 class="font-bold mb-2">Intégrez en un appel</h3>
       <p class="text-sm text-slate-500">POST signé HMAC vers <code>/v1/otp/send</code> ou <code>/v1/email/send</code>.</p>
@@ -654,7 +744,7 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
 </section>
 
 <section class="max-w-6xl mx-auto px-6 py-14">
-  <div class="card overflow-hidden">
+  <div class="card overflow-hidden reveal">
     <div class="px-5 sm:px-8 pt-7 pb-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
       <div>
         <h2 class="font-bold text-xl">Endpoints API</h2>
@@ -675,19 +765,23 @@ async def home(request: Request, settings: Settings = Depends(get_settings)) -> 
 </section>
 
 <section id="pricing" class="max-w-6xl mx-auto px-6 py-14 md:py-20">
-  <div class="text-center mb-12">
+  <div class="text-center mb-10 reveal">
     <h2 class="text-3xl md:text-4xl font-extrabold">Simple et transparent</h2>
-    <p class="text-slate-500 mt-3">Commencez gratuitement, passez à l'échelle quand vous êtes prêt.</p>
+    <p class="text-slate-500 mt-3 mb-7">Commencez gratuitement, passez à l'échelle quand vous êtes prêt.</p>
+    <div class="seg-wrap" data-billing-toggle>
+      <button type="button" class="seg-btn active" data-bill="m" data-noload>Mensuel</button>
+      <button type="button" class="seg-btn" data-bill="y" data-noload>Annuel{f'<span class="seg-save">{_save}</span>' if _save else ''}</button>
+    </div>
   </div>
   <div class="grid md:grid-cols-3 gap-6 items-stretch pt-3">{plans_html}</div>
 </section>
 
 <section class="max-w-6xl mx-auto px-6 pb-24">
-  <div class="hero-bg rounded-3xl p-8 sm:p-12 md:p-16 text-center text-white relative overflow-hidden">
+  <div class="hero-bg rounded-3xl p-8 sm:p-12 md:p-16 text-center text-white relative overflow-hidden reveal">
     <div class="orb w-72 h-72 bg-accent-500 -top-10 -right-10"></div>
     <h2 class="text-3xl md:text-4xl font-extrabold relative">Prêt à envoyer votre premier email ?</h2>
     <p class="text-slate-300 mt-4 relative">Compte gratuit, clés instantanées, aucune carte requise.</p>
-    <a href="/register" class="btn-primary inline-block mt-8 relative px-8 py-3.5">Commencer maintenant →</a>
+    <a href="/register" class="btn-primary btn-shine inline-block mt-8 relative px-8 py-3.5">Commencer maintenant →</a>
   </div>
 </section>
 """

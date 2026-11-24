@@ -618,3 +618,90 @@ textarea.input { min-height: 5rem; resize: vertical; }
   content: ""; display: block; height: 3px;
   background: linear-gradient(90deg, var(--brand) 0%, var(--accent) 55%, var(--brand) 100%);
 }
+
+
+/* ---------- Révélation au scroll ---------- */
+.reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity .65s ease, transform .65s cubic-bezier(.16, 1, .3, 1);
+}
+.reveal.in { opacity: 1; transform: none; }
+.reveal-d1 { transition-delay: .07s; }
+.reveal-d2 { transition-delay: .14s; }
+.reveal-d3 { transition-delay: .21s; }
+.reveal-d4 { transition-delay: .28s; }
+.reveal-d5 { transition-delay: .35s; }
+
+/* ---------- Sélecteur segmenté (mensuel/annuel) ---------- */
+.seg-wrap {
+  display: inline-flex; align-items: center; gap: .2rem;
+  padding: .25rem; border-radius: 999px;
+  background: #eef1fa; border: 1px solid #dde2f4;
+  font-size: .78rem; font-weight: 600;
+}
+.seg-btn {
+  padding: .42rem 1rem; border-radius: 999px;
+  color: #64748b; transition: all .2s ease; cursor: pointer;
+  background: transparent; border: none; font: inherit; font-weight: inherit;
+}
+.seg-btn.active {
+  background: #fff; color: #0f172a;
+  box-shadow: 0 1px 5px rgba(13, 15, 30, .14);
+}
+.seg-save {
+  font-size: .65rem; font-weight: 800; color: #059669;
+  background: #d1fae5; border-radius: 999px; padding: .1rem .4rem;
+  margin-inline-start: .3rem;
+}
+
+/* ---------- Balayage lumineux CTA ---------- */
+.btn-shine { overflow: hidden; }
+.btn-shine::after {
+  content: ""; position: absolute; top: 0; left: -70%;
+  width: 38%; height: 100%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, .38), transparent);
+  transform: skewX(-22deg);
+  animation: shine 3.4s ease-in-out infinite;
+}
+@keyframes shine {
+  0%, 55% { left: -70%; }
+  100% { left: 135%; }
+}
+
+/* ---------- Dérive lente des orbes ---------- */
+.orb { animation: orbDrift 16s ease-in-out infinite alternate; }
+.orb:nth-of-type(2) { animation-duration: 20s; animation-delay: -6s; }
+@keyframes orbDrift {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(26px, -20px) scale(1.06); }
+}
+
+/* ---------- Halo pulsé du plan populaire ---------- */
+.plan-pop {
+  box-shadow: 0 0 0 2px var(--brand), 0 20px 48px -16px rgba(80, 96, 168, .42);
+  animation: popGlow 3.2s ease-in-out infinite;
+}
+@keyframes popGlow {
+  0%, 100% { box-shadow: 0 0 0 2px var(--brand), 0 20px 48px -16px rgba(80, 96, 168, .42); }
+  50% { box-shadow: 0 0 0 3.5px var(--brand), 0 26px 58px -14px rgba(80, 96, 168, .58); }
+}
+
+/* ---------- Survol des KPIs ---------- */
+.kpi { transition: transform .22s ease, box-shadow .22s ease; }
+.kpi:hover { transform: translateY(-3px); box-shadow: 0 14px 30px -12px rgba(80, 96, 168, .22); }
+
+/* ---------- Soulignement animé des liens de nav ---------- */
+.navlink { position: relative; }
+.navlink::after {
+  content: ""; position: absolute; left: 0; right: 100%; bottom: -3px;
+  height: 2px; border-radius: 2px;
+  background: linear-gradient(90deg, var(--brand), var(--accent));
+  transition: right .25s ease;
+}
+.navlink:hover::after { right: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+  .orb, .plan-pop, .btn-shine::after, .floaty, .fade-up { animation: none !important; }
+}

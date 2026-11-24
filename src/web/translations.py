@@ -1181,6 +1181,8 @@ TRANSLATIONS: dict[str, tuple[str, str, str, str]] = {
     ),
     "référence": ("reference", "Referenz", "referencia", "المرجع"),
     "Référence": ("Reference", "Referenz", "Referencia", "المرجع"),
+    "/mois": ("/month", "/Monat", "/mes", "/شهر"),
+    "/an": ("/year", "/Jahr", "/año", "/سنة"),
     "Coordonnées de paiement": (
         "Payment details", "Zahlungsdaten", "Datos de pago", "بيانات الدفع",
     ),
