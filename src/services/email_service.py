@@ -1,6 +1,7 @@
 """Service d'envoi d'emails transactionnels génériques — multi-tenant."""
 
 import logging
+import re
 import secrets
 from html import escape
 
@@ -29,6 +30,11 @@ from src.services.warmup import seconds_until_midnight, warmup_state
 from src.services.webhooks import enqueue_webhook
 
 logger = logging.getLogger(__name__)
+
+# Documents HTML complets fournis en type=custom : extraction du corps
+# (et des feuilles de style) pour les insérer dans l'enveloppe de marque.
+_DOC_BODY_RE = re.compile(r"<body[^>]*>(.*)</body\s*>", re.IGNORECASE | re.DOTALL)
+_DOC_STYLE_RE = re.compile(r"<style[^>]*>.*?</style\s*>", re.IGNORECASE | re.DOTALL)
 
 
 class EmailService:
@@ -291,8 +297,17 @@ class EmailService:
             )
         html = request.html_body
         if html and "<html" in html.lower():
-            # Document HTML complet : envoyé tel quel (le client gère tout).
-            pass
+            # Document HTML complet : le contenu du <body> est extrait et
+            # inséré dans l'enveloppe de marque — le branding (couleur,
+            # logo, pied de page) s'applique à TOUS les emails du tenant.
+            # Les <style> du document remontent dans le <head> de
+            # l'enveloppe : dans le corps ils seraient ignorés par Gmail.
+            body = _DOC_BODY_RE.search(html)
+            if body:
+                styles = "".join(_DOC_STYLE_RE.findall(html))
+                html = self._wrap_html(
+                    None, body.group(1), tenant, head_extra=styles)
+            # <html> sans <body> (document mal formé) : envoyé tel quel.
         else:
             # Fragment HTML ou texte : enrobé dans le template de marque
             # (couleur, logo, pied de page du tenant). Un fragment fourni par
@@ -402,7 +417,8 @@ class EmailService:
         return subject, text, html
 
     def _wrap_html(
-        self, title: str | None, content_html: str, tenant_or_brand
+        self, title: str | None, content_html: str, tenant_or_brand,
+        head_extra: str = "",
     ) -> str:
         if isinstance(tenant_or_brand, Tenant):
             t = tenant_or_brand
@@ -411,5 +427,7 @@ class EmailService:
                 color=t.brand_color,
                 logo_url=resolve_logo_url(t.email_logo_url, self.settings.public_base_url),
                 footer=t.email_footer,
+                head_extra=head_extra,
             )
-        return generic_html(title, content_html, tenant_or_brand)
+        return generic_html(title, content_html, tenant_or_brand,
+                            head_extra=head_extra)

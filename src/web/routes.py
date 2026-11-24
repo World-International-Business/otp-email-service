@@ -2704,40 +2704,72 @@ async def dashboard_billing_page(
         raise HTTPException(status_code=404, detail="Tenant introuvable")
 
     providers = available_providers(settings)
-    method_cards = ""
+    # Onglets « Stripe | PayPal | … » façon checkout hébergé + un panneau
+    # descriptif par moyen (redirection sécurisée / coordonnées manuelles).
+    tabs = ""
+    panels = ""
+    checked = " checked"
+    initial_total = "À convenir"
     for prov, meta in providers.items():
         amt, cur = plan_price(settings, plan, prov, period)
         if not amt:
             continue
-        method_cards += (
-            '<label class="flex items-center gap-3 border border-slate-200 rounded-xl px-4 py-3 '
-            'cursor-pointer transition hover:border-brand-300 '
-            'has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50/50">'
-            f'<input type="radio" name="provider" value="{_e(prov)}" required class="accent-brand-600">'
-            f'<span class="flex-1"><span class="font-semibold text-sm">{_e(meta["label"])}</span>'
-            f'<span class="text-xs text-slate-400 ml-1.5">· {_e(meta["via"])}</span></span>'
-            f'<b class="text-brand-600 text-sm whitespace-nowrap">{amt:g} {_e(cur)}</b></label>'
+        total = f"{amt:g} {cur}"
+        if checked:
+            initial_total = total
+        tabs += (
+            '<label class="flex-1 min-w-[8rem] cursor-pointer select-none rounded-lg '
+            'px-3 py-2.5 text-center text-slate-500 transition '
+            'has-[:checked]:bg-white has-[:checked]:text-slate-900 has-[:checked]:shadow">'
+            f'<input type="radio" name="provider" value="{_e(prov)}" required{checked} '
+            f'data-total="{_e(total)}" class="sr-only">'
+            f'<span class="block text-sm font-semibold">{_e(meta["label"])}</span>'
+            f'<span class="block text-[10px] font-normal text-slate-400 mt-0.5">{_e(meta["via"])}</span>'
+            '</label>'
         )
-    first_manual = " checked" if not method_cards else ""
+        panels += (
+            f'<div data-co-panel="{_e(prov)}" class="hidden">'
+            '<div class="flex items-center gap-3">'
+            '<span class="w-10 h-10 rounded-xl bg-brand-50 border border-brand-100 '
+            f'flex items-center justify-center shrink-0">{ICON["lock"]}</span>'
+            '<div>'
+            f'<p class="font-semibold text-sm">Paiement sécurisé via {_e(meta["via"])}</p>'
+            f'<p class="text-xs text-slate-500 mt-0.5">Vous serez redirigé vers '
+            f'{_e(meta["via"])} pour régler <b>{_e(total)}</b> — activation immédiate '
+            'après confirmation.</p>'
+            '</div></div></div>'
+        )
+        checked = ""
     for prov, meta in MANUAL_METHODS.items():
         details = manual_method_details(settings, prov)
-        coords = f' — <b class="font-medium">{_e(details)}</b>' if details else ""
-        method_cards += (
-            '<label class="flex items-center gap-3 border border-slate-200 rounded-xl px-4 py-3 '
-            'cursor-pointer transition hover:border-brand-300 '
-            'has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50/50">'
-            f'<input type="radio" name="provider" value="{_e(prov)}" required{first_manual} class="accent-brand-600">'
-            f'<span class="flex-1"><span class="font-semibold text-sm">{_e(meta["label"])}</span>'
-            f'<span class="text-xs text-slate-400 ml-1.5">· {_e(meta["via"])}{coords}</span></span>'
-            '<span class="text-xs text-slate-400">Validé par l’admin</span></label>'
+        coords = (
+            f'<p class="text-xs text-slate-600 mt-2">Coordonnées de paiement : '
+            f'<code class="text-[11px]">{_e(details)}</code></p>'
+            if details else ""
         )
-        first_manual = ""
-    price_rows = "".join(
-        f'<li class="flex justify-between text-sm"><span class="text-slate-500">{_e(meta["label"])}</span>'
-        f'<b>{amt:g} {_e(cur)}</b></li>'
-        for prov, meta in providers.items()
-        for amt, cur in [plan_price(settings, plan, prov, period)] if amt
-    ) or '<li class="text-sm text-slate-500">Tarif convenu avec l’administrateur</li>'
+        tabs += (
+            '<label class="flex-1 min-w-[8rem] cursor-pointer select-none rounded-lg '
+            'px-3 py-2.5 text-center text-slate-500 transition '
+            'has-[:checked]:bg-white has-[:checked]:text-slate-900 has-[:checked]:shadow">'
+            f'<input type="radio" name="provider" value="{_e(prov)}" required{checked} '
+            'data-total="À convenir" class="sr-only">'
+            f'<span class="block text-sm font-semibold">{_e(meta["label"])}</span>'
+            f'<span class="block text-[10px] font-normal text-slate-400 mt-0.5">{_e(meta["via"])}</span>'
+            '</label>'
+        )
+        panels += (
+            f'<div data-co-panel="{_e(prov)}" class="hidden">'
+            '<div class="flex items-center gap-3">'
+            '<span class="w-10 h-10 rounded-xl bg-amber-50 border border-amber-100 '
+            f'flex items-center justify-center shrink-0 text-amber-600">{UI_ICONS["clock"]}</span>'
+            '<div>'
+            f'<p class="font-semibold text-sm">{_e(meta["label"])}</p>'
+            f'<p class="text-xs text-slate-500 mt-0.5">Plan activé par '
+            'l’administrateur après vérification du règlement.</p>'
+            '</div></div>'
+            f'{coords}</div>'
+        )
+        checked = ""
     err_banner = ""
     if err:
         err_banner = (
@@ -2763,19 +2795,38 @@ async def dashboard_billing_page(
         for pid, meta in PERIODS.items()
     )
     content = f"""
-<div class="mb-6">
+<div class="max-w-2xl mx-auto">
   <a href="/dashboard#sec-plan" class="text-xs text-slate-400 hover:text-brand-600 transition">← Retour au dashboard</a>
-  <h1 class="text-2xl font-extrabold mt-1">Finaliser votre commande</h1>
-  <p class="text-sm text-slate-500">Complétez vos informations de facturation puis choisissez un moyen de paiement.</p>
-  <div class="card p-2 mt-4 flex gap-2 max-w-sm">{period_tabs}</div>
+  <h1 class="text-2xl font-extrabold mt-1">Passer au plan {_e(p_info['label'])}</h1>
+  <p class="text-sm text-slate-500">Récapitulatif, moyen de paiement puis validation.</p>
+  <div class="card p-1.5 mt-4 flex gap-1.5 max-w-xs">{period_tabs}</div>
 </div>
 {err_banner}
-<div class="grid lg:grid-cols-5 gap-6 items-start">
-  <form method="post" action="/dashboard/billing/submit" class="lg:col-span-3 card p-4 sm:p-6 space-y-5">
+<div class="max-w-2xl mx-auto">
+  <div class="card p-5 mb-4 mt-4">
+    <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-3">Récapitulatif de commande</p>
+    <div class="flex items-start justify-between gap-4">
+      <div>
+        <p class="font-bold">{_e(p_info['label'])}</p>
+        <p class="text-xs text-slate-500 mt-0.5">{PERIODS[period]['label']} · {PERIODS[period]['days']} jours</p>
+        <p class="text-[11px] text-slate-400 mt-1.5">{p_info['max_sends_per_user_per_10min']} envois/10min · OTP {p_info['otp_ttl_seconds']//60} min</p>
+      </div>
+      <div class="text-sm space-y-1.5 text-right shrink-0 min-w-[11rem]">
+        <p class="flex justify-between gap-8"><span class="text-slate-500">Sous-total</span><span id="co-subtotal">{initial_total}</span></p>
+        <p class="flex justify-between gap-8 border-t border-slate-100 pt-1.5"><span class="text-slate-500">Total</span><b id="co-total" class="text-brand-700">{initial_total}</b></p>
+      </div>
+    </div>
+  </div>
+  <form method="post" action="/dashboard/billing/submit" id="co-form">
     <input type="hidden" name="plan" value="{_e(plan)}">
     <input type="hidden" name="period" value="{_e(period)}">
-    <div>
-      <h2 class="font-bold text-sm mb-3">Informations de facturation</h2>
+    <div class="card p-4 sm:p-5 mb-4">
+      <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-3">Moyen de paiement</p>
+      <div class="flex flex-wrap gap-1 p-1 rounded-xl bg-slate-100 border border-slate-200">{tabs}</div>
+      <div class="mt-4">{panels}</div>
+    </div>
+    <div class="card p-4 sm:p-5 mb-4">
+      <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-3">Informations de facturation</p>
       <div class="grid sm:grid-cols-2 gap-4">
         <div><label class="text-xs font-semibold text-slate-600">Nom complet *</label>
         <input name="billing_name" class="input mt-1" required maxlength="120"
@@ -2791,32 +2842,31 @@ async def dashboard_billing_page(
                value="{_e(tenant.billing_phone or "")}"></div>
       </div>
     </div>
-    <div>
-      <h2 class="font-bold text-sm mb-3">Moyen de paiement</h2>
-      <div class="space-y-2">{method_cards}</div>
-    </div>
-    <button class="btn-primary w-full justify-center">Valider ma commande</button>
+    <button class="btn-primary w-full justify-center !py-3 text-base">Passer au plan {_e(p_info['label'])}</button>
+    <p class="text-[11px] text-slate-400 text-center mt-3">En validant votre commande, vous
+    autorisez MailHub à débiter le moyen de paiement choisi conformément aux conditions.
+    Paiement en ligne : activation immédiate — paiement manuel : après vérification.</p>
   </form>
-  <div class="lg:col-span-2 card p-4 sm:p-6">
-    <h2 class="font-bold text-sm mb-3">Récapitulatif</h2>
-    <div class="flex items-center justify-between mb-3 pb-3 border-b border-slate-100">
-      <span class="font-semibold">{_e(p_info['label'])}</span>
-      <span class="badge bg-brand-50 text-brand-700">{PERIODS[period]['days']} jours</span>
-    </div>
-    <ul class="space-y-1.5 mb-4">
-      <li class="flex justify-between text-sm"><span class="text-slate-500">Envois/utilisateur/10min</span><b>{p_info['max_sends_per_user_per_10min']}</b></li>
-      <li class="flex justify-between text-sm"><span class="text-slate-500">Envois/IP/10min</span><b>{p_info['max_sends_per_ip_per_10min']}</b></li>
-      <li class="flex justify-between text-sm"><span class="text-slate-500">Cooldown</span><b>{p_info['cooldown_seconds']}s</b></li>
-      <li class="flex justify-between text-sm"><span class="text-slate-500">Essais de vérification</span><b>{p_info['max_verify_attempts']}</b></li>
-    </ul>
-    <div class="pt-3 border-t border-slate-100">
-      <p class="text-xs font-semibold text-slate-600 mb-1.5">Tarif selon le moyen de paiement :</p>
-      <ul class="space-y-1">{price_rows}</ul>
-    </div>
-    <p class="text-[11px] text-slate-400 mt-4">Paiement en ligne : activation immédiate.
-    Paiement manuel : activation par l’administrateur après réception.</p>
-  </div>
-</div>"""
+</div>
+<script>
+(function () {{
+  var radios = document.querySelectorAll('#co-form input[name="provider"]');
+  function sync() {{
+    var sel = document.querySelector('#co-form input[name="provider"]:checked');
+    if (!sel) return;
+    document.querySelectorAll('[data-co-panel]').forEach(function (p) {{
+      p.classList.toggle('hidden', p.getAttribute('data-co-panel') !== sel.value);
+    }});
+    var t = sel.getAttribute('data-total') || '';
+    ['co-subtotal', 'co-total'].forEach(function (id) {{
+      var el = document.getElementById(id);
+      if (el) el.textContent = t;
+    }});
+  }}
+  radios.forEach(function (r) {{ r.addEventListener('change', sync); }});
+  sync();
+}})();
+</script>"""
     return _dashboard_page(user, tenant, content, active="plan")
 
 
