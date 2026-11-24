@@ -123,13 +123,19 @@ def test_generic_html_en():
 # ------------------------------------------------- responsive & branding
 
 def test_email_responsive_structure():
-    """La carte fait 100% de large avec max-width fixe + media queries mobiles."""
+    """Layout fluid-first : tient sur mobile SANS media query, media query en bonus."""
     html = otp_html("123456", "MonApp", "fr")
     assert 'width="100%"' in html
     assert "max-width:520px" in html
     assert "@media only screen and (max-width:560px)" in html
-    for cls in ("mh-wrap", "mh-px", "mh-digit", "mh-foot", "mh-h1"):
-        assert f".{cls}" in html and f'class="{cls}"' in html
+    # règles responsives + classes présentes sur les éléments
+    for cls in ("mh-wrap", "mh-px", "mh-digit", "mh-gap"):
+        assert f".{cls}" in html and f'class="{cls}' in html
+    # les chiffres tiennent dans un écran 320px même sans media query :
+    # 6×38px + 5×6px = 258px ≤ 264px de contenu dispo
+    assert "width:38px" in html and 'class="mh-gap" style="width:6px' in html
+    # preheader invisible même sur clients basiques
+    assert "mso-hide:all" in html
 
 
 def test_otp_html_respects_branding():

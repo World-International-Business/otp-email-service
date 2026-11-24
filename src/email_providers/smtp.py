@@ -10,8 +10,10 @@ import asyncio
 import logging
 import smtplib
 import ssl
+from email.header import Header
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import formataddr
 
 from src.config import Settings
 from src.email_providers.base import EmailProvider, EmailSendError, SenderIdentity
@@ -52,8 +54,10 @@ class SMTPProvider(EmailProvider):
             )
 
         msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"] = f"{from_name} <{from_email}>"
+        # Header() encode les accents (UTF-8) — un Subject brut non-ASCII
+        # sort illisible chez plusieurs clients mobiles.
+        msg["Subject"] = Header(subject, "utf-8")
+        msg["From"] = formataddr((str(Header(from_name, "utf-8")), from_email))
         msg["To"] = to_email
         msg.attach(MIMEText(text_body, "plain", "utf-8"))
         msg.attach(MIMEText(html_body, "html", "utf-8"))
