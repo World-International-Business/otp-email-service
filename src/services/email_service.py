@@ -18,6 +18,7 @@ from src.services.events import incr_daily_stat, log_event, mask_email
 from src.services.failover import send_with_failover
 from src.services.rate_limiter import RateLimiter
 from src.services.suppression import suppression_reason
+from src.services.warmup import seconds_until_midnight, warmup_state
 from src.services.webhooks import enqueue_webhook
 
 logger = logging.getLogger(__name__)
@@ -69,6 +70,21 @@ class EmailService:
                 status_code=422,
                 detail="Recipient address is suppressed "
                        "(previous bounce or complaint)",
+            )
+
+        # Warm-up expéditeur : le SMTP neuf du tenant est plafonné par jour.
+        remaining, cap, _ = await warmup_state(self.redis, self.settings, tenant)
+        if remaining == 0:
+            retry = seconds_until_midnight()
+            await log_event(
+                self.redis, tenant, "warmup_limited",
+                email=mask_email(to_email), daily_cap=cap,
+            )
+            raise HTTPException(
+                status_code=429,
+                detail=f"Sender warm-up in progress — daily cap "
+                       f"{cap} reached, increases automatically",
+                headers={"Retry-After": str(retry)},
             )
 
         limiter = RateLimiter(self.redis, tenant)

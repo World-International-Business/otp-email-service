@@ -160,6 +160,47 @@ async def _process_one(redis, email_service, job_id: str, now: float,
     if not tenant or not tenant.is_active:
         await _finish("dead", "tenant_missing_or_inactive")
         return 1
+
+    # Re-contrôle à la livraison : un bounce/plainte arrivé depuis l'enqueue
+    # doit bloquer l'envoi ; un cap warm-up atteint replanifie à demain
+    # sans brûler de tentative (le quota destinataire reste réservé).
+    from src.services.suppression import suppression_reason
+    from src.services.warmup import seconds_until_midnight, warmup_state
+
+    reason = await suppression_reason(redis, tenant.tenant_id, job["to"])
+    if reason:
+        from src.services.events import mask_email
+        from src.services.rate_limiter import RateLimiter
+
+        await RateLimiter(redis, tenant).release_email(job["to"])
+        await log_event(
+            redis, tenant, "email_suppressed",
+            email=mask_email(job["to"]), reason=reason,
+            message_id=job["message_id"],
+        )
+        await _finish("dead", "recipient_suppressed")
+        return 1
+    _settings = getattr(email_service, "settings", None)
+    remaining, cap, _ = (
+        await warmup_state(redis, _settings, tenant)
+        if _settings is not None else (None, None, 0)
+    )
+    if remaining == 0:
+        job["attempts"] -= 1  # pas une vraie tentative d'envoi
+        await redis.set(_job_key(job_id), json.dumps(job), ex=JOB_TTL)
+        await redis.zadd(QUEUE_KEY, {job_id: now + seconds_until_midnight()})
+        await set_status(
+            redis, job["message_id"], tenant.tenant_id, "retry",
+            error="warmup_daily_cap", attempts=job["attempts"],
+        )
+        from src.services.events import mask_email
+        await log_event(
+            redis, tenant, "warmup_limited",
+            email=mask_email(job["to"]), daily_cap=cap,
+            message_id=job["message_id"],
+        )
+        return 1
+
     try:
         await email_service.deliver(
             tenant,

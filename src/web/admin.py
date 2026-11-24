@@ -15,6 +15,7 @@ import html
 import json
 import re
 import secrets
+import time
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -71,6 +72,7 @@ _EVENT_LABELS = {
     "email_complained": ("Plainte spam", "bg-rose-100 text-rose-700"),
     "email_suppressed": ("Supprimé", "bg-slate-200 text-slate-600"),
     "otp_suppressed": ("OTP supprimé", "bg-slate-200 text-slate-600"),
+    "warmup_limited": ("Limite warm-up", "bg-amber-100 text-amber-700"),
     "email_rate_limited": ("Rate limit", "bg-amber-100 text-amber-700"),
 }
 
@@ -1095,6 +1097,12 @@ async def admin_update_tenant(
     }
     if smtp_password.strip():
         updates["smtp_password"] = smtp_password.strip()
+
+    # Horodatage warm-up : nouveau serveur SMTP -> compteur à zéro.
+    _cur = await TenantStore(request.app.state.redis).get(tenant_id)
+    _nh = _opt(smtp_host)
+    if _cur and _nh != _cur.smtp_host:
+        updates["smtp_configured_at"] = time.time() if _nh else None
 
     # Les champs optionnels vides repassent à None (= fallback config globale)
     tenant = await TenantStore(request.app.state.redis).update(tenant_id, updates)

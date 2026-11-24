@@ -1492,6 +1492,20 @@ async def dashboard(
         smtp_status_badge = '<span class="badge bg-rose-100 text-rose-700">SMTP EN PANNE</span>'
     else:
         smtp_status_badge = '<span class="badge bg-slate-100 text-slate-500">SMTP non testé</span>'
+    # Warm-up : SMTP custom récent = volume journalier plafonné progressif
+    from src.services.warmup import warmup_state
+    wu_remaining, wu_cap, wu_sent = await warmup_state(redis, settings, tenant)
+    if wu_cap is not None:
+        days_left = ""
+        if tenant.smtp_configured_at:
+            d = int((time.time() - tenant.smtp_configured_at) / 86400) + 1
+            days_left = f"· jour {min(d, settings.warmup_days)}/{settings.warmup_days}"
+        smtp_status_badge += (
+            f' <span class="badge bg-amber-100 text-amber-700" '
+            f'title="Montée en charge : le volume autorisé augmente '
+            f'automatiquement chaque jour">Warm-up {days_left} · '
+            f'{wu_sent}/{wu_cap} aujourd\'hui</span>'
+        )
     if tenant.smtp_status == "failed":
         smtp_health_html = (
             f'<p class="text-xs text-rose-600 font-semibold">Échec : '
@@ -1605,6 +1619,7 @@ async def dashboard(
         "email_complained": ("Plainte spam", "bg-rose-100 text-rose-700"),
         "email_suppressed": ("Destinataire supprimé", "bg-slate-200 text-slate-600"),
         "otp_suppressed": ("OTP supprimé", "bg-slate-200 text-slate-600"),
+        "warmup_limited": ("Limite warm-up", "bg-amber-100 text-amber-700"),
     }
     events = await get_events(redis, tenant, limit=200)
     atypes = sorted({e.get("type", "") for e in events if e.get("type")})
@@ -2083,14 +2098,20 @@ async def dashboard_config(
         if not 1 <= port <= 65535:
             raise HTTPException(status_code=422, detail="Port SMTP invalide")
     store = TenantStore(request.app.state.redis)
+    tenant = await store.get(user.tenant_id)
+    new_host = smtp_host.strip() or None
     updates = {
         "brand_name": brand_name.strip() or "SendBID",
         "from_email": from_email.strip() or None,
         "from_name": from_name.strip() or None,
-        "smtp_host": smtp_host.strip() or None,
+        "smtp_host": new_host,
         "smtp_port": port,
         "smtp_user": smtp_user.strip() or None,
     }
+    # Horodatage warm-up : première config ou changement de serveur ->
+    # le compteur repart à zéro ; SMTP retiré -> warm-up désactivé.
+    if tenant and new_host != tenant.smtp_host:
+        updates["smtp_configured_at"] = time.time() if new_host else None
     wh = webhook_url.strip()
     updates["webhook_url"] = wh if wh.startswith(("http://", "https://")) else None
     if smtp_password.strip():

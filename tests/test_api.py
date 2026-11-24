@@ -282,28 +282,33 @@ async def test_otp_failover_to_platform_sender(client, redis):
     from src.core.tenants import TenantStore
     from src.services.events import get_events
 
-    await TenantStore(redis).update(
-        "default", {"smtp_host": "smtp.tenant-down.tld", "from_name": "Acme"})
-    prov = _FailoverProvider()
-    client.app.state.otp_service.email_provider = prov
+    store = TenantStore(redis)
+    try:
+        await store.update(
+            "default", {"smtp_host": "smtp.tenant-down.tld",
+                        "from_name": "Acme"})
+        prov = _FailoverProvider()
+        client.app.state.otp_service.email_provider = prov
 
-    resp = _post(client, "/v1/otp/send", {
-        "user_id": str(uuid.uuid4()), "email": "u@x.co",
-        "country_code": "FR", "purpose": "login_2fa"})
-    assert resp.status_code == 200, resp.text
+        resp = _post(client, "/v1/otp/send", {
+            "user_id": str(uuid.uuid4()), "email": "u@x.co",
+            "country_code": "FR", "purpose": "login_2fa"})
+        assert resp.status_code == 200, resp.text
 
-    # 2 tentatives : SMTP tenant (échoué) puis plateforme (succès)
-    assert len(prov.calls) == 2
-    assert prov.calls[0].get("smtp_host") == "smtp.tenant-down.tld"
-    assert "smtp_host" not in prov.calls[1]
-    assert prov.calls[1]["from_email"] == "noreply@test.dev"
-    assert prov.calls[1]["from_name"] == "Acme via MailHub Test"
+        # 2 tentatives : SMTP tenant (échoué) puis plateforme (succès)
+        assert len(prov.calls) == 2
+        assert prov.calls[0].get("smtp_host") == "smtp.tenant-down.tld"
+        assert "smtp_host" not in prov.calls[1]
+        assert prov.calls[1]["from_email"] == "noreply@test.dev"
+        assert prov.calls[1]["from_name"] == "Acme via MailHub Test"
 
-    tenant = await TenantStore(redis).get("default")
-    events = await get_events(redis, tenant)
-    assert any(e["type"] == "smtp_failover" for e in events)
-    sent = next(e for e in events if e["type"] == "otp_sent")
-    assert sent["via"] == "failover"
+        tenant = await store.get("default")
+        events = await get_events(redis, tenant)
+        assert any(e["type"] == "smtp_failover" for e in events)
+        sent = next(e for e in events if e["type"] == "otp_sent")
+        assert sent["via"] == "failover"
+    finally:
+        await store.update("default", {"smtp_host": None, "from_name": None})
 
 
 async def test_email_failover_to_platform_sender(client, redis):
@@ -311,35 +316,43 @@ async def test_email_failover_to_platform_sender(client, redis):
     from src.core.models import EmailSendRequest
     from src.core.tenants import TenantStore
 
-    await TenantStore(redis).update(
-        "default", {"smtp_host": "smtp.tenant-down.tld"})
-    tenant = await TenantStore(redis).get("default")
-    svc = client.app.state.email_service
-    prov = _FailoverProvider()
-    svc.email_provider = prov
+    store = TenantStore(redis)
+    try:
+        await store.update(
+            "default", {"smtp_host": "smtp.tenant-down.tld"})
+        tenant = await store.get("default")
+        svc = client.app.state.email_service
+        prov = _FailoverProvider()
+        svc.email_provider = prov
 
-    req = EmailSendRequest(to_email="u@x.co", type="notification",
-                           data={"title": "Hi", "message": "m"})
-    resp = await svc.send(tenant, req)
-    assert resp.sent is True and len(prov.calls) == 2
-    assert "smtp_host" not in prov.calls[1]
+        req = EmailSendRequest(to_email="u@x.co", type="notification",
+                               data={"title": "Hi", "message": "m"})
+        resp = await svc.send(tenant, req)
+        assert resp.sent is True and len(prov.calls) == 2
+        assert "smtp_host" not in prov.calls[1]
+    finally:
+        await store.update("default", {"smtp_host": None})
 
 
 async def test_failover_disabled_returns_502(client, redis):
     """EMAIL_FAILOVER_ENABLED=false => l'échec remonte sans bascule."""
     from src.core.tenants import TenantStore
 
-    await TenantStore(redis).update(
-        "default", {"smtp_host": "smtp.tenant-down.tld"})
-    client.app.state.otp_service.settings.email_failover_enabled = False
-    prov = _FailoverProvider()
-    client.app.state.otp_service.email_provider = prov
+    store = TenantStore(redis)
+    try:
+        await store.update(
+            "default", {"smtp_host": "smtp.tenant-down.tld"})
+        client.app.state.otp_service.settings.email_failover_enabled = False
+        prov = _FailoverProvider()
+        client.app.state.otp_service.email_provider = prov
 
-    resp = _post(client, "/v1/otp/send", {
-        "user_id": str(uuid.uuid4()), "email": "u@x.co",
-        "country_code": "FR", "purpose": "login_2fa"})
-    assert resp.status_code == 502
-    assert len(prov.calls) == 1
+        resp = _post(client, "/v1/otp/send", {
+            "user_id": str(uuid.uuid4()), "email": "u@x.co",
+            "country_code": "FR", "purpose": "login_2fa"})
+        assert resp.status_code == 502
+        assert len(prov.calls) == 1
+    finally:
+        await store.update("default", {"smtp_host": None})
 
 
 async def test_no_failover_without_custom_smtp(client, redis):
@@ -415,3 +428,107 @@ async def test_events_requires_admin_key(client):
     assert client.post("/v1/events/email",
                        json={"event": "hard_bounce", "email": "a@b.c"}
                        ).status_code in (401, 403)
+
+
+# ------------------------------------------------------------ warm-up SMTP
+
+async def test_warmup_caps_new_smtp_sender(client, redis):
+    """SMTP custom neuf : au-delà du cap journalier warm-up -> 429."""
+    import time as _t
+    from datetime import date
+
+    from src.core.tenants import TenantStore
+
+    store = TenantStore(redis)
+    try:
+        await store.update("default", {
+            "smtp_host": "smtp.new.tld", "smtp_configured_at": _t.time()})
+        today = date.today().isoformat()
+        # Déjà au cap du jour 0 (50) : 40 emails + 10 OTP
+        await redis.set(f"t:default:stats_daily:emails_sent:{today}", 40)
+        await redis.set(f"t:default:stats_daily:otps_sent:{today}", 10)
+
+        resp = _post(client, "/v1/otp/send", {
+            "user_id": str(uuid.uuid4()), "email": "u@x.co",
+            "country_code": "FR", "purpose": "login_2fa"})
+        assert resp.status_code == 429
+        assert "warm-up" in resp.json()["detail"].lower()
+        assert int(resp.headers["retry-after"]) > 0
+    finally:
+        await store.update("default", {
+            "smtp_host": None, "smtp_configured_at": None})
+        await redis.delete(
+            f"t:default:stats_daily:emails_sent:{today}",
+            f"t:default:stats_daily:otps_sent:{today}")
+
+
+async def test_warmup_allows_under_cap(client, redis):
+    """Sous le cap, l'envoi passe normalement."""
+    import time as _t
+    from datetime import date
+
+    from src.core.tenants import TenantStore
+
+    store = TenantStore(redis)
+    try:
+        await store.update("default", {
+            "smtp_host": "smtp.new.tld", "smtp_configured_at": _t.time()})
+        # fakeredis est partagé entre tests : on fixe le compteur du jour.
+        today = date.today().isoformat()
+        await redis.set(f"t:default:stats_daily:emails_sent:{today}", 5)
+        await redis.set(f"t:default:stats_daily:otps_sent:{today}", 5)
+        client.app.state.otp_service.email_provider = _SpyProvider()
+        resp = _post(client, "/v1/otp/send", {
+            "user_id": str(uuid.uuid4()), "email": "u@x.co",
+            "country_code": "FR", "purpose": "login_2fa"})
+        assert resp.status_code == 200
+    finally:
+        await store.update("default", {
+            "smtp_host": None, "smtp_configured_at": None})
+        await redis.delete(
+            f"t:default:stats_daily:emails_sent:{today}",
+            f"t:default:stats_daily:otps_sent:{today}")
+
+
+async def test_warmup_cap_growth_and_expiry(client, redis):
+    """Cap : jour0=50, jour1=75 ; fini après WARMUP_DAYS ; inactif sans SMTP."""
+    import time as _t
+
+    from src.core.tenants import TenantStore
+    from src.services.warmup import warmup_cap
+
+    settings = client.app.state.settings
+    store = TenantStore(redis)
+    base = {"smtp_host": "smtp.new.tld"}
+
+    try:
+        await store.update(
+            "default", {**base, "smtp_configured_at": _t.time()})
+        t = await store.get("default")
+        assert warmup_cap(settings, t) == settings.warmup_start_volume
+
+        await store.update("default", {
+            "smtp_configured_at": _t.time() - 86400})
+        t = await store.get("default")
+        assert warmup_cap(settings, t) == int(
+            settings.warmup_start_volume * settings.warmup_growth)
+
+        await store.update("default", {
+            "smtp_configured_at": _t.time()
+            - 86400 * (settings.warmup_days + 1)})
+        t = await store.get("default")
+        assert warmup_cap(settings, t) is None
+
+        await store.update("default", {"smtp_host": None})
+        t = await store.get("default")
+        assert warmup_cap(settings, t) is None
+
+        settings.warmup_enabled = False
+        await store.update("default", {
+            "smtp_host": "smtp.new.tld",
+            "smtp_configured_at": _t.time()})
+        t = await store.get("default")
+        assert warmup_cap(settings, t) is None
+    finally:
+        await store.update("default", {
+            "smtp_host": None, "smtp_configured_at": None})

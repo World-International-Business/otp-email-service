@@ -109,6 +109,13 @@ class Settings(BaseSettings):
     # Le mail part alors de FROM_EMAIL plateforme — mieux qu'un échec.
     email_failover_enabled: bool = True
 
+    # Warm-up expéditeur : un SMTP neuf d'un tenant est plafonné en volume
+    # journalier puis croît exponentiellement (jour n = start * growth^n).
+    warmup_enabled: bool = True
+    warmup_days: int = 14
+    warmup_start_volume: int = 50
+    warmup_growth: float = 1.5
+
     risky_countries: str = "CN,RU,BY,IR,KP"
     rollout_percentage: int = Field(default=100, ge=0, le=100)
 
