@@ -203,8 +203,11 @@ class _FakeSMTP:
     def login(self, user, password):
         pass
 
+    last_msg = ""
+
     def sendmail(self, from_email, to, msg):
         type(self).sent += 1
+        type(self).last_msg = msg
         return dict(type(self).refused)
 
     def quit(self):
@@ -219,6 +222,7 @@ def _smtp_settings():
         from_email="noreply@mh.io", from_name="MailHub",
         smtp_host="smtp.x.io", smtp_port=587,
         smtp_user="u", smtp_password="p", smtp_use_ssl=False,
+        list_unsubscribe_url="https://mh.io/unsub",
     )
 
 
@@ -249,6 +253,25 @@ async def test_smtp_refused_recipient_raises(monkeypatch):
         await SMTPProvider(_smtp_settings()).send_email(
             "a@b.c", "s", "texte", "<p>html</p>"
         )
+
+
+async def test_smtp_message_has_antispam_headers(monkeypatch):
+    """Date + Message-ID (domaine expéditeur) + List-Unsubscribe + sujet encodé."""
+    from src.email_providers.smtp import SMTPProvider
+
+    _FakeSMTP.sent = 0
+    _FakeSMTP.refused = {}
+    _FakeSMTP.last_msg = ""
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
+    await SMTPProvider(_smtp_settings()).send_email(
+        "a@b.c", "Vérification ✓", "texte", "<p>html</p>"
+    )
+    raw = _FakeSMTP.last_msg
+    assert "\nDate: " in raw or raw.startswith("Date:")
+    assert "Message-ID: <" in raw and "@mh.io>" in raw
+    assert "List-Unsubscribe: <https://mh.io/unsub>" in raw
+    assert "Reply-To: noreply@mh.io" in raw
+    assert "utf-8?" in raw  # sujet accentué encodé, pas cassé
 
 
 async def test_queue_lock_prevents_double_processing(tenant):

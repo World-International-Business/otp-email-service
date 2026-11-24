@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     # None = auto : SSL implicite si port 465, STARTTLS sinon
     smtp_use_ssl: bool | None = None
+    # URL de désinscription ajoutée en en-tête List-Unsubscribe (délivrabilité
+    # Gmail/Yahoo) — ex: https://mailhub.io/unsubscribe ou mailto:stop@x.io
+    list_unsubscribe_url: str = ""
 
     brevo_api_key: str | None = None
     resend_api_key: str | None = None
