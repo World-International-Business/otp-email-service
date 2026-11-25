@@ -180,7 +180,9 @@ def test_resolve_logo_url_absolute():
     from src.services.email_templates import resolve_logo_url
     assert resolve_logo_url("/brand/t1/logo", "https://api.mh.io/") == "https://api.mh.io/brand/t1/logo"
     assert resolve_logo_url("https://cdn.x.io/l.png", "https://api.mh.io") == "https://cdn.x.io/l.png"
-    assert resolve_logo_url("/brand/t1/logo", "") == "/brand/t1/logo"
+    # URL relative sans base -> None : pas d'icône cassée dans Gmail
+    assert resolve_logo_url("/brand/t1/logo", "") is None
+    assert resolve_logo_url(None, "https://api.mh.io") is None
 
 
 # ------------------------------------------------- SMTP : pas de doublons
