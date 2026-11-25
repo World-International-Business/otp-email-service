@@ -22,10 +22,16 @@ def _sanitize_color(color: str) -> str:
 
 
 def resolve_logo_url(logo_url: str | None, public_base_url: str) -> str | None:
-    """URL relative -> absolue : les clients mail ne résolvent pas les chemins relatifs."""
-    if logo_url and logo_url.startswith("/") and public_base_url:
+    """URL relative -> absolue : les clients mail ne résolvent pas les chemins
+    relatifs. Si on ne peut pas produire une URL absolue (base vide), on
+    renvoie None : mieux vaut pas de logo qu'une icône cassée dans Gmail."""
+    if not logo_url:
+        return None
+    if logo_url.startswith(("http://", "https://")):
+        return logo_url
+    if logo_url.startswith("/") and public_base_url:
         return public_base_url.rstrip("/") + logo_url
-    return logo_url
+    return None
 
 
 # Design « fluid-first » : les styles de base inline sont déjà optimisés
