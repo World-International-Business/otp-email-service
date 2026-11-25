@@ -178,16 +178,21 @@ async def test_status_is_tenant_scoped(client, redis):
 
     key2 = generate_api_key()
     secret2 = generate_hmac_secret()
-    await TenantStore(redis).create(Tenant(
+    store = TenantStore(redis)
+    await store.create(Tenant(
         tenant_id="other", name="Other", api_key_hash=hash_api_key(key2),
         hmac_secret=secret2, from_email="o@x.co", from_name="O",
         allowed_purposes=["login_2fa"],
     ))
-    resp = _post(client, "/v1/email/send",
-                 {"to_email": "a@b.co", "type": "notification", "data": {}})
-    mid = resp.json()["message_id"]
-    r = _get(client, f"/v1/email/status/{mid}", secret=secret2, api_key=key2)
-    assert r.status_code == 404
+    try:
+        resp = _post(client, "/v1/email/send",
+                     {"to_email": "a@b.co", "type": "notification", "data": {}})
+        mid = resp.json()["message_id"]
+        r = _get(client, f"/v1/email/status/{mid}", secret=secret2, api_key=key2)
+        assert r.status_code == 404
+    finally:
+        await redis.srem("tenant:index", "other")
+        await redis.delete("tenant:other", store._bykey(hash_api_key(key2)))
 
 
 async def test_queue_retry_then_dead_letter(client, redis):
@@ -225,20 +230,25 @@ async def test_outbound_webhook_signed_and_delivered(client, redis, respx_mock):
         "default", {"webhook_url": "https://client.example.com/hook"})
     route = respx_mock.post("https://client.example.com/hook").respond(200)
 
-    resp = _post(client, "/v1/email/send",
-                 {"to_email": "w@x.co", "type": "notification", "data": {}})
-    assert resp.status_code == 200
-    await process_email_queue_once(redis, client.app.state.email_service)
-    await process_webhook_queue_once(redis)
+    try:
+        resp = _post(client, "/v1/email/send",
+                     {"to_email": "w@x.co", "type": "notification", "data": {}})
+        assert resp.status_code == 200
+        await process_email_queue_once(redis, client.app.state.email_service)
+        await process_webhook_queue_once(redis)
 
-    assert route.called
-    req = route.calls[0].request
-    assert req.headers["X-MailHub-Event"] == "email.sent"
-    expected = hmac.new(HMAC_SECRET.encode(), req.content,
-                        hashlib.sha256).hexdigest()
-    assert req.headers["X-MailHub-Signature"] == f"sha256={expected}"
-    body = json.loads(req.content)
-    assert body["event"] == "email.sent" and body["data"]["to"] == "w@x.co"
+        assert route.called
+        req = route.calls[0].request
+        assert req.headers["X-MailHub-Event"] == "email.sent"
+        expected = hmac.new(HMAC_SECRET.encode(), req.content,
+                            hashlib.sha256).hexdigest()
+        assert req.headers["X-MailHub-Signature"] == f"sha256={expected}"
+        body = json.loads(req.content)
+        assert body["event"] == "email.sent" and body["data"]["to"] == "w@x.co"
+    finally:
+        # Sans ce reset, TOUTES les livraisons suivantes enqueueraient un
+        # webhook vers une URL inexistante — vrai appel réseau en CI.
+        await TenantStore(redis).update("default", {"webhook_url": None})
 
 
 async def test_stripe_webhook_requires_secret(client):
@@ -259,14 +269,23 @@ async def test_billing_reminder_sends_email(client, redis):
     until = (date.today() + timedelta(days=7)).isoformat()
     await TenantStore(redis).update("default", {
         "plan": "pro", "billing_status": "active", "paid_until": until})
-    await WebUserStore(redis).create("boss@t.co", "Passw0rd!", "default", "App")
-
-    spy = _SpyProvider()
-    n = await run_billing_reminders(redis, spy)
-    assert n == 1
-    assert spy.sent[0][0] == "boss@t.co" and "expire" in spy.sent[0][1]
-    # Dédupliqué : un second passage n'envoie rien.
-    assert await run_billing_reminders(redis, spy) == 0
+    us = WebUserStore(redis)
+    await us.create("boss@t.co", "Passw0rd!", "default", "App")
+    try:
+        spy = _SpyProvider()
+        n = await run_billing_reminders(redis, spy)
+        assert n == 1
+        assert spy.sent[0][0] == "boss@t.co" and "expire" in spy.sent[0][1]
+        # Dédupliqué : un second passage n'envoie rien.
+        assert await run_billing_reminders(redis, spy) == 0
+    finally:
+        from src.core.tenants import plan_quota_updates
+        await TenantStore(redis).update("default", {
+            "plan": "free", "billing_status": "trialing",
+            "paid_until": None, **plan_quota_updates("free")})
+        user = await us.get_by_email("boss@t.co")
+        if user:
+            await us.delete(user.user_id)
 
 
 # ---------------------------------------------------------- SMTP failover
@@ -386,13 +405,16 @@ async def test_bounce_event_suppresses_recipient(client, redis):
                           "tenant_id": "default"})
     assert r.status_code == 200, r.text
     assert r.json()["suppressed"] is True
-
-    client.app.state.otp_service.email_provider = _SpyProvider()
-    resp = _post(client, "/v1/otp/send", {
-        "user_id": str(uuid.uuid4()), "email": "dead@x.co",
-        "country_code": "FR", "purpose": "login_2fa"})
-    assert resp.status_code == 422
-    assert "suppressed" in resp.json()["detail"]
+    try:
+        client.app.state.otp_service.email_provider = _SpyProvider()
+        resp = _post(client, "/v1/otp/send", {
+            "user_id": str(uuid.uuid4()), "email": "dead@x.co",
+            "country_code": "FR", "purpose": "login_2fa"})
+        assert resp.status_code == 422
+        assert "suppressed" in resp.json()["detail"]
+    finally:
+        from src.services.suppression import remove_suppression
+        await remove_suppression(redis, "default", "dead@x.co")
 
 
 async def test_resend_format_normalized(client, redis):
@@ -402,6 +424,9 @@ async def test_resend_format_normalized(client, redis):
                           "data": {"to": ["b1@x.co", "b2@x.co"]},
                           "tenant_id": "default"})
     assert r.status_code == 200 and r.json()["processed"] == 2
+    from src.services.suppression import remove_suppression
+    await remove_suppression(redis, "default", "b1@x.co")
+    await remove_suppression(redis, "default", "b2@x.co")
 
 
 async def test_global_suppression_blocks_all_tenants(client, redis):
@@ -416,11 +441,18 @@ async def test_global_suppression_blocks_all_tenants(client, redis):
     client.post("/v1/events/email", headers=_ADMIN,
                 json={"event": "hard_bounce", "email": "gone@x.co"})
     key2 = generate_api_key()
-    await TenantStore(redis).create(Tenant(
+    store = TenantStore(redis)
+    await store.create(Tenant(
         tenant_id="t2", name="T2", api_key_hash=hash_api_key(key2),
         hmac_secret=generate_hmac_secret(), allowed_purposes=["login_2fa"]))
-    from src.services.suppression import suppression_reason
-    assert await suppression_reason(redis, "t2", "gone@x.co") is not None
+    try:
+        from src.services.suppression import suppression_reason
+        assert await suppression_reason(redis, "t2", "gone@x.co") is not None
+    finally:
+        from src.services.suppression import remove_suppression
+        await remove_suppression(redis, "*", "gone@x.co")
+        await redis.srem("tenant:index", "t2")
+        await redis.delete("tenant:t2", store._bykey(hash_api_key(key2)))
 
 
 async def test_soft_bounce_not_suppressed(client, redis):
