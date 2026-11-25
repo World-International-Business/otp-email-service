@@ -30,7 +30,8 @@ def resolve_logo_url(logo_url: str | None, public_base_url: str) -> str | None:
     if logo_url.startswith(("http://", "https://")):
         return logo_url
     if logo_url.startswith("/") and public_base_url:
-        return public_base_url.rstrip("/") + logo_url
+        # lstrip évite le "//static" (404) si l'URL stockée commence par "//"
+        return public_base_url.rstrip("/") + "/" + logo_url.lstrip("/")
     return None
 
 
