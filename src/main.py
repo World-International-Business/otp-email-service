@@ -71,10 +71,16 @@ def _preflight_warnings(settings) -> list[str]:
         )
     if settings.email_provider == "console":
         w.append("EMAIL_PROVIDER=console : aucun email réel n'est envoyé")
-    elif settings.email_provider in ("smtp", "gmail") and not (
-        settings.smtp_user and settings.smtp_password
-    ):
-        w.append("EMAIL_PROVIDER=smtp sans SMTP_USER/SMTP_PASSWORD : les envois échoueront")
+    elif settings.email_provider in ("smtp", "gmail"):
+        if not (settings.smtp_user and settings.smtp_password):
+            w.append("EMAIL_PROVIDER=smtp sans SMTP_USER/SMTP_PASSWORD : les envois échoueront")
+        if not (settings.dkim_private_key and settings.dkim_selector):
+            w.append(
+                "DKIM_* non configuré : emails non signés — mise en spam "
+                "probable. Publiez la clé publique DNS "
+                "<selector>._domainkey.<domain> puis DKIM_SELECTOR + "
+                "DKIM_PRIVATE_KEY (Brevo/Resend signent eux-mêmes)"
+            )
     if not settings.list_unsubscribe_url and not settings.public_base_url:
         w.append(
             "Aucun lien opt-out possible (LIST_UNSUBSCRIBE_URL et "

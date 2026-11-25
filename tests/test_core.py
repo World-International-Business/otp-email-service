@@ -267,6 +267,8 @@ async def test_smtp_message_has_antispam_headers(monkeypatch):
         "a@b.c", "Vérification ✓", "texte", "<p>html</p>"
     )
     raw = _FakeSMTP.last_msg
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", "replace")
     assert "\nDate: " in raw or raw.startswith("Date:")
     assert "Message-ID: <" in raw and "@mh.io>" in raw
     assert "List-Unsubscribe: <https://mh.io/unsub>" in raw

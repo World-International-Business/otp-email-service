@@ -51,6 +51,14 @@ class Settings(BaseSettings):
     # Gmail/Yahoo) — ex: https://mailhub.io/unsubscribe ou mailto:stop@x.io
     list_unsubscribe_url: str = ""
 
+    # Signature DKIM applicative (délivrabilité) : le message est signé AVANT
+    # d'être remis au relais SMTP — fonctionne avec tout serveur (IONOS ne
+    # signe pas pour vous). Générer la paire RSA, publier la clé publique en
+    # DNS TXT `<selector>._domainkey.<domain>`, puis renseigner ces 3 vars.
+    dkim_domain: str | None = None      # défaut : domaine de FROM_EMAIL
+    dkim_selector: str | None = None    # ex. "mailhub"
+    dkim_private_key: str | None = None # PEM (sauts de ligne \n échappés dans l'env)
+
     brevo_api_key: str | None = None
     resend_api_key: str | None = None
 
