@@ -63,3 +63,4 @@ Thumbs.db
 logs/
 node_modules/
 assets/app.css
+dkim_env.txt
