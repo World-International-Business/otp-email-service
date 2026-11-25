@@ -105,12 +105,45 @@ class SMTPProvider(EmailProvider):
             )
             msg.attach(part)
 
+        raw = msg.as_bytes()
+        # Signature DKIM applicative : signe le message avant remise au relais
+        # (fonctionne même si le serveur SMTP ne signe pas — ex. IONOS).
+        # Tenant en priorité, config globale sinon ; domaine = FROM par défaut.
+        dkim_key = (
+            sender.get("dkim_private_key")
+            or getattr(self.settings, "dkim_private_key", None)
+        )
+        dkim_sel = (
+            sender.get("dkim_selector")
+            or getattr(self.settings, "dkim_selector", None)
+        )
+        dkim_dom = (
+            sender.get("dkim_domain")
+            or getattr(self.settings, "dkim_domain", None)
+            or domain
+        )
+        if dkim_key and dkim_sel:
+            try:
+                import dkim
+
+                sig = dkim.sign(
+                    raw,
+                    selector=dkim_sel.encode(),
+                    domain=dkim_dom.encode(),
+                    privkey=dkim_key.replace("\\n", "\n").encode(),
+                )
+                raw = sig + raw
+            except Exception as exc:
+                # Une clé mal formée ne doit pas bloquer l'envoi — le mail
+                # part non signé plutôt que pas du tout.
+                logger.warning("dkim_sign_failed", extra={"error": str(exc)[:120]})
+
         try:
             # smtplib est synchrone : on l'exécute hors de l'event loop
             await asyncio.to_thread(
                 self._send_smtp,
                 smtp_host, smtp_port, use_ssl, smtp_user, smtp_password,
-                from_email, to_email, msg.as_string(),
+                from_email, to_email, raw,
             )
             return True
         except Exception as exc:
@@ -134,7 +167,7 @@ class SMTPProvider(EmailProvider):
         smtp_password: str | None,
         from_email: str,
         to_email: str,
-        raw_message: str,
+        raw_message: str | bytes,
     ) -> None:
         if use_ssl:
             # SSL implicite (port 465) — OVH, Zoho, cPanel, serveurs pro

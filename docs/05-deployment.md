@@ -141,7 +141,7 @@ spam — c'est vérifiable avec `nslookup -type=TXT <domaine>`.
 | Enregistrement | Type | Exemple | Vérification |
 |---|---|---|---|
 | SPF | TXT `@` (ou sous-domaine `mail`) | `v=spf1 include:_spf-eu.ionos.com ~all` (IONOS) ; `v=spf1 include:spf.brevo.com ~all` (Brevo) ; `v=spf1 include:_spf.resend.com ~all` (Resend) | doit couvrir le serveur qui envoie réellement |
-| DKIM | TXT/CNAME fourni par le provider | `mail._domainkey` → clé publique du provider | activé dans la console provider (Brevo/Resend/IONOS) |
+| DKIM | TXT/CNAME fourni par le provider **ou auto-signé** | `mailhub._domainkey` → `v=DKIM1; k=rsa; p=…` | activé dans la console provider, ou signature applicative (ci-dessous) |
 | DMARC | TXT `_dmarc` | `v=DMARC1; p=quarantine; rua=mailto:dmarc@votredomaine` | commencer par `p=none` si hésitant |
 
 Règles :
@@ -150,6 +150,29 @@ Règles :
 - DKIM doit être **aligné** : le domaine signé = domaine du `From:`.
 - `mail.aiforge.world` a déjà un SPF IONOS ; `aiforge.world` (racine) n'a **aucun** TXT — si le `From:` est `@aiforge.world`, ajouter le SPF à la racine.
 - Le provider SMTP doit correspondre au SPF : envoyer via `smtp.gmail.com` avec un `From: @aiforge.world` échoue SPF (gmail n'y est pas autorisé).
+
+### DKIM auto-signé (hébergeur qui ne signe pas — IONOS mutualisé…)
+
+Le service peut signer les emails lui-même avant de les remettre au SMTP.
+C'est la voie recommandée quand le relais ne signe pas pour vous :
+
+```bash
+# 1. Générer la paire RSA
+openssl genrsa -out dkim_private.pem 2048
+openssl rsa -in dkim_private.pem -pubout -out dkim_public.pem
+
+# 2. Construire l'enregistrement DNS : retirer BEGIN/END et joindre les lignes
+#    de dkim_public.pem -> v=DKIM1; k=rsa; p=<base64 jointe>
+```
+
+- Zone DNS : TXT `mailhub._domainkey.<domaine>` = `v=DKIM1; k=rsa; p=<clé>`
+- Variables Dokploy : `DKIM_SELECTOR=mailhub`,
+  `DKIM_PRIVATE_KEY=<PEM complet, sauts de ligne échappés \n>`,
+  `DKIM_DOMAIN=` (vide = domaine de `FROM_EMAIL`)
+- Vérifier : `nslookup -type=TXT mailhub._domainkey.<domaine>` puis envoyer un
+  test vers <https://www.mail-tester.com> — DKIM doit valider.
+- Une clé invalide n'interrompt pas l'envoi (warning `dkim_sign_failed`,
+  message parti non signé) — mais mieux vaut corriger.
 
 ## Option : serveur mail auto-hébergé
 

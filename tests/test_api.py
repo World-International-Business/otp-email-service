@@ -1041,8 +1041,9 @@ async def test_smtp_message_contains_attachment_part():
         attachments=[{"filename": "doc.pdf",
                       "content_base64": base64.b64encode(b"PDF").decode(),
                       "content_type": "application/pdf"}])
-    assert "multipart/mixed" in captured["raw"]
-    assert 'Content-Disposition: attachment; filename="doc.pdf"' in captured["raw"]
+    raw = captured["raw"].decode("utf-8", "replace")
+    assert "multipart/mixed" in raw
+    assert 'Content-Disposition: attachment; filename="doc.pdf"' in raw
 
 
 async def test_smtp_message_has_antispam_headers():
@@ -1057,7 +1058,7 @@ async def test_smtp_message_has_antispam_headers():
     prov._send_smtp = lambda *a, **kw: captured.update(raw=a[7])  # noqa
     await prov.send_email("t@x.co", "S", "txt", "<p>h</p>",
                           sender={"unsubscribe_url": "https://x.co/u"})
-    raw = captured["raw"]
+    raw = captured["raw"].decode("utf-8", "replace")
     assert "Auto-Submitted: auto-generated" in raw
     assert "List-Unsubscribe: <https://x.co/u>" in raw
     assert "List-Unsubscribe-Post: List-Unsubscribe=One-Click" in raw
@@ -1503,3 +1504,97 @@ async def test_seconds_until_next_month_rollover():
 
     s = seconds_until_next_month()
     assert 60 <= s <= 32 * 86400
+
+
+# ------------------------------------------------------------------ DKIM
+
+_DKIM_PRIV = """-----BEGIN PRIVATE KEY-----
+MIICeAIBADANBgkqhkiG9w0BAQEFAASCAmIwggJeAgEAAoGBAMcAsBa7I1T6cslT
+Wbv3/y6ggbpqlZPkLpvgLGe4mDJ8ojFSXWOqfmiHXJhMmMbJlWaQdIJ7H8YXh5pS
+AsvyNSVJ73wMsNf5tQlpA0KPCCJH/H7doosqbUKlBupmU4skt5VfAa5NGpA9Nr+T
+Xk1FYvKdGj4TddlT79DEEtfoHWaxAgMBAAECgYEAvc1XJecJNOTGlGSuIozPU359
+HPrJfUvWdI9kauzyJL0gySAAuK2FcVchppTv5jGgEDnZFhYu4PXSPQrZZgG2UxET
+LNVRDVxp8hAnpsDMsaZwQo7kB5PJ5PpkHWaSwBGjFWxd2DcqgOMve2OqaTb7/obz
+pYNieNPuY9N586ul7AECQQD3LrXIQKuzpKLKcxzzs+GImtucwrT67LnnFHWinOIN
+19Uh/zTjPmgIAwV72654n8yWNZUSCkVO3opLkB1w1GfBAkEAzhn/CJtcm3vHp5Yz
+UzFIiWklFNpjPrPq8qLHOKgwNkL6OrYCFOlS8jGCRendhHE/du0P9H2cKPr66q/j
+qiY68QJBANZgbYozBHd2NzXMJnT6MoVugT9w4tOpUgYnCWsyEyAca53jn/PiYQlp
+zWzBd4zoUuCHsjUGMVwYx+qHH/GGVkECQQC9RtyT7/J1jJDIVMWgAmPGZjy60PFS
+FXORD3L8kmFsg8hAgQSaZclaSaOFR4i7aDHLq1z6wRzX+d7UB2KC0YdRAkALXaIA
+Iuqw6g54jpRAmC3fLAIs3bk6GiHfy3nK+WDIX4oXH8GuWWaNud93Sz2uJdOvSQG4
+4QLdfQ7W4j3bUEMQ
+-----END PRIVATE KEY-----"""
+
+_DKIM_PUB_B64 = (
+    "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDHALAWuyNU+nLJU1m79/8uoIG6"
+    "apWT5C6b4CxnuJgyfKIxUl1jqn5oh1yYTJjGyZVmkHSCex/GF4eaUgLL8jUlSe98"
+    "DLDX+bUJaQNCjwgiR/x+3aKLKm1CpQbqZlOLJLeVXwGuTRqQPTa/k15NRWLynRo+"
+    "E3XZU+/QxBLX6B1msQIDAQAB"
+)
+
+
+async def test_smtp_dkim_signs_and_verifies(client):
+    """DKIM_* configurés => message signé, signature valide vs clé publique."""
+    import dkim
+
+    from src.email_providers.smtp import SMTPProvider
+
+    # La clé dans l'env a ses sauts de ligne échappés (\n littéraux).
+    settings = client.app.state.settings.model_copy(update={
+        "smtp_user": "u", "smtp_password": "p",
+        "dkim_selector": "mailhub",
+        "dkim_private_key": _DKIM_PRIV.replace("\n", "\n"),
+    })
+    provider = SMTPProvider(settings)
+
+    captured = {}
+
+    def fake_send(host, port, use_ssl, user, pwd, frm, to, raw):
+        captured["raw"] = raw
+
+    provider._send_smtp = fake_send  # type: ignore[method-assign]
+    ok = await provider.send_email(
+        "dest@x.co", "Sujet", "Corps texte", "<p>Corps html</p>")
+    assert ok is True
+    raw = captured["raw"]
+    assert isinstance(raw, bytes) and b"DKIM-Signature:" in raw
+    # Header replié : chercher les tags dans le bloc signature déplié.
+    sig = raw.split(b"DKIM-Signature:")[1].split(b"\r\n\r\n")[0]
+    flat = sig.replace(b" ", b"").replace(b"\r\n\t", b"")
+    assert b"s=mailhub" in flat
+    assert b"d=test.dev" in flat  # domaine dérivé de FROM_EMAIL
+
+    def fake_dns(name, *args, **kw):
+        assert name.startswith(b"mailhub._domainkey.") or \
+            name.startswith("mailhub._domainkey.")
+        return b"v=DKIM1; k=rsa; p=" + _DKIM_PUB_B64.encode()
+
+    assert dkim.verify(raw, dnsfunc=fake_dns) is True
+
+
+async def test_smtp_no_dkim_without_key(client):
+    """Sans DKIM_* : le message part non signé (pas d'erreur)."""
+    from src.email_providers.smtp import SMTPProvider
+
+    settings = client.app.state.settings.model_copy(update={
+        "smtp_user": "u", "smtp_password": "p"})
+    provider = SMTPProvider(settings)
+    provider._send_smtp = lambda *a: None  # type: ignore[method-assign]
+    assert await provider.send_email(
+        "d@x.co", "S", "txt", "<p>h</p>") is True
+
+
+async def test_smtp_dkim_bad_key_still_sends(client, caplog=None):
+    """Clé DKIM invalide => warning + envoi non signé (pas de blocage)."""
+    from src.email_providers.smtp import SMTPProvider
+
+    settings = client.app.state.settings.model_copy(update={
+        "smtp_user": "u", "smtp_password": "p",
+        "dkim_selector": "mailhub",
+        "dkim_private_key": "pas-une-cle",
+    })
+    provider = SMTPProvider(settings)
+    captured = {}
+    provider._send_smtp = lambda *a: captured.update(raw=a[7])  # type: ignore[method-assign]
+    assert await provider.send_email("d@x.co", "S", "txt", "<p>h</p>") is True
+    assert b"DKIM-Signature:" not in captured["raw"]

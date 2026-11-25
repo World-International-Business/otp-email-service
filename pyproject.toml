@@ -19,6 +19,7 @@ dependencies = [
     "python-json-logger>=2.0.7",
     # >=2.40 : compatibilité redis-py 8.x (introspection __closure__ cassée avant)
     "fakeredis>=2.40.0",
+    "dkimpy>=1.1.0",
 ]
 
 [project.optional-dependencies]
