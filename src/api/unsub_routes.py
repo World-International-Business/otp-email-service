@@ -53,8 +53,9 @@ async def unsubscribe_get(request: Request, t: str, e: str, sig: str):
 <title>Désinscription</title></head>
 <body style="margin:0; font-family:'Segoe UI',Arial,sans-serif; background:#eef0f6;
       display:flex; align-items:center; justify-content:center; min-height:100vh;">
-<div style="background:#fff; border-radius:16px; padding:48px; text-align:center;
-     max-width:420px; box-shadow:0 8px 30px rgba(0,0,0,.08);">
+<div style="background:#fff; border-radius:16px; padding:32px 24px; text-align:center;
+     max-width:420px; width:100%; margin:0 16px; box-sizing:border-box;
+     box-shadow:0 8px 30px rgba(0,0,0,.08);">
 <h1 style="color:#10b981; font-size:24px;">Vous êtes désinscrit</h1>
 <p style="color:#4b5563;">Cette adresse ne recevra plus d'emails de la part de
 {brand} via MailHub.</p>

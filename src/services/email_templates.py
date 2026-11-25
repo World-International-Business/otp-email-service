@@ -34,15 +34,26 @@ def resolve_logo_url(logo_url: str | None, public_base_url: str) -> str | None:
 # query n'apporte que des ajustements bonus pour les clients qui la lisent.
 _MEDIA_CSS = (
     "@media only screen and (max-width:560px){"
-    ".mh-wrap{padding:10px 6px!important}"
-    ".mh-px{padding-left:16px!important;padding-right:16px!important}"
-    ".mh-h1{font-size:18px!important}"
-    ".mh-digit{width:36px!important;height:46px!important;font-size:22px!important}"
-    ".mh-gap{width:5px!important}"
+    ".mh-wrap{padding:10px 4px!important}"
+    ".mh-px{padding-left:14px!important;padding-right:14px!important}"
+    ".mh-h1{font-size:18px!important;line-height:1.3!important}"
+    ".mh-digit{width:34px!important;height:44px!important;font-size:21px!important}"
+    ".mh-gap{width:4px!important}"
+    # Bouton CTA : pleine largeur tactile (zone de tap ≥ 44px Apple HIG).
+    ".mh-btn{display:block!important;max-width:100%!important;"
+    "box-sizing:border-box!important;text-align:center!important}"
+    ".mh-foot{font-size:11px!important}"
     # Contenu client (type=custom) : images/tableaux surdimensionnés ne
     # doivent pas faire déborder la carte sur mobile.
     "img{max-width:100%!important;height:auto!important}"
     "table{max-width:100%!important}"
+    "}"
+    # Très petits écrans (≤ 360px — iPhone SE, Android compacts) :
+    # chiffres OTP et titre réduits un cran de plus.
+    "@media only screen and (max-width:360px){"
+    ".mh-digit{width:30px!important;height:40px!important;font-size:19px!important}"
+    ".mh-gap{width:3px!important}"
+    ".mh-h1{font-size:17px!important}"
     "}"
 )
 
@@ -91,6 +102,10 @@ def email_layout(
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="x-apple-disable-message-reformatting">
+<!-- Évite que les clients mail en dark mode inversent les couleurs et
+     cassent le design (fonds clairs + textes prévus pour fond clair). -->
+<meta name="color-scheme" content="light">
+<meta name="supported-color-schemes" content="light">
 <title>{b}</title>
 <style>{_MEDIA_CSS}</style>
 {head_extra}
@@ -101,10 +116,13 @@ def email_layout(
   <div style="display:none; max-height:0; overflow:hidden; mso-hide:all;
        font-size:1px; line-height:1px; color:#eef0f6;">{_esc(preheader)}</div>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-         class="mh-wrap" style="background:#eef0f6; padding:18px 8px;">
+         border="0" class="mh-wrap" style="background:#eef0f6; padding:18px 8px;">
     <tr><td align="center">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-             style="width:100%; max-width:520px;">
+      <!--[if mso]><table role="presentation" width="520" align="center"
+            cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+      <table role="presentation" width="520" cellpadding="0" cellspacing="0"
+             border="0" align="center"
+             style="width:100%; max-width:520px; margin:0 auto;">
 
         <!-- Header marque -->
         <tr><td class="mh-px" style="background:{accent};
@@ -129,6 +147,7 @@ def email_layout(
         </td></tr>
 
       </table>
+      <!--[if mso]></td></tr></table><![endif]-->
     </td></tr>
   </table>
 </body>

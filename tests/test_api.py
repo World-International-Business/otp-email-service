@@ -1076,6 +1076,15 @@ async def test_email_html_is_mobile_responsive():
         assert "max-width:520px" in html
         assert "img{max-width:100%!important" in html
         assert "x-apple-disable-message-reformatting" in html
+        # dark mode : le design clair ne doit pas être inversé
+        assert 'name="color-scheme" content="light"' in html
+        # fallback attribut pour les clients qui ignorent les styles
+        assert 'width="520"' in html
+        # Outlook desktop : table fixe conditionnelle
+        assert "<!--[if mso]>" in html
+        # bouton CTA pleine largeur + breakpoint très petits écrans
+        assert ".mh-btn{display:block" in html
+        assert "max-width:360px" in html
 
 
 # ------------------------------------------------------- rotation des clés
